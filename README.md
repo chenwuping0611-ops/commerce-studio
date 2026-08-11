@@ -37,6 +37,26 @@ Nginx
 
 扩容后再考虑 BullMQ、Redis、独立 Worker 和对象存储。
 
+## 参考源码
+
+当前指定下载的参考源码：
+
+```text
+项目：basketikun/infinite-canvas
+版本：v0.15.1
+放置目录：references/infinite-canvas-v0.15.1/
+```
+
+该源码只作为 Canvas、节点交互、创作流程和视觉工作台的参考。它不直接替代本项目的 NestJS、AdminJS、MySQL、RBAC 和 Model Gateway。
+
+下载源码后，先不要修改、安装依赖或提交构建产物。下一步先进行：
+
+1. 目录结构检查
+2. 许可证和第三方依赖核对
+3. Canvas 状态和数据结构分析
+4. API 调用方式分析
+5. 与本项目 MySQL、RBAC 和 Product Memory 的兼容性评估
+
 ## 开发约束
 
 所有代码、接口、数据库、部署和维护操作必须遵守 `agent.md`。
