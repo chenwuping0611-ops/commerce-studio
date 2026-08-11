@@ -1,0 +1,58 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+coverage/
+.cache/
+.turbo/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.crt
+*.p12
+secrets/
+
+# Logs and runtime files
+*.log
+logs/
+tmp/
+temp/
+runtime/
+*.pid
+
+# Local database and media
+*.sqlite
+*.sqlite3
+*.db
+media/
+uploads/
+generated/
+backups/
+
+# Prisma local artifacts
+.prisma/
+
+# IDE and OS files
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.example.json
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+.DS_Store
+Thumbs.db
+
+# Test and local tool output
+test-results/
+playwright-report/
+reports/
+
