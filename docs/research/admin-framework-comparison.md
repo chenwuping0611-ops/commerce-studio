@@ -71,12 +71,19 @@ AdminJS 只负责：
 
 AdminJS 不得直接成为业务领域层。页面不得绕过 Nest Application Service 直接写表。
 
+当前实现补充：
+
+- AdminJS 7 以 ESM 形式发布，项目的 CommonJS NestJS 构建不能依赖静态 `require()`。
+- 当前使用 `src/admin/admin.bootstrap.ts` 的原生动态 `import()` 加载 AdminJS、Express 适配器和 Prisma 适配器，并手动挂载认证路由。
+- AdminJS 挂载发生在全局 JSON/urlencoded body parser 之前，以保留 AdminJS 表单解析能力。
+- AdminJS 只承担后台壳和系统资源管理；产品工作台、Product Memory、Prompt、Canvas 和生成流程仍经 Nest API 实现。
+
 首个兼容性验证必须覆盖：
 
 ```text
 AdminJS 7
   -> @adminjs/nestjs 7
-  -> NestJS 11 Express
+  -> NestJS 10 Express 4
   -> Prisma 6
   -> MySQL 8.4
 ```

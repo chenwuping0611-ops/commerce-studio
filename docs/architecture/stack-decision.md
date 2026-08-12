@@ -55,8 +55,8 @@ React 18.3.x
 | --- | --- |
 | OS | AlmaLinux 9 或 Rocky Linux 9 |
 | Node.js | 24 LTS |
-| NestJS | 11.1.x |
-| Express Adapter | `@nestjs/platform-express` 11.1.x |
+| NestJS | 10.4.20 |
+| Express Adapter | `@nestjs/platform-express` 10.4.20 |
 | AdminJS | 7.8.17 |
 | AdminJS Nest | 7.0.0 |
 | AdminJS Express | 6.1.x |
@@ -73,8 +73,16 @@ React 18.3.x
 - 开发时锁定精确版本和 lockfile。
 - 不使用 `latest`。
 - Node 26 进入 LTS 前不作为生产基线。
+- NestJS 暂锁 10.4.20，以配合 AdminJS 7 和 Express 4；NestJS 11 默认 Express 5 的 AdminJS 路由兼容性需要另行验证。
 - Prisma 暂不升级到 7，除非 `@adminjs/prisma` 已正式支持 Prisma 7，或 AdminJS 适配层被移除。
 - `@xyflow/react` 使用新包名，不使用旧 `reactflow`。
+
+AdminJS 运行时挂载：
+
+- AdminJS 7 使用 ESM，而当前 NestJS 构建目标是 CommonJS。
+- 项目通过 `src/admin/admin.bootstrap.ts` 使用原生动态 `import()` 加载 `adminjs`、`@adminjs/express` 和 `@adminjs/prisma`，再将认证路由挂载到 NestJS 的 Express 实例。
+- `src/main.ts` 必须先完成 AdminJS 挂载，再注册全局 JSON/urlencoded body parser。
+- `@adminjs/nestjs` 保留在锁定的兼容基线中，但当前运行时使用自定义 bootstrap，以控制 ESM 加载和 Express 中间件顺序。
 
 ---
 
@@ -201,5 +209,7 @@ ModelGateway
 6. `npm run build` 和生产模式启动成功。
 7. Nginx 可以转发 `/admin`、`/api`、`/events` 和 `/media`。
 8. 2C2G 下启动后内存有可用余量。
+
+当前实际验证结果：AdminJS 登录路由、AdminJS Prisma 资源读取、Workbench 页面、NestJS 生产构建和生产模式启动均已通过阶段 0 检查。
 
 任何一项失败，先修复兼容层，不进入业务功能堆叠。

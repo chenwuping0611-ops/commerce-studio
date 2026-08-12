@@ -1,60 +1,33 @@
-# Dependencies
+# Dependencies and build output
 node_modules/
-.pnpm-store/
-
-# Build output
 dist/
-build/
 coverage/
+.nestjs/
+.adminjs/
 .cache/
-.turbo/
+.npm-cache/
 
-# Environment and secrets
+# Local environment and secrets
 .env
 .env.*
 !.env.example
-*.key
 *.pem
-*.crt
-*.p12
-secrets/
+*.key
 
-# Logs and runtime files
-*.log
+# Runtime data
+storage/
 logs/
-tmp/
-temp/
-runtime/
-*.pid
+*.log
 
-# Local database and media
-*.sqlite
-*.sqlite3
-*.db
-media/
-uploads/
-generated/
-backups/
+# Prisma local artifacts
+prisma/dev.db
+prisma/dev.db-journal
 
 # Third-party reference source
 references/infinite-canvas-v*/
 
-# Prisma local artifacts
-.prisma/
-
-# IDE and OS files
-.idea/
-.vscode/*
-!.vscode/extensions.json
-!.vscode/settings.example.json
-*.suo
-*.user
-*.userosscache
-*.sln.docstates
+# OS/editor files
 .DS_Store
 Thumbs.db
-
-# Test and local tool output
-test-results/
-playwright-report/
-reports/
+.idea/
+.vscode/

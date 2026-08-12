@@ -164,7 +164,7 @@
 
 - Node.js：LTS 版本
 - TypeScript：严格模式
-- NestJS：使用 Express 适配器
+- NestJS：使用 Express 适配器；AdminJS 兼容基线暂锁 NestJS 10 + Express 4
 - AdminJS：用于后台壳、权限入口、系统 CRUD 和自定义页面
 - React：用于 AdminJS 自定义页面和 Canvas 页面
 - React Flow：用于 Canvas 节点、连线、视口和交互
@@ -174,6 +174,14 @@
 - 任务队列：2C2G 先使用 MySQL 持久化任务表；扩容后使用 BullMQ + Redis
 
 AdminJS 只作为后台承载层，不作为全部业务逻辑层。
+
+AdminJS 7 的运行时集成约束：
+
+- AdminJS 7、`@adminjs/express` 和 `@adminjs/prisma` 按 ESM 方式加载。
+- 当前 NestJS 应用编译为 CommonJS，必须通过 `src/admin/admin.bootstrap.ts` 的原生动态 `import()` 挂载 AdminJS，不能改回静态 `require()` 或由 TypeScript 改写后的动态导入。
+- AdminJS 路由必须在 Express JSON/urlencoded body parser 之前注册，否则 AdminJS 自身的表单解析可能失效。
+- AdminJS 只允许 `super_admin` 进入后台；业务页面、API 和数据范围权限仍必须经过 Nest Application Service 与 RBAC Guard 的后端校验。
+- 自定义业务页面只能调用 Nest API，不得通过 AdminJS 适配器或 Prisma 直接写业务表。
 
 ### 3.3 依赖版本规则
 
@@ -200,8 +208,8 @@ AdminJS、NestJS、Prisma 和 React Flow 的组合必须在项目早期做一次
 
 ```text
 Node.js              24 LTS
-NestJS               11.1.x
-@nestjs/platform-express 11.1.x
+NestJS               10.4.20
+@nestjs/platform-express 10.4.20
 AdminJS              7.8.17
 @adminjs/nestjs      7.0.0
 @adminjs/express     6.1.x
@@ -216,13 +224,13 @@ MySQL                8.4 LTS
 版本决策：
 
 - Node 26 在进入 LTS 前不作为生产基线；Node 24 作为当前 LTS 基线。
-- NestJS 使用 Express，不使用 Fastify，以满足 AdminJS Nest 集成约束。
+- NestJS 使用 Express，不使用 Fastify；AdminJS 7 当前先配合 NestJS 10 和 Express 4，避免 NestJS 11 默认 Express 5 的路由兼容风险。
 - Prisma 暂锁 6.x，因为当前 `@adminjs/prisma` 的 peer 依赖覆盖 Prisma 5/6，不覆盖 Prisma 7。
 - React 先使用 18.3.x，减少 AdminJS 自定义页面与 React 版本重复实例的兼容风险。
 - React Flow 使用新的 `@xyflow/react` 包名，不使用旧的 `reactflow` 包。
 - MySQL 使用 8.4 LTS，不使用 Innovation 分支作为生产数据库。
 
-以上版本不是允许直接跳过验证的承诺。首次工程骨架必须通过 AdminJS 页面加载、Prisma CRUD、React Flow 自定义节点、Nest 构建和生产模式启动五项兼容性检查后，才能进入业务开发。
+以上版本不是允许直接跳过验证的承诺。首次工程骨架必须通过 AdminJS 页面加载、Prisma CRUD、React Flow 自定义节点、Nest 构建和生产模式启动五项兼容性检查后，才能进入业务开发。未来只有在 AdminJS Express 适配确认支持 Express 5 后，才评估升级 NestJS 11。
 
 ---
 
