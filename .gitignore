@@ -36,6 +36,9 @@ uploads/
 generated/
 backups/
 
+# Third-party reference source
+references/infinite-canvas-v*/
+
 # Prisma local artifacts
 .prisma/
 
@@ -55,4 +58,3 @@ Thumbs.db
 test-results/
 playwright-report/
 reports/
-
