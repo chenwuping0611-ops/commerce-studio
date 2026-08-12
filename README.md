@@ -9,6 +9,11 @@ AI 电商产品图片 / 视频生成工作台。
 长期开发规范见：
 
 - [agent.md](./agent.md)
+- [最终技术选型](./docs/architecture/stack-decision.md)
+- [后台框架对比](./docs/research/admin-framework-comparison.md)
+- [数据模型与 API 规划](./docs/architecture/data-model-and-api.md)
+- [实施路线](./docs/architecture/implementation-roadmap.md)
+- [infinite-canvas 源码分析](./docs/research/infinite-canvas-v0.15.1-analysis.md)
 
 ## 目标架构
 

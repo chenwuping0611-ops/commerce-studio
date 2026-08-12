@@ -194,6 +194,36 @@ AdminJS 只作为后台承载层，不作为全部业务逻辑层。
 
 AdminJS、NestJS、Prisma 和 React Flow 的组合必须在项目早期做一次版本兼容性验证，尤其不能默认认为 AdminJS 的 Prisma 适配器永远与最新 Prisma 兼容。
 
+### 3.4 当前版本基线
+
+以下是本项目启动兼容性验证时使用的候选基线。版本必须在首次依赖安装前再次核对并写入锁文件，不得使用未锁定的 `latest`：
+
+```text
+Node.js              24 LTS
+NestJS               11.1.x
+@nestjs/platform-express 11.1.x
+AdminJS              7.8.17
+@adminjs/nestjs      7.0.0
+@adminjs/express     6.1.x
+@adminjs/prisma      5.0.4
+Prisma               6.19.2
+React                18.3.1
+React DOM             18.3.1
+@xyflow/react        12.11.x
+MySQL                8.4 LTS
+```
+
+版本决策：
+
+- Node 26 在进入 LTS 前不作为生产基线；Node 24 作为当前 LTS 基线。
+- NestJS 使用 Express，不使用 Fastify，以满足 AdminJS Nest 集成约束。
+- Prisma 暂锁 6.x，因为当前 `@adminjs/prisma` 的 peer 依赖覆盖 Prisma 5/6，不覆盖 Prisma 7。
+- React 先使用 18.3.x，减少 AdminJS 自定义页面与 React 版本重复实例的兼容风险。
+- React Flow 使用新的 `@xyflow/react` 包名，不使用旧的 `reactflow` 包。
+- MySQL 使用 8.4 LTS，不使用 Innovation 分支作为生产数据库。
+
+以上版本不是允许直接跳过验证的承诺。首次工程骨架必须通过 AdminJS 页面加载、Prisma CRUD、React Flow 自定义节点、Nest 构建和生产模式启动五项兼容性检查后，才能进入业务开发。
+
 ---
 
 ## 4. 总体部署架构
