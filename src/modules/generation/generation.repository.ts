@@ -37,6 +37,7 @@ export class GenerationRepository {
         product: { select: { id: true, name: true, code: true } },
         modelProfile: { select: { id: true, name: true } },
         provider: { select: { id: true, name: true } },
+        assets: true,
       },
     });
   }

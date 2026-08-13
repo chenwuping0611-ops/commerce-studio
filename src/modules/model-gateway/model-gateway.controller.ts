@@ -6,9 +6,11 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
+import { GenerationType } from "@prisma/client";
 
 import { AuthGuard } from "../auth/auth.guard";
 import { CurrentUser } from "../auth/current-user.decorator";
@@ -31,6 +33,21 @@ export class ModelGatewayController {
   @RequirePermission("model_config:read:system")
   listProviders(@CurrentUser() user: AuthenticatedUser) {
     return this.service.listProviders(user);
+  }
+
+  @Get("profiles")
+  @RequirePermission("generation:create:team")
+  listAvailableProfiles(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query("type") type?: string,
+  ) {
+    const generationType =
+      type === "VIDEO"
+        ? GenerationType.VIDEO
+        : type === "IMAGE"
+          ? GenerationType.IMAGE
+          : undefined;
+    return this.service.listAvailableProfiles(user, generationType);
   }
 
   @Post("providers")

@@ -1,8 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import {
+  GenerationType,
   Prisma,
   ProviderKind,
-  type GenerationType,
   type ModelProfile,
   type ModelProvider,
 } from "@prisma/client";
@@ -73,6 +73,48 @@ export class ModelGatewayService {
       metadata: { name: row.name, kind: row.kind },
     });
     return { data: { ...row, apiKeyEncrypted: undefined } };
+  }
+
+  /**
+   * 目的：向有生成权限的工作台用户提供可用模型档案。
+   * 输入：当前用户和可选的图片/视频能力筛选。
+   * 输出：不包含密钥的启用中 Model Profile 列表。
+   * 业务边界：不暴露供应商密钥，也不要求普通用户拥有系统配置权限。
+   * 外部副作用：无。
+   */
+  async listAvailableProfiles(user: AuthenticatedUser, type?: GenerationType) {
+    this.rbac.assertPermission(user, "generation:create:team");
+    const profiles = await this.prisma.modelProfile.findMany({
+      where: {
+        enabled: true,
+        provider: { enabled: true },
+      },
+      orderBy: { createdAt: "desc" },
+      include: {
+        provider: {
+          select: { id: true, name: true, kind: true, enabled: true },
+        },
+      },
+    });
+    const data = profiles
+      .filter((profile) => {
+        if (!type) return true;
+        const capability = (profile.capability ?? {}) as Record<
+          string,
+          unknown
+        >;
+        return (
+          capability[type === GenerationType.VIDEO ? "video" : "image"] === true
+        );
+      })
+      .map((profile) => ({
+        id: profile.id,
+        name: profile.name,
+        capability: profile.capability,
+        providerId: profile.providerId,
+        provider: profile.provider,
+      }));
+    return { data };
   }
 
   async createProfile(

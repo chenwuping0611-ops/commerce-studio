@@ -26,7 +26,7 @@ React Flow Canvas 保存和 Docker/Nginx/systemd 部署模板。
 - 产品、SKU、产品素材上传/读取/更新/删除、Product Memory 版本和 Prompt 编译
 - 模型供应商和 Model Profile 管理、API Key 加密、OpenAI 兼容图片/视频任务适配
 - MySQL 持久化任务、单 Worker、租约恢复、重试、结果下载、媒体去重和 SSE 状态推送
-- React Flow Canvas 的保存、版本快照、执行快照和敏感字段过滤
+- React Flow Canvas 的全屏工作台、节点/连线、保存、版本快照、执行快照、撤销重做和敏感字段过滤
 - 本地直连端口启动、AdminJS、Workbench、Swagger 和健康检查
 - Docker、Compose、Nginx、systemd、MySQL/媒体备份脚本和 CentOS 7.9 部署手册
 
@@ -34,7 +34,7 @@ React Flow Canvas 保存和 Docker/Nginx/systemd 部署模板。
 
 - 官方原生 Provider Adapter 仍需按具体供应商协议逐个实现；未配置的 `NATIVE` 供应商会明确报错。
 - Webhook 回调、CostLedger 写入、成本统计、结果评分和供应商错误率看板尚未完成。
-- Canvas 当前保存业务引用并创建执行快照，尚未把每个节点编译为可执行生成任务，也未实现撤销重做。
+- Canvas 当前保存业务引用并创建执行快照；节点级业务编译为可执行生成任务仍在后续阶段，当前已支持节点操作、连线、保存和撤销重做。
 - Nginx、Docker 和 CentOS 7.9 只完成配置模板和代码侧检查，最终服务器联调仍需在目标环境执行。
 - 浏览器协议当前使用 JSON + gzip，未引入 Protobuf。
 

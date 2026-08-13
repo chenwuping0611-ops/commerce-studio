@@ -5,6 +5,7 @@ coverage/
 .nestjs/
 .adminjs/
 .cache/
+.jest-cache/
 .npm-cache/
 
 # Local environment and secrets
