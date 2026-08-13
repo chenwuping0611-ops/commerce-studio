@@ -8,10 +8,12 @@ import {
   Param,
   Post,
   Query,
+  Res,
   Sse,
   UseGuards,
 } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
+import type { Response } from "express";
 
 import { AuthGuard } from "../auth/auth.guard";
 import { CurrentUser } from "../auth/current-user.decorator";
@@ -60,6 +62,27 @@ export class GenerationController {
   @RequirePermission("generation:read:team")
   get(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
     return this.service.get(user, id);
+  }
+
+  @Get("generation-tasks/:id/assets/:assetId/content")
+  @RequirePermission("generation:read:team")
+  @Header("Cache-Control", "private, max-age=3600")
+  async assetContent(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("id") taskId: string,
+    @Param("assetId") assetId: string,
+    @Res() response: Response,
+  ) {
+    const asset = await this.service.getAssetForRead(user, taskId, assetId);
+    response.setHeader("Content-Type", asset.mimeType);
+    response.setHeader("Content-Length", asset.byteSize);
+    response.setHeader(
+      "Content-Disposition",
+      `inline; filename="${asset.originalName ?? "generated-asset"}"`,
+    );
+    const stream = this.service.mediaStream(asset.storageKey);
+    stream.on("error", () => response.destroy());
+    stream.pipe(response);
   }
 
   @Post("generation-tasks/:id/cancel")

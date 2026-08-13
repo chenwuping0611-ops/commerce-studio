@@ -3,6 +3,19 @@ const booleanValue = (value: string | undefined, fallback: boolean) => {
   return value.toLowerCase() === "true";
 };
 
+const positiveInteger = (
+  value: unknown,
+  fallback: number,
+  name: string,
+  minimum = 1,
+) => {
+  const parsed = Number(value ?? fallback);
+  if (!Number.isSafeInteger(parsed) || parsed < minimum) {
+    throw new Error(`${name} must be an integer >= ${minimum}`);
+  }
+  return parsed;
+};
+
 type ValidatedConfig = Record<string, unknown> & {
   NODE_ENV: string;
   PORT: number;
@@ -29,7 +42,7 @@ export function validateEnv(config: Record<string, unknown>) {
   const result: ValidatedConfig = {
     ...config,
     NODE_ENV: nodeEnv,
-    PORT: Number(config.PORT ?? 3000),
+    PORT: positiveInteger(config.PORT, 3000, "PORT"),
     HOST: String(config.HOST ?? "0.0.0.0"),
     DATABASE_URL: config.DATABASE_URL ? String(config.DATABASE_URL) : undefined,
     DATABASE_REQUIRED: databaseRequired,
@@ -39,21 +52,44 @@ export function validateEnv(config: Record<string, unknown>) {
       String(config.COOKIE_SECURE ?? ""),
       nodeEnv === "production",
     ),
-    MAX_UPLOAD_BYTES: Number(config.MAX_UPLOAD_BYTES ?? 50 * 1024 * 1024),
+    MAX_UPLOAD_BYTES: positiveInteger(
+      config.MAX_UPLOAD_BYTES,
+      50 * 1024 * 1024,
+      "MAX_UPLOAD_BYTES",
+    ),
     GENERATION_WORKER_ENABLED: booleanValue(
       String(config.GENERATION_WORKER_ENABLED ?? ""),
       true,
     ),
-    GENERATION_POLL_INTERVAL_MS: Number(
+    GENERATION_POLL_INTERVAL_MS: positiveInteger(
       config.GENERATION_POLL_INTERVAL_MS ?? 5000,
+      5000,
+      "GENERATION_POLL_INTERVAL_MS",
+      100,
     ),
-    GENERATION_MAX_RETRIES: Number(config.GENERATION_MAX_RETRIES ?? 2),
-    MODEL_REQUEST_TIMEOUT_MS: Number(config.MODEL_REQUEST_TIMEOUT_MS ?? 30000),
-    MODEL_DOWNLOAD_TIMEOUT_MS: Number(
-      config.MODEL_DOWNLOAD_TIMEOUT_MS ?? 120000,
+    GENERATION_MAX_RETRIES: positiveInteger(
+      config.GENERATION_MAX_RETRIES,
+      2,
+      "GENERATION_MAX_RETRIES",
+      0,
+    ),
+    MODEL_REQUEST_TIMEOUT_MS: positiveInteger(
+      config.MODEL_REQUEST_TIMEOUT_MS,
+      30000,
+      "MODEL_REQUEST_TIMEOUT_MS",
+      100,
+    ),
+    MODEL_DOWNLOAD_TIMEOUT_MS: positiveInteger(
+      config.MODEL_DOWNLOAD_TIMEOUT_MS,
+      120000,
+      "MODEL_DOWNLOAD_TIMEOUT_MS",
+      100,
     ),
   };
 
+  if (result.PORT > 65535) {
+    throw new Error("PORT must be <= 65535");
+  }
   if (result.DATABASE_REQUIRED && !result.DATABASE_URL) {
     throw new Error("DATABASE_URL is required when DATABASE_REQUIRED=true");
   }

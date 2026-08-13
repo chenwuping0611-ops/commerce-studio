@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  UseGuards,
+} from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 
 import { AuthGuard } from "../auth/auth.guard";
@@ -8,6 +17,8 @@ import { RbacGuard } from "../rbac/rbac.guard";
 import { RequirePermission } from "../rbac/rbac.decorators";
 import { CreateProviderDto } from "./dto/create-provider.dto";
 import { CreateModelProfileDto } from "./dto/create-model-profile.dto";
+import { UpdateModelProfileDto } from "./dto/update-model-profile.dto";
+import { UpdateProviderDto } from "./dto/update-provider.dto";
 import { ModelGatewayService } from "./model-gateway.service";
 
 @ApiTags("model-gateway")
@@ -39,5 +50,34 @@ export class ModelGatewayController {
     @Body() dto: CreateModelProfileDto,
   ) {
     return this.service.createProfile(user, providerId, dto);
+  }
+
+  @Patch("providers/:providerId")
+  @RequirePermission("model_config:update:system")
+  updateProvider(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("providerId") providerId: string,
+    @Body() dto: UpdateProviderDto,
+  ) {
+    return this.service.updateProvider(user, providerId, dto);
+  }
+
+  @Patch("profiles/:profileId")
+  @RequirePermission("model_config:update:system")
+  updateProfile(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("profileId") profileId: string,
+    @Body() dto: UpdateModelProfileDto,
+  ) {
+    return this.service.updateProfile(user, profileId, dto);
+  }
+
+  @Delete("profiles/:profileId")
+  @RequirePermission("model_config:update:system")
+  deleteProfile(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("profileId") profileId: string,
+  ) {
+    return this.service.deleteProfile(user, profileId);
   }
 }

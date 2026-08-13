@@ -28,19 +28,71 @@ export async function api<T>(
   return payload.data as T;
 }
 
+export async function upload<T>(path: string, formData: FormData): Promise<T> {
+  const response = await fetch(`/api/v1${path}`, {
+    method: "POST",
+    body: formData,
+    credentials: "include",
+  });
+  const payload = (await response.json().catch(() => ({}))) as {
+    data?: T;
+    error?: { message?: string };
+  };
+  if (!response.ok) {
+    throw new Error(payload.error?.message ?? `请求失败（${response.status}）`);
+  }
+  return payload.data as T;
+}
+
 export function streamGeneration(
   taskId: string,
   onMessage: (event: MessageEvent) => void,
 ) {
-  const source = new EventSource(
-    `/events/generation/${encodeURIComponent(taskId)}`,
-    {
-      withCredentials: true,
-    },
-  );
-  source.onmessage = onMessage;
-  source.onerror = () => {
-    source.close();
+  const eventTypes = [
+    "generation.queued",
+    "generation.cancel_requested",
+    "generation.cancelled",
+    "generation.provider_submitted",
+    "generation.progress",
+    "generation.retry_waiting",
+    "generation.succeeded",
+    "generation.failed",
+    "heartbeat",
+  ];
+  let closed = false;
+  let reconnectTimer: number | undefined;
+  let source: EventSource | undefined;
+
+  const connect = () => {
+    if (closed) return;
+    source = new EventSource(
+      `/events/generation/${encodeURIComponent(taskId)}`,
+      {
+        withCredentials: true,
+      },
+    );
+    const handleEvent = (event: Event) => {
+      onMessage(event as MessageEvent);
+    };
+    for (const eventType of eventTypes) {
+      source.addEventListener(eventType, handleEvent);
+    }
+    source.onmessage = handleEvent;
+    source.onerror = () => {
+      source?.close();
+      if (!closed && reconnectTimer === undefined) {
+        reconnectTimer = window.setTimeout(() => {
+          reconnectTimer = undefined;
+          connect();
+        }, 3000);
+      }
+    };
   };
-  return () => source.close();
+
+  connect();
+  return () => {
+    closed = true;
+    if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
+    source?.close();
+  };
 }

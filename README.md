@@ -4,7 +4,10 @@ AI 电商产品图片 / 视频生成工作台。
 
 ## 当前阶段
 
-当前仓库已建立长期开发基线，并完成阶段 0 的工程骨架和兼容性验证。当前仍不接入真实模型调用，不把阶段 0 骨架视为完整业务成品。
+当前仓库已完成可本地启动的 2C2G MVP 基线，不把它误认为已经覆盖所有供应商和所有 Canvas 编排能力。
+当前实现已经包含登录、RBAC、产品中心、产品素材、Product Memory、Prompt 编译、模型供应商配置、
+OpenAI 兼容模型调用、MySQL 异步任务、媒体持久化、SSE、AdminJS 只读后台、自定义系统管理页、
+React Flow Canvas 保存和 Docker/Nginx/systemd 部署模板。
 
 长期开发规范见：
 
@@ -16,14 +19,36 @@ AI 电商产品图片 / 视频生成工作台。
 - [本地开发运行手册](./docs/runbooks/local-development.md)
 - [infinite-canvas 源码分析](./docs/research/infinite-canvas-v0.15.1-analysis.md)
 
-阶段 0 已覆盖：
+当前已实现：
 
 - NestJS、Prisma、MySQL、AdminJS、React 和 React Flow 的基础组合
-- 认证、基础 RBAC、产品、Product Memory、Prompt、Canvas 和生成任务的数据骨架
+- 登录、退出、当前用户、角色、权限、团队、数据范围和审计基础
+- 产品、SKU、产品素材上传/读取/更新/删除、Product Memory 版本和 Prompt 编译
+- 模型供应商和 Model Profile 管理、API Key 加密、OpenAI 兼容图片/视频任务适配
+- MySQL 持久化任务、单 Worker、租约恢复、重试、结果下载、媒体去重和 SSE 状态推送
+- React Flow Canvas 的保存、版本快照、执行快照和敏感字段过滤
 - 本地直连端口启动、AdminJS、Workbench、Swagger 和健康检查
-- MySQL 任务持久化与单 Worker 的基础状态模型
+- Docker、Compose、Nginx、systemd、MySQL/媒体备份脚本和 CentOS 7.9 部署手册
 
-后续阶段仍需实现产品素材完整管理、模型供应商适配、结果媒体持久化、成本记录、完整审计、Canvas 节点执行和生产 Nginx 配置。
+## 当前未完成
+
+- 官方原生 Provider Adapter 仍需按具体供应商协议逐个实现；未配置的 `NATIVE` 供应商会明确报错。
+- Webhook 回调、CostLedger 写入、成本统计、结果评分和供应商错误率看板尚未完成。
+- Canvas 当前保存业务引用并创建执行快照，尚未把每个节点编译为可执行生成任务，也未实现撤销重做。
+- Nginx、Docker 和 CentOS 7.9 只完成配置模板和代码侧检查，最终服务器联调仍需在目标环境执行。
+- 浏览器协议当前使用 JSON + gzip，未引入 Protobuf。
+
+当前仓库已补充单节点容器化部署资产：
+
+- `Dockerfile` 和 `docker-compose.yml`
+- `.env.production.example`
+- `deploy/nginx/commerce-studio.conf`
+- `deploy/systemd/`
+- `deploy/scripts/backup.sh`
+- [CentOS 7.9 部署手册](./docs/runbooks/centos7-deployment.md)
+
+CentOS 7.9 仅作为过渡宿主机，Node.js、Prisma 和应用进程运行在 Node 24
+Debian Bookworm 容器中。Compose 默认不启动 MySQL，继续使用外部 MySQL。
 
 ## 目标架构
 

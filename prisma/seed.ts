@@ -97,14 +97,20 @@ async function main() {
   });
 
   const adminEmail = process.env.ADMIN_EMAIL ?? "admin@example.com";
-  const adminPassword = process.env.ADMIN_PASSWORD ?? "change-me";
+  const adminPassword = process.env.ADMIN_PASSWORD;
   const admin = await prisma.user.upsert({
     where: { email: adminEmail },
-    update: { displayName: "系统管理员", status: "ACTIVE" },
+    update: {
+      displayName: "系统管理员",
+      status: "ACTIVE",
+      ...(adminPassword
+        ? { passwordHash: await bcrypt.hash(adminPassword, 12) }
+        : {}),
+    },
     create: {
       email: adminEmail,
       displayName: "系统管理员",
-      passwordHash: await bcrypt.hash(adminPassword, 12),
+      passwordHash: await bcrypt.hash(adminPassword ?? "change-me", 12),
     },
   });
 

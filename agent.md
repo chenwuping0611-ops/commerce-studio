@@ -156,7 +156,10 @@
 - AlmaLinux 9
 - Rocky Linux 9
 
-如果服务器必须使用 CentOS，应明确使用 CentOS Stream 9，并在项目文档中记录迁移计划。
+当前兼容目标包含 CentOS 7.9.2009。由于 CentOS 7 已停止维护，禁止在宿主机
+直接安装项目 Node.js 运行时；CentOS 7.9 只作为过渡容器宿主机，应用必须运行在
+锁定版本的 Node 24 Debian Bookworm 容器中。新服务器优先迁移到 AlmaLinux 9、
+Rocky Linux 9 或其他当前维护中的发行版，并在部署文档中记录迁移计划。
 
 禁止依赖发行版中的过旧 Node、MySQL、Nginx 版本。运行时版本必须显式锁定。
 
@@ -1439,8 +1442,9 @@ React Flow 页面必须处理：
 
 ```text
 nginx.service
-ai-workbench.service
-mysql.service
+docker.service
+commerce-studio-docker.service
+mysql.service（外置 MySQL 时不在应用服务器运行）
 ```
 
 扩容后：
@@ -1453,7 +1457,7 @@ mysql.service
 redis.service
 ```
 
-应用必须支持：
+应用和容器托管必须支持：
 
 - 优雅启动
 - 优雅关闭

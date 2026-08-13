@@ -1,0 +1,34 @@
+services:
+  commerce-studio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: commerce-studio:local
+    container_name: commerce-studio
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - commerce-studio-media:/app/storage/media
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "require('http').get('http://127.0.0.1:3000/health/live',
+          r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () =>
+          process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  commerce-studio-media:
+    name: commerce-studio-media

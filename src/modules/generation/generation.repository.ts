@@ -126,4 +126,17 @@ export class GenerationRepository {
   createAsset(data: Record<string, unknown>) {
     return this.prisma.generationAsset.create({ data: data as never });
   }
+
+  findAssetByTaskAndSha256(taskId: string, sha256: string) {
+    return this.prisma.generationAsset.findFirst({
+      where: { taskId, sha256 },
+    });
+  }
+
+  deleteAssets(ids: string[]) {
+    if (ids.length === 0) return Promise.resolve({ count: 0 });
+    return this.prisma.generationAsset.deleteMany({
+      where: { id: { in: ids } },
+    });
+  }
 }

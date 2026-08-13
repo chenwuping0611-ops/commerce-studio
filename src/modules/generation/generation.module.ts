@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 
+import { MediaModule } from "../../common/media/media.module";
 import { AuthModule } from "../auth/auth.module";
 import { ModelGatewayModule } from "../model-gateway/model-gateway.module";
 import { ProductMemoryModule } from "../product-memory/product-memory.module";
@@ -15,6 +16,7 @@ import { GenerationWorker } from "./generation.worker";
 
 @Module({
   imports: [
+    MediaModule,
     AuthModule,
     ModelGatewayModule,
     ProductMemoryModule,

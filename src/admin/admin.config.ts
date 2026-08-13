@@ -67,10 +67,13 @@ export function buildAdminOptions(
       resource(prisma, getModelByName, "AuditLog", { navigation: "系统管理" }),
       resource(prisma, getModelByName, "SystemSetting", {
         navigation: "系统管理",
+        properties: {
+          value: { isVisible: false },
+        },
       }),
     ],
     assets: {
-      styles: "/workbench/assets/admin-overrides.css",
+      styles: ["/workbench/admin-overrides.css"],
     },
   };
 }
@@ -86,6 +89,13 @@ function resource(
       model: getModelByName(modelName),
       client: prisma,
     },
-    options,
+    options: {
+      ...options,
+      actions: {
+        new: { isAccessible: false },
+        edit: { isAccessible: false },
+        delete: { isAccessible: false },
+      },
+    },
   };
 }

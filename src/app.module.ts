@@ -2,8 +2,10 @@ import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { ScheduleModule } from "@nestjs/schedule";
 
+import { AuditModule } from "./common/audit/audit.module";
 import { validateEnv } from "./common/config/env.validation";
 import { PrismaModule } from "./common/database/prisma.module";
+import { MediaModule } from "./common/media/media.module";
 import { SecurityModule } from "./common/security/security.module";
 import { HealthModule } from "./common/health/health.module";
 import { AdminModule } from "./admin/admin.module";
@@ -15,6 +17,7 @@ import { PromptsModule } from "./modules/prompts/prompts.module";
 import { ModelGatewayModule } from "./modules/model-gateway/model-gateway.module";
 import { GenerationModule } from "./modules/generation/generation.module";
 import { CanvasModule } from "./modules/canvas/canvas.module";
+import { SystemModule } from "./modules/system/system.module";
 
 @Module({
   imports: [
@@ -25,6 +28,8 @@ import { CanvasModule } from "./modules/canvas/canvas.module";
     }),
     ScheduleModule.forRoot(),
     PrismaModule,
+    AuditModule,
+    MediaModule,
     SecurityModule,
     HealthModule,
     RbacModule,
@@ -35,6 +40,7 @@ import { CanvasModule } from "./modules/canvas/canvas.module";
     ModelGatewayModule,
     GenerationModule,
     CanvasModule,
+    SystemModule,
     AdminModule,
   ],
 })

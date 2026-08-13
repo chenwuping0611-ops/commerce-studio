@@ -17,6 +17,19 @@ export class ProductsRepository {
     });
   }
 
+  findAsset(productId: string, assetId: string) {
+    return this.prisma.productAsset.findFirst({
+      where: { id: assetId, productId },
+    });
+  }
+
+  findAssets(productId: string, assetIds: string[]) {
+    return this.prisma.productAsset.findMany({
+      where: { productId, id: { in: assetIds } },
+      orderBy: { createdAt: "asc" },
+    });
+  }
+
   list(where: Record<string, unknown>, take: number, cursor?: string) {
     return this.prisma.product.findMany({
       where,
@@ -46,5 +59,22 @@ export class ProductsRepository {
     return this.prisma.productVariant.create({
       data: { productId, ...data } as never,
     });
+  }
+
+  createAsset(data: Record<string, unknown>) {
+    return this.prisma.productAsset.create({
+      data: data as never,
+    });
+  }
+
+  updateAsset(id: string, data: Record<string, unknown>) {
+    return this.prisma.productAsset.update({
+      where: { id },
+      data: data as never,
+    });
+  }
+
+  deleteAsset(id: string) {
+    return this.prisma.productAsset.delete({ where: { id } });
   }
 }

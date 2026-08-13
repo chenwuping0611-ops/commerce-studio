@@ -1,0 +1,4 @@
+/* Reserved for small AdminJS branding overrides. Keep business UI in the workbench. */
+:root {
+  --adminjs-brand-primary: #1e4ed8;
+}

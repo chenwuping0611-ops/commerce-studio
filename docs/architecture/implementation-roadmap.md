@@ -12,7 +12,7 @@
 
 ---
 
-## 阶段 0：兼容性闸门
+## 阶段 0：兼容性闸门（代码侧已完成）
 
 目标：
 
@@ -32,17 +32,17 @@
 ```text
 AdminJS 页面加载
 AdminJS Prisma 读取
-AdminJS Prisma 写入
+AdminJS Prisma 读取；业务写入走 Nest API
 React Flow 节点渲染
 生产模式启动
-2C2G 内存检查
+2C2G 内存检查（目标服务器待验证）
 ```
 
 如果失败，优先修正兼容层，不进入业务开发。
 
 ---
 
-## 阶段 1：工程骨架
+## 阶段 1：工程骨架（已完成）
 
 目标：
 
@@ -73,7 +73,7 @@ system
 
 ---
 
-## 阶段 2：认证、RBAC 和审计
+## 阶段 2：认证、RBAC 和审计（MVP 已完成）
 
 目标：
 
@@ -86,7 +86,7 @@ system
 - 权限资源和动作
 - own/team/system 数据范围
 - 管理员审计日志
-- AdminJS 资源权限
+- AdminJS 只读资源权限
 - API 权限 Guard/Policy
 
 验收：
@@ -98,7 +98,7 @@ system
 
 ---
 
-## 阶段 3：产品中心
+## 阶段 3：产品中心（MVP 已完成）
 
 目标：
 
@@ -122,7 +122,7 @@ system
 
 ---
 
-## 阶段 4：Product Memory 和 Prompt Engine
+## 阶段 4：Product Memory 和 Prompt Engine（基础能力已完成）
 
 目标：
 
@@ -135,8 +135,8 @@ system
 - 生成边界
 - 禁忌规则
 - 记忆版本
-- 成功/失败案例
-- Prompt 模板和版本
+- 成功/失败案例（待补充数据模型和页面）
+- Prompt 模板和版本（表结构已预留，管理页面待补充）
 - Prompt 编译预览
 - 冲突检测
 
@@ -153,7 +153,7 @@ system
 
 ---
 
-## 阶段 5：Model Gateway
+## 阶段 5：Model Gateway（OpenAI 兼容链路已完成）
 
 目标：
 
@@ -164,10 +164,9 @@ system
 - Provider CRUD
 - ModelProfile CRUD
 - API Key 加密
-- Native Provider Adapter
+- Native Provider Adapter（按供应商逐个补充）
 - OpenAI Compatible Adapter
-- 图片 Provider Adapter
-- 视频 Provider Adapter
+- 图片/视频能力通过 OpenAI 兼容 Adapter 统一承载
 - 超时和重试
 - 能力检查
 - 供应商错误归一化
@@ -181,7 +180,7 @@ system
 
 ---
 
-## 阶段 6：Generation Task 和媒体结果
+## 阶段 6：Generation Task 和媒体结果（基础闭环已完成）
 
 目标：
 
@@ -194,10 +193,10 @@ system
 - 租约和心跳
 - 任务恢复
 - 供应商任务 ID
-- Webhook/轮询
+- 轮询已完成；Webhook 待补充
 - 结果下载
 - GenerationAsset
-- CostLedger
+- CostLedger（表结构已预留，成本写入待补充）
 
 验收：
 
@@ -208,7 +207,7 @@ system
 
 ---
 
-## 阶段 7：React Flow Canvas
+## 阶段 7：React Flow Canvas（保存链路已完成，执行编排待补充）
 
 目标：
 
@@ -234,14 +233,13 @@ History
 输出：
 
 - React Flow 页面
-- 自定义节点
+- 基础节点已完成；业务自定义节点待补充
 - 自定义边
-- 节点校验
+- 节点校验和执行编译（待补充）
 - Canvas JSON 保存
 - 版本快照
 - 执行快照
-- Canvas Ops
-- 撤销重做
+- Canvas Ops、撤销重做（待补充）
 - 产品和素材选择器
 
 验收：
@@ -253,7 +251,7 @@ History
 
 ---
 
-## 阶段 8：历史、成本和运营后台
+## 阶段 8：历史、成本和运营后台（基础能力已完成）
 
 目标：
 
@@ -263,8 +261,8 @@ History
 
 - 任务记录
 - 生成历史
-- 成本统计
-- 供应商错误率
+- 成本统计（待接入 CostLedger 写入）
+- 供应商错误率（待补充聚合查询）
 - 失败任务重试
 - 结果评分
 - 审计查询
@@ -272,7 +270,7 @@ History
 
 ---
 
-## 阶段 9：2C2G 部署与维护
+## 阶段 9：2C2G 部署与维护（模板已完成，服务器联调待执行）
 
 目标：
 
@@ -282,18 +280,18 @@ History
 
 - Nginx HTTPS
 - systemd 服务
-- MySQL 8.4 配置
+- 外部 MySQL 连接和迁移模板
 - 单 Worker
 - 日志轮转
 - MySQL 备份
 - 媒体备份
-- 恢复演练
+- 恢复演练（待在目标服务器执行）
 - 健康检查
 - 发布脚本
 
 验收：
 
-- API、AdminJS、SSE、媒体访问均通过 Nginx。
+- API、AdminJS、SSE、媒体访问均通过 Nginx（配置已提供，目标服务器待验证）。
 - MySQL 不暴露公网。
 - 2C2G 下有 Swap 和内存告警。
 - 备份可以恢复到测试目录。

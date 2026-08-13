@@ -2,7 +2,7 @@
 
 状态：已接受
 决策日期：2026-08-12
-适用范围：第一阶段到 2C2G 内部生产版本
+适用范围：当前 MVP 到 2C2G 内部生产版本
 
 ---
 
@@ -161,13 +161,17 @@ ModelGateway
 - 供应商用量
 - 成本记录
 
+当前已实现 OpenAI 兼容 Adapter、图片/视频能力标记、服务端 API Key 加密、
+异步轮询和结果持久化。`NATIVE` 供应商类型保留为扩展点，尚未按具体官方
+供应商协议逐个实现。
+
 未来如果渠道数量和并发明显增长，可以单独部署 One API 作为外部渠道层，但业务系统仍保留自己的模型能力、成本和权限模型。
 
 ---
 
 ## 6. 后台页面分工
 
-### AdminJS 自动资源
+### AdminJS 自动资源（只读）
 
 - 用户
 - 角色
@@ -178,6 +182,9 @@ ModelGateway
 - 系统参数
 - 任务记录
 - 审计日志
+
+AdminJS 自动资源只承担后台浏览和审计查看。新增、编辑、禁用、密钥更新等业务写入
+统一通过 Nest API、DTO、RBAC Guard、Application Service 和审计链路完成，避免绕过业务权限。
 
 ### 自定义 React 页面
 
@@ -191,7 +198,7 @@ ModelGateway
 - 视频生成
 - Canvas
 - 生成历史
-- 成本统计
+- 成本统计（数据模型已预留，统计写入尚未完成）
 
 所有自定义页面都调用 Nest API，不直接调用 Prisma。
 
@@ -203,13 +210,15 @@ ModelGateway
 
 1. AdminJS 在 NestJS Express 下可启动。
 2. AdminJS 登录和会话正常。
-3. AdminJS Prisma 资源可读取和写入 MySQL。
+3. AdminJS Prisma 资源可读取 MySQL；业务写入通过 Nest API 完成。
 4. 自定义 React 页面可以加载 React Flow。
 5. React Flow 自定义节点、边和视口可保存。
 6. `npm run build` 和生产模式启动成功。
 7. Nginx 可以转发 `/admin`、`/api`、`/events` 和 `/media`。
 8. 2C2G 下启动后内存有可用余量。
 
-当前实际验证结果：AdminJS 登录路由、AdminJS Prisma 资源读取、Workbench 页面、NestJS 生产构建和生产模式启动均已通过阶段 0 检查。
+当前代码侧验证结果：AdminJS 登录路由、AdminJS Prisma 资源读取、Workbench 页面、
+NestJS 生产构建、前端构建、类型检查、单元测试和 Prisma schema 校验均已通过。
+Nginx、Docker 和目标 CentOS 7.9 的最终联调仍需在服务器环境执行。
 
 任何一项失败，先修复兼容层，不进入业务功能堆叠。

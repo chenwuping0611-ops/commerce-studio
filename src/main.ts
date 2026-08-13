@@ -20,6 +20,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     bufferLogs: true,
   });
+  app.enableShutdownHooks();
   const config = app.get(ConfigService);
   const isProduction = config.get("NODE_ENV", "development") === "production";
   const port = config.get<number>("PORT", 3000);
@@ -84,6 +85,12 @@ async function bootstrap() {
       },
     );
   }
+  app
+    .getHttpAdapter()
+    .getInstance()
+    .get("/", (_request: unknown, response: express.Response) => {
+      response.redirect("/workbench/");
+    });
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle("Commerce Studio API")
