@@ -6144,3 +6144,545 @@ summary:focus-visible {
     display: none;
   }
 }
+
+/* Unified layout pass v7. */
+.admin-shell {
+  background: #f5f7fb;
+}
+
+.admin-shell .main-panel {
+  min-width: 0;
+  background: #f5f7fb;
+}
+
+.admin-shell .admin-topbar {
+  height: 64px;
+  min-height: 64px;
+  padding: 0 28px;
+  border-bottom-color: #e3e8f0;
+  box-shadow: 0 1px 2px rgba(26, 44, 73, .03);
+}
+
+.admin-shell .content {
+  width: min(100%, 1440px);
+  margin: 0 auto;
+  padding: 24px 32px 48px;
+}
+
+.admin-shell .page-heading {
+  min-height: 76px;
+  align-items: center;
+  margin: 0 0 20px;
+  padding: 0 0 20px;
+  border-bottom: 1px solid #e0e6ee;
+}
+
+.admin-shell .page-heading h2 {
+  margin: 5px 0 6px;
+  color: #18263b;
+  font-size: 27px;
+  letter-spacing: -.025em;
+}
+
+.admin-shell .page-heading p {
+  max-width: 760px;
+  color: #718096;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.admin-shell .page-heading-actions {
+  gap: 12px;
+}
+
+.admin-shell .page-heading-count {
+  color: #738198;
+  font-size: 12px;
+}
+
+.admin-shell .panel {
+  border: 1px solid #e1e7ef;
+  border-radius: 10px;
+  box-shadow: 0 2px 5px rgba(26, 44, 73, .025),
+    0 10px 28px rgba(26, 44, 73, .045);
+}
+
+.admin-shell .panel-heading {
+  gap: 14px;
+  margin-bottom: 0;
+}
+
+.admin-shell .panel-heading h3 {
+  color: #1b2b43;
+  font-size: 18px;
+  letter-spacing: -.01em;
+}
+
+.admin-shell .panel-subtitle {
+  color: #75849a;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.admin-shell .button {
+  min-height: 36px;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.admin-shell input,
+.admin-shell textarea,
+.admin-shell select {
+  border-color: #d8e1ec;
+  border-radius: 7px;
+  background: #fff;
+  color: #1b2b43;
+}
+
+.admin-shell input:focus,
+.admin-shell textarea:focus,
+.admin-shell select:focus {
+  border-color: #79a0eb;
+  box-shadow: 0 0 0 3px rgba(54, 105, 214, .1);
+}
+
+.admin-shell .product-center-shell {
+  display: grid;
+  gap: 20px;
+}
+
+.admin-shell .product-center-layout {
+  display: grid;
+  grid-template-columns: 306px minmax(0, 1fr);
+  gap: 0;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #dfe6ef;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 3px 7px rgba(26, 44, 73, .03),
+    0 14px 34px rgba(26, 44, 73, .05);
+}
+
+.admin-shell .product-catalog-panel {
+  position: static;
+  min-width: 0;
+  min-height: 660px;
+  align-content: start;
+  padding: 22px 20px;
+  border: 0;
+  border-right: 1px solid #e1e7ef;
+  border-radius: 0;
+  background: #fbfcfe;
+  box-shadow: none;
+}
+
+.admin-shell .product-catalog-heading {
+  align-items: flex-start;
+  padding-bottom: 4px;
+}
+
+.admin-shell .product-catalog-heading h3 {
+  font-size: 18px;
+}
+
+.admin-shell .product-catalog-heading .panel-subtitle {
+  max-width: 230px;
+}
+
+.admin-shell .catalog-filters {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.admin-shell .catalog-filters input,
+.admin-shell .catalog-filters select {
+  min-height: 38px;
+}
+
+.admin-shell .product-catalog-list {
+  max-height: none;
+  align-content: start;
+  overflow: visible;
+}
+
+.admin-shell .product-catalog-row {
+  min-height: 68px;
+  padding: 12px;
+  border-color: #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.admin-shell .product-catalog-row:hover {
+  border-color: #b9ccef;
+  background: #f7faff;
+}
+
+.admin-shell .product-catalog-row.selected {
+  border-color: #7da1ed;
+  background: #edf3ff;
+  box-shadow: inset 3px 0 0 #3567d6;
+}
+
+.admin-shell .product-detail-workspace {
+  min-width: 0;
+  min-height: 660px;
+  background: #fff;
+}
+
+.admin-shell .product-details,
+.admin-shell .product-empty-detail {
+  min-height: 660px;
+  align-content: start;
+  padding: 28px 32px 40px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: #fff;
+}
+
+.admin-shell .product-profile-heading {
+  padding-bottom: 4px;
+}
+
+.admin-shell .product-profile-heading h3 {
+  margin-top: 8px;
+  color: #15243a;
+  font-size: 25px;
+}
+
+.admin-shell .product-profile-heading .panel-subtitle {
+  color: #6f7f95;
+}
+
+.admin-shell .tab-row {
+  gap: 0;
+  min-height: 42px;
+  padding: 0;
+  border-bottom: 1px solid #e1e7ef;
+}
+
+.admin-shell .tab-row .tab-button {
+  min-height: 42px;
+  margin-right: 26px;
+  padding: 0 2px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: #77859a;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.admin-shell .tab-row .tab-button:hover,
+.admin-shell .tab-row .tab-button.active {
+  border-bottom-color: #3567d6;
+  background: transparent;
+  color: #2458c8;
+}
+
+.admin-shell .detail-grid {
+  border-color: #e0e6ee;
+  border-radius: 8px;
+}
+
+.admin-shell .detail-grid > div {
+  min-height: 70px;
+  padding: 14px 16px;
+  background: #f8fafc;
+}
+
+.admin-shell .profile-sheet {
+  display: grid;
+  gap: 20px;
+}
+
+.admin-shell .profile-edit-grid {
+  gap: 16px;
+}
+
+.admin-shell .profile-sheet > label,
+.admin-shell .memory-editor > label {
+  gap: 7px;
+  color: #67778e;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.admin-shell .profile-sheet textarea,
+.admin-shell .memory-editor textarea {
+  min-height: 108px;
+  line-height: 1.6;
+}
+
+.admin-shell .variant-list {
+  gap: 8px;
+  padding-top: 18px;
+  border-top: 1px solid #e5eaf1;
+}
+
+.admin-shell .form-actions {
+  gap: 16px;
+  padding-top: 18px;
+  border-top: 1px solid #e5eaf1;
+}
+
+.admin-shell .asset-library,
+.admin-shell .memory-editor {
+  gap: 16px;
+}
+
+.admin-shell .asset-toolbar {
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e5eaf1;
+}
+
+.admin-shell .asset-card {
+  border-color: #e0e6ee;
+  border-radius: 8px;
+  background: #fbfcfe;
+  box-shadow: none;
+}
+
+.admin-shell .product-empty-detail {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  text-align: center;
+}
+
+.admin-shell .product-empty-detail p {
+  max-width: 420px;
+  color: #74849a;
+  line-height: 1.65;
+}
+
+.admin-shell .tasks-layout {
+  display: grid;
+  grid-template-columns: 330px minmax(0, 1fr);
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid #dfe6ef;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 3px 7px rgba(26, 44, 73, .03),
+    0 14px 34px rgba(26, 44, 73, .05);
+}
+
+.admin-shell .tasks-layout > .panel {
+  min-height: 620px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.admin-shell .tasks-layout > .panel:first-child {
+  border-right: 1px solid #e1e7ef;
+  background: #fbfcfe;
+}
+
+.admin-shell .task-detail {
+  min-height: 620px;
+}
+
+.admin-shell .account-page .two-column {
+  gap: 20px;
+}
+
+.admin-shell .admin-center {
+  gap: 20px;
+}
+
+.admin-shell .admin-tabs {
+  min-height: 48px;
+  padding: 0 10px;
+  border: 1px solid #dfe6ef;
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+.admin-shell .admin-tabs .tab-button {
+  min-height: 46px;
+  padding: 0 14px;
+  border-bottom-width: 2px;
+  font-size: 11px;
+}
+
+.admin-shell .admin-grid,
+.admin-shell .role-layout,
+.admin-shell .skill-layout {
+  gap: 20px;
+}
+
+.admin-shell .admin-grid > .panel,
+.admin-shell .role-layout > .panel,
+.admin-shell .skill-layout > .panel {
+  min-width: 0;
+}
+
+.admin-shell .generation-workbench {
+  margin: -24px -32px -48px;
+  border-top: 1px solid #e1e7ef;
+}
+
+.admin-shell .generation-control-rail {
+  background: #fff;
+}
+
+.admin-shell .generation-center {
+  background: #f5f7fb;
+}
+
+.admin-shell .generation-preview-stage,
+.admin-shell .generation-prompt-composer,
+.admin-shell .generation-history-board {
+  border-color: #dfe6ef;
+  border-radius: 10px;
+  box-shadow: 0 2px 5px rgba(26, 44, 73, .025),
+    0 10px 28px rgba(26, 44, 73, .04);
+}
+
+.admin-shell .generation-preview-stage {
+  min-height: 390px;
+  background: #fff;
+}
+
+.admin-shell .generation-prompt-composer,
+.admin-shell .generation-history-board {
+  background: #fff;
+}
+
+.admin-shell .overview-page {
+  display: grid;
+  gap: 20px;
+}
+
+.admin-shell .overview-header {
+  margin-bottom: 0;
+}
+
+.admin-shell .metric-grid {
+  gap: 14px;
+}
+
+.admin-shell .metric-card {
+  min-height: 120px;
+  padding: 18px;
+  border-radius: 10px;
+}
+
+.admin-shell .overview-grid,
+.admin-shell .overview-lower-grid {
+  gap: 20px;
+}
+
+.admin-shell .overview-workflow-card,
+.admin-shell .overview-recent-card,
+.admin-shell .quick-action-panel,
+.admin-shell .system-status-card {
+  min-width: 0;
+}
+
+@media (max-width: 1180px) {
+  .admin-shell .product-center-layout {
+    grid-template-columns: 280px minmax(0, 1fr);
+  }
+
+  .admin-shell .tasks-layout {
+    grid-template-columns: 290px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 980px) {
+  .admin-shell .content {
+    padding-right: 24px;
+    padding-left: 24px;
+  }
+
+  .admin-shell .page-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .admin-shell .page-heading-actions {
+    justify-content: flex-start;
+  }
+
+  .admin-shell .product-center-layout,
+  .admin-shell .tasks-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-shell .product-catalog-panel,
+  .admin-shell .tasks-layout > .panel:first-child {
+    border-right: 0;
+    border-bottom: 1px solid #e1e7ef;
+  }
+
+  .admin-shell .product-catalog-panel,
+  .admin-shell .product-detail-workspace,
+  .admin-shell .product-details,
+  .admin-shell .product-empty-detail,
+  .admin-shell .tasks-layout > .panel {
+    min-height: 0;
+  }
+
+  .admin-shell .product-catalog-list {
+    max-height: 300px;
+    overflow: auto;
+  }
+}
+
+@media (max-width: 680px) {
+  .admin-shell .content {
+    padding: 18px 16px 32px;
+  }
+
+  .admin-shell .page-heading {
+    min-height: 0;
+    margin-bottom: 16px;
+    padding-bottom: 16px;
+  }
+
+  .admin-shell .page-heading h2 {
+    font-size: 23px;
+  }
+
+  .admin-shell .page-heading-actions {
+    width: 100%;
+  }
+
+  .admin-shell .page-heading-actions .button {
+    flex: 1;
+  }
+
+  .admin-shell .product-center-layout,
+  .admin-shell .tasks-layout {
+    border-radius: 10px;
+  }
+
+  .admin-shell .product-catalog-panel,
+  .admin-shell .product-details,
+  .admin-shell .product-empty-detail {
+    padding: 18px;
+  }
+
+  .admin-shell .product-profile-heading h3 {
+    font-size: 21px;
+  }
+
+  .admin-shell .detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-shell .detail-grid > div {
+    min-height: 0;
+  }
+
+  .admin-shell .generation-workbench {
+    margin: -18px -16px -32px;
+  }
+}
