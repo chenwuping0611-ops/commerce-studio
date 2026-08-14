@@ -78,6 +78,17 @@ type ModelProfile = {
   providerId?: string;
 };
 
+type ModelCapability = {
+  image?: boolean;
+  video?: boolean;
+  aspectRatios?: string[];
+  imageAspectRatios?: string[];
+  videoAspectRatios?: string[];
+  maxCount?: number;
+  durationOptions?: number[];
+  referenceImage?: boolean;
+};
+
 type ModelProvider = {
   id: string;
   name: string;
@@ -138,6 +149,7 @@ type AuditLog = {
 
 type Task = {
   id: string;
+  historyCode?: string | null;
   status: string;
   type: string;
   idea: string;
@@ -178,9 +190,13 @@ function hasPermission(user: User, permission: string) {
 }
 
 function firstAccessibleView(user: User): View {
-  if (hasPermission(user, "generation:create:team")) return "image";
-  if (hasPermission(user, "product:read:team")) return "products";
-  if (hasPermission(user, "generation:read:team")) return "tasks";
+  if (
+    hasPermission(user, "generation:create:team") ||
+    hasPermission(user, "product:read:team") ||
+    hasPermission(user, "generation:read:team")
+  ) {
+    return "overview";
+  }
   if (
     hasPermission(user, "user:manage:system") ||
     hasPermission(user, "model_config:read:system") ||
@@ -240,7 +256,7 @@ const starterEdges: Edge[] = [
 
 export function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [view, setView] = useState<View>("image");
+  const [view, setView] = useState<View>("overview");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [products, setProducts] = useState<Product[]>([]);
@@ -350,6 +366,12 @@ export function App() {
           </div>
         </div>
         <nav className="nav-list">
+          <NavItem
+            icon="⌂"
+            label="工作台首页"
+            active={view === "overview"}
+            onClick={() => setView("overview")}
+          />
           <div className="nav-section-label">创作</div>
           {canGenerate && (
             <>
@@ -691,9 +713,14 @@ function ProductsView({
   onSelect: (id: string) => void;
   onCreated: () => Promise<void>;
 }) {
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [brand, setBrand] = useState("");
+  const [category, setCategory] = useState("");
+  const [description, setDescription] = useState("");
   const [creating, setCreating] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -702,14 +729,18 @@ function ProductsView({
     setCreating(true);
     setMessage("");
     try {
-      await api("/products", {
+      const created = await api<Product>("/products", {
         method: "POST",
-        bodyJson: { name, code, brand },
+        bodyJson: { name, code, brand, category, description },
       });
       setName("");
       setCode("");
       setBrand("");
+      setCategory("");
+      setDescription("");
       await onCreated();
+      onSelect(created.id);
+      setCreateOpen(false);
       setMessage("产品已创建");
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "创建失败");
@@ -718,77 +749,179 @@ function ProductsView({
     }
   }
 
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleProducts = products.filter((product) => {
+    const matchesQuery =
+      !normalizedQuery ||
+      [product.name, product.code, product.brand, product.category]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(normalizedQuery));
+    const matchesStatus =
+      statusFilter === "ALL" || (product.status ?? "DRAFT") === statusFilter;
+    return matchesQuery && matchesStatus;
+  });
+
   return (
-    <div className="products-layout">
-      <section className="panel">
-        <div className="panel-heading">
+    <div className="product-center-shell">
+      <div className="page-toolbar product-page-toolbar">
+        <div>
+          <span className="eyebrow">PRODUCT CENTER</span>
+          <h2>产品中心</h2>
+          <p>先建立产品数据源，再维护产品档案、素材和长期记忆。</p>
+        </div>
+        <div className="toolbar-actions">
+          <span className="toolbar-note">{products.length} 个产品数据源</span>
+          <button
+            className="button primary"
+            type="button"
+            onClick={() => setCreateOpen((current) => !current)}
+          >
+            {createOpen ? "关闭创建" : "+ 新建产品"}
+          </button>
+        </div>
+      </div>
+      {createOpen && (
+        <form className="product-create-drawer" onSubmit={createProduct}>
           <div>
-            <span className="eyebrow">PRODUCT CENTER</span>
-            <h3>产品资料</h3>
+            <span className="eyebrow">NEW PRODUCT SOURCE</span>
+            <h3>建立产品数据源</h3>
+            <p>
+              产品名称和编码用于后续生成历史、素材与 Product Memory 的唯一识别。
+            </p>
           </div>
-          <span className="count-badge">{products.length}</span>
-        </div>
-        <div className="product-list">
-          {products.length === 0 && <EmptyState text="还没有产品资料" />}
-          {products.map((product) => (
-            <button
-              className={`product-row ${selectedProductId === product.id ? "selected" : ""}`}
-              key={product.id}
-              onClick={() => onSelect(product.id)}
-            >
-              <div className="product-avatar">{product.name.slice(0, 1)}</div>
-              <div className="product-row-copy">
-                <strong>{product.name}</strong>
-                <span>
-                  {product.code} · {product.brand || "未设置品牌"}
-                </span>
-              </div>
-              <span className="row-arrow">→</span>
+          <div className="compact-form-grid">
+            <label>
+              产品名称
+              <input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                required
+                placeholder="例如：高级无线耳机"
+              />
+            </label>
+            <label>
+              产品编码
+              <input
+                value={code}
+                onChange={(event) => setCode(event.target.value)}
+                required
+                placeholder="例如：HEADPHONE-001"
+              />
+            </label>
+            <label>
+              品牌
+              <input
+                value={brand}
+                onChange={(event) => setBrand(event.target.value)}
+                placeholder="品牌名称"
+              />
+            </label>
+            <label>
+              类目
+              <input
+                value={category}
+                onChange={(event) => setCategory(event.target.value)}
+                placeholder="例如：消费电子"
+              />
+            </label>
+          </div>
+          <label>
+            产品描述
+            <textarea
+              rows={3}
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              placeholder="记录产品定位、主要卖点和电商展示要求"
+            />
+          </label>
+          <div className="drawer-actions">
+            {message && <div className="alert success">{message}</div>}
+            <button className="button primary" disabled={creating}>
+              {creating ? "创建中..." : "创建并打开产品"}
             </button>
-          ))}
-        </div>
-      </section>
-      <div className="product-workspace">
-        <form className="panel form-panel" onSubmit={createProduct}>
+          </div>
+        </form>
+      )}
+      <div className="product-center-layout">
+        <section className="panel product-catalog-panel">
           <div className="panel-heading">
             <div>
-              <span className="eyebrow">NEW PRODUCT</span>
-              <h3>建立产品数据源</h3>
+              <span className="eyebrow">DATA SOURCES</span>
+              <h3>产品数据源</h3>
             </div>
+            <span className="count-badge">{visibleProducts.length}</span>
           </div>
-          <label>
-            产品名称
+          <div className="catalog-filters">
             <input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              required
-              placeholder="例如：高级无线耳机"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="搜索名称、编码或品牌"
+              aria-label="搜索产品"
             />
-          </label>
-          <label>
-            产品编码
-            <input
-              value={code}
-              onChange={(event) => setCode(event.target.value)}
-              required
-              placeholder="例如：HEADPHONE-001"
-            />
-          </label>
-          <label>
-            品牌
-            <input
-              value={brand}
-              onChange={(event) => setBrand(event.target.value)}
-              placeholder="品牌名称"
-            />
-          </label>
-          {message && <div className="alert success">{message}</div>}
-          <button className="button primary" disabled={creating}>
-            {creating ? "创建中..." : "创建产品"}
-          </button>
-        </form>
-        {selectedProductId && <ProductDetails productId={selectedProductId} />}
+            <select
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+              aria-label="筛选产品状态"
+            >
+              <option value="ALL">全部状态</option>
+              <option value="DRAFT">草稿</option>
+              <option value="ACTIVE">启用</option>
+              <option value="ARCHIVED">归档</option>
+            </select>
+          </div>
+          <div className="product-list product-catalog-list">
+            {visibleProducts.length === 0 && (
+              <EmptyState
+                text={products.length ? "没有匹配的产品" : "还没有产品数据源"}
+              />
+            )}
+            {visibleProducts.map((product) => (
+              <button
+                className={`product-row product-catalog-row ${selectedProductId === product.id ? "selected" : ""}`}
+                key={product.id}
+                onClick={() => onSelect(product.id)}
+              >
+                <div className="product-avatar">
+                  {product.name.slice(0, 1).toUpperCase()}
+                </div>
+                <div className="product-row-copy">
+                  <strong>{product.name}</strong>
+                  <span>
+                    {product.code} · {product.brand || "未设置品牌"}
+                  </span>
+                  <small>
+                    {product.category || "未分类"} ·{" "}
+                    {product.status === "ACTIVE" ? "已启用" : "草稿"}
+                  </small>
+                </div>
+                <span className="row-arrow">→</span>
+              </button>
+            ))}
+          </div>
+        </section>
+        <div className="product-detail-workspace">
+          {selectedProductId ? (
+            <ProductDetails productId={selectedProductId} />
+          ) : (
+            <section className="panel product-empty-detail">
+              <div className="empty-illustration">□</div>
+              <h3>选择一个产品开始维护</h3>
+              <p>
+                产品档案、Product Memory
+                和素材库会在这里分层管理，并自动供图片与视频创作引用。
+              </p>
+              <button
+                className="button primary"
+                type="button"
+                onClick={() => setCreateOpen(true)}
+              >
+                建立第一个产品
+              </button>
+            </section>
+          )}
+        </div>
       </div>
+      {message && !createOpen && <div className="alert success">{message}</div>}
     </div>
   );
 }
@@ -930,6 +1063,13 @@ function ProductDetails({ productId }: { productId: string }) {
   });
   const [assetType, setAssetType] = useState("PRODUCT_REFERENCE");
   const [assetView, setAssetView] = useState("front");
+  const [profileText, setProfileText] = useState({
+    name: "",
+    code: "",
+    brand: "",
+    category: "",
+    description: "",
+  });
 
   const reload = useCallback(async () => {
     const [productData, memoryData, assetData] = await Promise.all([
@@ -940,6 +1080,13 @@ function ProductDetails({ productId }: { productId: string }) {
     setProduct(productData);
     setMemory(memoryData);
     setAssets(assetData ?? []);
+    setProfileText({
+      name: productData.name,
+      code: productData.code,
+      brand: productData.brand ?? "",
+      category: productData.category ?? "",
+      description: productData.description ?? "",
+    });
     setMemoryText({
       facts: (memoryData?.facts ?? [])
         .map((item) => `${item.key}=${item.value}`)
@@ -981,6 +1128,30 @@ function ProductDetails({ productId }: { productId: string }) {
       setMessage("产品记忆已保存并生成新版本");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "产品记忆保存失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveProfile(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setMessage("");
+    try {
+      await api(`/products/${productId}`, {
+        method: "PATCH",
+        bodyJson: {
+          name: profileText.name,
+          code: profileText.code,
+          brand: profileText.brand || undefined,
+          category: profileText.category || undefined,
+          description: profileText.description || undefined,
+        },
+      });
+      await reload();
+      setMessage("产品档案已保存");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "产品档案保存失败");
     } finally {
       setBusy(false);
     }
@@ -1055,7 +1226,7 @@ function ProductDetails({ productId }: { productId: string }) {
       </div>
       {message && <div className="alert success">{message}</div>}
       {tab === "profile" && (
-        <div className="profile-sheet">
+        <form className="profile-sheet" onSubmit={saveProfile}>
           <div className="detail-grid">
             <div>
               <span>产品编码</span>
@@ -1070,10 +1241,72 @@ function ProductDetails({ productId }: { productId: string }) {
               <strong>{product.variants?.length ?? 0}</strong>
             </div>
           </div>
-          <div className="profile-description">
-            <span>产品描述</span>
-            <p>{product.description || "尚未填写产品描述。"}</p>
+          <div className="compact-form-grid profile-edit-grid">
+            <label>
+              产品名称
+              <input
+                required
+                value={profileText.name}
+                onChange={(event) =>
+                  setProfileText((current) => ({
+                    ...current,
+                    name: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label>
+              产品编码
+              <input
+                required
+                value={profileText.code}
+                onChange={(event) =>
+                  setProfileText((current) => ({
+                    ...current,
+                    code: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label>
+              品牌
+              <input
+                value={profileText.brand}
+                onChange={(event) =>
+                  setProfileText((current) => ({
+                    ...current,
+                    brand: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label>
+              类目
+              <input
+                value={profileText.category}
+                onChange={(event) =>
+                  setProfileText((current) => ({
+                    ...current,
+                    category: event.target.value,
+                  }))
+                }
+              />
+            </label>
           </div>
+          <label>
+            产品描述
+            <textarea
+              rows={4}
+              value={profileText.description}
+              onChange={(event) =>
+                setProfileText((current) => ({
+                  ...current,
+                  description: event.target.value,
+                }))
+              }
+              placeholder="产品定位、核心卖点、材质和展示边界"
+            />
+          </label>
           <div className="variant-list">
             <div className="section-label">SKU / 变体</div>
             {product.variants?.length ? (
@@ -1090,7 +1323,15 @@ function ProductDetails({ productId }: { productId: string }) {
               <EmptyState text="暂未建立 SKU 变体" />
             )}
           </div>
-        </div>
+          <div className="form-actions">
+            <span className="form-note">
+              产品资料会作为 Prompt Engine 的基础输入
+            </span>
+            <button className="button primary" disabled={busy}>
+              保存产品档案
+            </button>
+          </div>
+        </form>
       )}
       {tab === "memory" && (
         <form className="memory-editor" onSubmit={saveMemory}>
@@ -1822,6 +2063,11 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
     endpointPath: "",
     image: true,
     video: false,
+    imageAspectRatios: "1:1, 4:5, 16:9",
+    videoAspectRatios: "16:9, 9:16, 1:1",
+    maxCount: "4",
+    durationOptions: "5, 10, 15",
+    referenceImage: true,
   });
   const [message, setMessage] = useState("");
   const reload = useCallback(
@@ -1864,6 +2110,11 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
           capability: {
             image: profileForm.image,
             video: profileForm.video,
+            imageAspectRatios: parseCommaList(profileForm.imageAspectRatios),
+            videoAspectRatios: parseCommaList(profileForm.videoAspectRatios),
+            maxCount: Number(profileForm.maxCount) || 1,
+            durationOptions: parseNumberList(profileForm.durationOptions),
+            referenceImage: profileForm.referenceImage,
           },
         },
       });
@@ -2047,7 +2298,79 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
                 />
                 视频
               </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={profileForm.referenceImage}
+                  onChange={(event) =>
+                    setProfileForm({
+                      ...profileForm,
+                      referenceImage: event.target.checked,
+                    })
+                  }
+                />
+                支持参考图
+              </label>
             </div>
+            <div className="compact-form-grid model-capability-grid">
+              <label>
+                图片画幅
+                <input
+                  value={profileForm.imageAspectRatios}
+                  onChange={(event) =>
+                    setProfileForm({
+                      ...profileForm,
+                      imageAspectRatios: event.target.value,
+                    })
+                  }
+                  placeholder="1:1, 4:5, 16:9"
+                />
+              </label>
+              <label>
+                视频画幅
+                <input
+                  value={profileForm.videoAspectRatios}
+                  onChange={(event) =>
+                    setProfileForm({
+                      ...profileForm,
+                      videoAspectRatios: event.target.value,
+                    })
+                  }
+                  placeholder="16:9, 9:16"
+                />
+              </label>
+              <label>
+                图片最大数量
+                <input
+                  type="number"
+                  min={1}
+                  max={16}
+                  value={profileForm.maxCount}
+                  onChange={(event) =>
+                    setProfileForm({
+                      ...profileForm,
+                      maxCount: event.target.value,
+                    })
+                  }
+                />
+              </label>
+              <label>
+                视频时长（秒）
+                <input
+                  value={profileForm.durationOptions}
+                  onChange={(event) =>
+                    setProfileForm({
+                      ...profileForm,
+                      durationOptions: event.target.value,
+                    })
+                  }
+                  placeholder="5, 10, 15"
+                />
+              </label>
+            </div>
+            <p className="form-note">
+              每个模型独立保存能力；创作页只展示当前模型支持的画幅、数量、时长和参考图选项。
+            </p>
             <button className="button primary">保存模型配置</button>
           </form>
         )}
@@ -2128,11 +2451,10 @@ function GenerationStudio({
   const [assetUrls, setAssetUrls] = useState<string[]>([]);
   const [productAssets, setProductAssets] = useState<ProductAsset[]>([]);
   const [assetPickerOpen, setAssetPickerOpen] = useState(false);
-  const [aspectRatio, setAspectRatio] = useState(
-    type === "IMAGE" ? "1:1" : "16:9",
-  );
-  const [imageCount, setImageCount] = useState("4");
-  const [videoDuration, setVideoDuration] = useState("5");
+  const [referenceUploading, setReferenceUploading] = useState(false);
+  const [aspectRatio, setAspectRatio] = useState("");
+  const [imageCount, setImageCount] = useState("1");
+  const [videoDuration, setVideoDuration] = useState("");
   const [watchedTaskId, setWatchedTaskId] = useState("");
   const [previewTask, setPreviewTask] = useState<Task | null>(
     tasks.find((task) => task.type === type && task.assets?.length) ?? null,
@@ -2220,9 +2542,9 @@ function GenerationStudio({
     setNegativePrompt("");
     setMemoryVersion(null);
     setAssetUrls([]);
-    setAspectRatio(type === "IMAGE" ? "1:1" : "16:9");
-    setImageCount("4");
-    setVideoDuration("5");
+    setAspectRatio("");
+    setImageCount("1");
+    setVideoDuration("");
   }, [selectedProductId, type]);
   useEffect(() => {
     if (!selectedProductId) {
@@ -2253,7 +2575,11 @@ function GenerationStudio({
         memoryVersion: number;
       }>(`/products/${selectedProductId}/prompt/compile`, {
         method: "POST",
-        bodyJson: { idea, type, aspectRatio },
+        bodyJson: {
+          idea,
+          type,
+          ...(aspectRatio ? { aspectRatio } : {}),
+        },
       });
       setPromptPreview(compiled.promptText);
       setNegativePrompt(compiled.negativePrompt);
@@ -2263,13 +2589,75 @@ function GenerationStudio({
       setMessage(err instanceof Error ? err.message : "Prompt 预览失败");
     }
   }
+
+  async function uploadExtraReferences(
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (!files.length) return;
+    if (!selectedProductId) {
+      setMessage("请先选择产品，再添加额外参考图");
+      return;
+    }
+    if (!supportsReferenceImages) {
+      setMessage("当前模型不支持参考图");
+      return;
+    }
+    setReferenceUploading(true);
+    setMessage("");
+    try {
+      const created: ProductAsset[] = [];
+      for (const file of files) {
+        const formData = new FormData();
+        formData.set("file", file);
+        formData.set("type", "GENERATION_REFERENCE");
+        formData.set("view", "custom");
+        created.push(
+          await upload<ProductAsset>(
+            `/products/${selectedProductId}/assets`,
+            formData,
+          ),
+        );
+      }
+      setProductAssets((current) => [...created, ...current]);
+      setAssetUrls((current) => [
+        ...new Set([...current, ...created.map((asset) => asset.id)]),
+      ]);
+      setAssetPickerOpen(true);
+      setMessage(`已添加 ${created.length} 张额外参考图`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "参考图上传失败");
+    } finally {
+      setReferenceUploading(false);
+    }
+  }
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!selectedProductId) return setMessage("请先选择产品");
     if (!profileId) return setMessage("请先在系统管理中配置模型");
+    const count = Number(imageCount);
+    const duration = Number(videoDuration);
+    if (
+      type === "IMAGE" &&
+      (!Number.isInteger(count) || count < 1 || count > maxImageCount)
+    ) {
+      return setMessage(`图片数量必须是 1-${maxImageCount} 张`);
+    }
+    if (
+      type === "VIDEO" &&
+      (!Number.isInteger(duration) || !durationOptions.includes(duration))
+    ) {
+      return setMessage("请选择当前模型支持的视频时长");
+    }
     setSubmitting(true);
     setMessage("");
     try {
+      const options: Record<string, unknown> = {
+        ...(aspectRatio ? { aspectRatio } : {}),
+        ...(type === "IMAGE" ? { count } : { duration }),
+      };
       const task = await api<Task>("/generation-tasks", {
         method: "POST",
         headers: { "Idempotency-Key": crypto.randomUUID() },
@@ -2279,12 +2667,7 @@ function GenerationStudio({
           type,
           idea,
           inputAssets: assetUrls,
-          options: {
-            aspectRatio,
-            ...(type === "IMAGE"
-              ? { count: Number(imageCount) }
-              : { duration: Number(videoDuration) }),
-          },
+          options,
         },
       });
       onCreated(task);
@@ -2301,6 +2684,38 @@ function GenerationStudio({
     const capability = profile.capability ?? {};
     return capability[type === "IMAGE" ? "image" : "video"] === true;
   });
+  const selectedProfile = visibleProfiles.find(
+    (profile) => profile.id === profileId,
+  );
+  const capability = (selectedProfile?.capability ?? {}) as ModelCapability;
+  const ratioOptions = getModelAspectRatios(capability, type);
+  const maxImageCount = Math.max(1, Number(capability.maxCount) || 4);
+  const durationOptions =
+    Array.isArray(capability.durationOptions) &&
+    capability.durationOptions.length
+      ? capability.durationOptions
+      : [5, 10, 15];
+  const supportsReferenceImages = capability.referenceImage !== false;
+  useEffect(() => {
+    if (!selectedProfile) return;
+    const nextRatios = getModelAspectRatios(capability, type);
+    setAspectRatio((current) =>
+      current && nextRatios.includes(current) ? current : nextRatios[0] || "",
+    );
+    if (type === "VIDEO") {
+      setVideoDuration((current) => {
+        const numeric = Number(current);
+        return numeric && durationOptions.includes(numeric)
+          ? current
+          : String(durationOptions[0] ?? 5);
+      });
+    } else {
+      setImageCount((current) => {
+        const numeric = Number(current);
+        return numeric >= 1 && numeric <= maxImageCount ? current : "1";
+      });
+    }
+  }, [capability, durationOptions, maxImageCount, selectedProfile, type]);
   const currentProduct = products.find(
     (product) => product.id === selectedProductId,
   );
@@ -2387,6 +2802,7 @@ function GenerationStudio({
                         <input
                           type="checkbox"
                           checked={checked}
+                          disabled={!supportsReferenceImages}
                           onChange={() =>
                             setAssetUrls((current) =>
                               checked
@@ -2416,6 +2832,21 @@ function GenerationStudio({
               ) : (
                 <p className="asset-reference-empty">
                   当前产品还没有上传参考素材，请到产品中心补充多角度图片。
+                </p>
+              )}
+              <label className="button ghost compact-button file-button asset-reference-upload">
+                {referenceUploading ? "上传中..." : "添加额外参考图"}
+                <input
+                  type="file"
+                  multiple
+                  accept="image/*,video/*"
+                  disabled={referenceUploading || !supportsReferenceImages}
+                  onChange={(event) => void uploadExtraReferences(event)}
+                />
+              </label>
+              {!supportsReferenceImages && (
+                <p className="asset-reference-empty">
+                  当前模型未开启参考图能力，请切换模型或在系统配置中开启。
                 </p>
               )}
             </div>
@@ -2457,23 +2888,45 @@ function GenerationStudio({
                 <select
                   value={aspectRatio}
                   onChange={(event) => setAspectRatio(event.target.value)}
+                  disabled={!ratioOptions.length}
                 >
-                  <option value="1:1">1:1 · 商品方图</option>
-                  <option value="4:5">4:5 · 电商竖图</option>
-                  <option value="16:9">16:9 · 横向广告</option>
+                  {ratioOptions.length ? (
+                    ratioOptions.map((ratio) => (
+                      <option value={ratio} key={ratio}>
+                        {ratio}
+                      </option>
+                    ))
+                  ) : (
+                    <option value="">模型未配置画幅</option>
+                  )}
                 </select>
               </label>
-              <label className="compact-label">
-                生成数量
-                <select
+              <div className="range-field">
+                <div className="range-field-heading">
+                  <span>生成数量</span>
+                  <output>{imageCount || "1"} 张</output>
+                </div>
+                <input
+                  type="range"
+                  min={1}
+                  max={maxImageCount}
+                  step={1}
+                  value={Math.min(
+                    maxImageCount,
+                    Math.max(1, Number(imageCount) || 1),
+                  )}
+                  onChange={(event) => setImageCount(event.target.value)}
+                />
+                <input
+                  type="number"
+                  min={1}
+                  max={maxImageCount}
                   value={imageCount}
                   onChange={(event) => setImageCount(event.target.value)}
-                >
-                  <option value="1">1 张</option>
-                  <option value="2">2 张</option>
-                  <option value="4">4 张</option>
-                </select>
-              </label>
+                  aria-label="生成图片数量"
+                />
+                <small>当前模型最多 {maxImageCount} 张</small>
+              </div>
             </>
           ) : (
             <>
@@ -2483,9 +2936,11 @@ function GenerationStudio({
                   value={videoDuration}
                   onChange={(event) => setVideoDuration(event.target.value)}
                 >
-                  <option value="5">5 秒</option>
-                  <option value="10">10 秒</option>
-                  <option value="15">15 秒</option>
+                  {durationOptions.map((duration) => (
+                    <option value={duration} key={duration}>
+                      {duration} 秒
+                    </option>
+                  ))}
                 </select>
               </label>
               <label className="compact-label">
@@ -2493,10 +2948,17 @@ function GenerationStudio({
                 <select
                   value={aspectRatio}
                   onChange={(event) => setAspectRatio(event.target.value)}
+                  disabled={!ratioOptions.length}
                 >
-                  <option value="16:9">16:9 · 横屏</option>
-                  <option value="9:16">9:16 · 竖屏</option>
-                  <option value="1:1">1:1 · 方形</option>
+                  {ratioOptions.length ? (
+                    ratioOptions.map((ratio) => (
+                      <option value={ratio} key={ratio}>
+                        {ratio}
+                      </option>
+                    ))
+                  ) : (
+                    <option value="">模型未配置画幅</option>
+                  )}
                 </select>
               </label>
             </>
@@ -2558,7 +3020,7 @@ function GenerationStudio({
               </strong>
               <span>
                 {currentProduct
-                  ? "历史结果会在右侧持续沉淀，可点击切换预览"
+                  ? "历史结果会在下方持续沉淀，可点击卡片切换预览"
                   : "产品中心的资料与规则会自动带入 Prompt"}
               </span>
             </div>
@@ -2619,50 +3081,50 @@ function GenerationStudio({
             </details>
           )}
         </form>
-      </section>
-      <aside className="generation-history-strip">
-        <div className="history-strip-heading">
-          <div>
-            <span className="eyebrow">HISTORY</span>
-            <strong>{type === "IMAGE" ? "图片历史" : "视频历史"}</strong>
-          </div>
-          <span className="count-badge">{visibleTasks.length}</span>
-        </div>
-        <div className="generation-history-grid">
-          {visibleTasks.length ? (
-            visibleTasks.map((task) => (
-              <button
-                type="button"
-                key={task.id}
-                className={`history-thumb ${previewTask?.id === task.id ? "selected" : ""}`}
-                onClick={() => setPreviewTask(task)}
-              >
-                {task.assets?.[0] ? (
-                  task.assets[0].mimeType.startsWith("video/") ? (
-                    <video src={task.assets[0].url} muted />
-                  ) : (
-                    <img src={task.assets[0].url} alt={task.idea} />
-                  )
-                ) : (
-                  <span className="history-thumb-placeholder">
-                    {task.status}
-                  </span>
-                )}
-                <span className="history-thumb-overlay">{task.status}</span>
-              </button>
-            ))
-          ) : (
-            <div className="history-strip-empty">
-              <span>○</span>
-              <small>还没有{type === "IMAGE" ? "图片" : "视频"}结果</small>
+        <div className="generation-history-board">
+          <div className="history-board-heading">
+            <div>
+              <span className="eyebrow">GENERATED LIBRARY</span>
+              <h3>{type === "IMAGE" ? "图片生成与历史" : "视频生成与历史"}</h3>
             </div>
-          )}
+            <span className="toolbar-note">点击卡片查看预览与编号</span>
+          </div>
+          <div className="history-board-grid">
+            {visibleTasks.length ? (
+              visibleTasks.map((task) => (
+                <button
+                  type="button"
+                  key={task.id}
+                  className={`history-board-card ${previewTask?.id === task.id ? "selected" : ""}`}
+                  onClick={() => setPreviewTask(task)}
+                >
+                  <div className="history-board-preview">
+                    {task.assets?.[0] ? (
+                      task.assets[0].mimeType.startsWith("video/") ? (
+                        <video src={task.assets[0].url} muted />
+                      ) : (
+                        <img src={task.assets[0].url} alt={task.idea} />
+                      )
+                    ) : (
+                      <span>{task.status}</span>
+                    )}
+                  </div>
+                  <div className="history-board-copy">
+                    <strong>{task.historyCode || "待分配编号"}</strong>
+                    <span>{task.idea}</span>
+                    <StatusBadge status={task.status} />
+                  </div>
+                </button>
+              ))
+            ) : (
+              <div className="history-board-empty">
+                <span>○</span>
+                <p>还没有{type === "IMAGE" ? "图片" : "视频"}生成记录</p>
+              </div>
+            )}
+          </div>
         </div>
-        <div className="history-strip-note">
-          <span className="status-dot blue" />
-          <span>结果会持久化到生成历史</span>
-        </div>
-      </aside>
+      </section>
     </div>
   );
 }
@@ -3511,6 +3973,47 @@ function TasksView({
   onSelect: (task: Task) => void;
   onTaskUpdated: (task: Task) => void;
 }) {
+  const [historyCode, setHistoryCode] = useState("");
+  const [searchedTasks, setSearchedTasks] = useState<Task[] | null>(null);
+  const [searchMessage, setSearchMessage] = useState("");
+  const [searching, setSearching] = useState(false);
+  const displayedTasks = searchedTasks ?? tasks;
+
+  async function searchHistory(event: React.FormEvent) {
+    event.preventDefault();
+    const normalized = historyCode.trim();
+    if (!normalized) {
+      setSearchedTasks(null);
+      setSearchMessage("");
+      return;
+    }
+    if (!/^\d{7}$/.test(normalized)) {
+      setSearchMessage("请输入完整的 7 位数字编号");
+      return;
+    }
+    setSearching(true);
+    setSearchMessage("");
+    try {
+      const result = await api<Task[]>(
+        `/generation-tasks?historyCode=${encodeURIComponent(normalized)}&take=20`,
+      );
+      setSearchedTasks(result ?? []);
+      setSearchMessage(
+        result?.length ? "已定位到对应生成记录" : "没有找到对应生成记录",
+      );
+    } catch (error) {
+      setSearchMessage(error instanceof Error ? error.message : "查询失败");
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  function clearSearch() {
+    setHistoryCode("");
+    setSearchedTasks(null);
+    setSearchMessage("");
+  }
+
   return (
     <div className="two-column tasks-layout">
       <section className="panel">
@@ -3519,11 +4022,56 @@ function TasksView({
             <span className="eyebrow">HISTORY</span>
             <h3>生成任务</h3>
           </div>
-          <span className="count-badge">{tasks.length}</span>
+          <span className="count-badge">{displayedTasks.length}</span>
         </div>
+        <form className="history-search" onSubmit={searchHistory}>
+          <div className="history-search-input">
+            <input
+              value={historyCode}
+              onChange={(event) =>
+                setHistoryCode(
+                  event.target.value.replace(/\D/g, "").slice(0, 7),
+                )
+              }
+              inputMode="numeric"
+              maxLength={7}
+              placeholder="输入 7 位生成编号精准查询"
+              aria-label="输入 7 位生成编号"
+            />
+            <button className="button primary small" disabled={searching}>
+              {searching ? "查询中..." : "精准查询"}
+            </button>
+            {searchedTasks !== null && (
+              <button
+                className="button ghost small"
+                type="button"
+                onClick={clearSearch}
+              >
+                清除
+              </button>
+            )}
+          </div>
+          {searchMessage && (
+            <span
+              className={`history-search-message ${
+                searchMessage.includes("没有") || searchMessage.includes("失败")
+                  ? "error"
+                  : "success"
+              }`}
+            >
+              {searchMessage}
+            </span>
+          )}
+        </form>
         <div className="task-list">
-          {tasks.length === 0 && <EmptyState text="还没有生成任务" />}
-          {tasks.map((task) => (
+          {displayedTasks.length === 0 && (
+            <EmptyState
+              text={
+                searchedTasks !== null ? "没有匹配的生成记录" : "还没有生成任务"
+              }
+            />
+          )}
+          {displayedTasks.map((task) => (
             <button
               className={`task-row ${activeTask?.id === task.id ? "selected" : ""}`}
               key={task.id}
@@ -3532,6 +4080,7 @@ function TasksView({
               <div>
                 <strong>{task.idea}</strong>
                 <span>
+                  {task.historyCode || "待分配编号"} ·{" "}
                   {task.product?.name || "未知产品"} ·{" "}
                   {task.modelProfile?.name || "未配置模型"}
                 </span>
@@ -3625,6 +4174,12 @@ function TaskDetail({
         <div>
           <span>模型</span>
           <strong>{task.modelProfile?.name || "—"}</strong>
+        </div>
+        <div>
+          <span>生成编号</span>
+          <strong className="mono">
+            {currentTask.historyCode || "待分配"}
+          </strong>
         </div>
         <div>
           <span>任务 ID</span>
@@ -3811,6 +4366,33 @@ function splitLines(value: string) {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
+}
+
+function parseCommaList(value: string) {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function parseNumberList(value: string) {
+  return parseCommaList(value)
+    .map((item) => Number(item))
+    .filter((item) => Number.isInteger(item) && item > 0);
+}
+
+function getModelAspectRatios(
+  capability: ModelCapability,
+  type: "IMAGE" | "VIDEO",
+) {
+  const specific =
+    type === "IMAGE"
+      ? capability.imageAspectRatios
+      : capability.videoAspectRatios;
+  const values = specific?.length ? specific : capability.aspectRatios;
+  return Array.isArray(values)
+    ? values.filter((item): item is string => typeof item === "string")
+    : [];
 }
 
 function parseSettingValue(value: string): unknown {

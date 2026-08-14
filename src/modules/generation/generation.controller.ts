@@ -54,8 +54,18 @@ export class GenerationController {
     @CurrentUser() user: AuthenticatedUser,
     @Query("take") takeText?: string,
     @Query("cursor") cursor?: string,
+    @Query("historyCode") historyCode?: string,
   ) {
-    return this.service.list(user, this.parseTake(takeText), cursor);
+    const normalizedHistoryCode = historyCode?.trim();
+    if (normalizedHistoryCode && !/^\d{7}$/.test(normalizedHistoryCode)) {
+      throw new BadRequestException("historyCode 必须是 7 位数字");
+    }
+    return this.service.list(
+      user,
+      this.parseTake(takeText),
+      cursor,
+      normalizedHistoryCode,
+    );
   }
 
   @Get("generation-tasks/:id")

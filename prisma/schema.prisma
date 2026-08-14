@@ -350,6 +350,7 @@ model ModelProfile {
 
 model GenerationTask {
   id             String             @id @default(cuid())
+  historyCode    String?            @unique
   productId      String
   variantId      String?
   createdById    String

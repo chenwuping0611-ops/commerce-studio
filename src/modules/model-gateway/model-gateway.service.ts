@@ -23,6 +23,17 @@ import type {
   ProviderGenerationRequest,
 } from "./model-gateway.types";
 
+type ModelCapability = {
+  image?: boolean;
+  video?: boolean;
+  aspectRatios?: string[];
+  imageAspectRatios?: string[];
+  videoAspectRatios?: string[];
+  maxCount?: number;
+  durationOptions?: number[];
+  referenceImage?: boolean;
+};
+
 @Injectable()
 export class ModelGatewayService {
   constructor(
@@ -110,7 +121,14 @@ export class ModelGatewayService {
       .map((profile) => ({
         id: profile.id,
         name: profile.name,
-        capability: profile.capability,
+        capability: {
+          ...(profile.capability as Record<string, unknown>),
+          ...(type
+            ? {
+                aspectRatios: this.aspectRatios(this.capability(profile), type),
+              }
+            : {}),
+        },
         providerId: profile.providerId,
         provider: profile.provider,
       }));
@@ -265,6 +283,75 @@ export class ModelGatewayService {
     return profile;
   }
 
+  normalizeTaskOptions(
+    profile: ModelProfile,
+    type: GenerationType,
+    inputOptions: Record<string, unknown> | undefined,
+    inputAssetCount: number,
+  ) {
+    const capability = this.capability(profile);
+    const options = { ...(inputOptions ?? {}) };
+    const supportedRatios = this.aspectRatios(capability, type);
+    const aspectRatio =
+      typeof options.aspectRatio === "string"
+        ? options.aspectRatio.trim()
+        : undefined;
+    if (
+      supportedRatios.length > 0 &&
+      (!aspectRatio || !supportedRatios.includes(aspectRatio))
+    ) {
+      throw new AppError(
+        "MODEL_ASPECT_RATIO_UNSUPPORTED",
+        "当前模型不支持所选画幅比例",
+        400,
+      );
+    }
+    if (aspectRatio) options.aspectRatio = aspectRatio;
+
+    if (inputAssetCount > 0 && capability.referenceImage === false) {
+      throw new AppError(
+        "MODEL_REFERENCE_IMAGE_UNSUPPORTED",
+        "当前模型不支持参考图",
+        400,
+      );
+    }
+
+    if (type === GenerationType.IMAGE) {
+      const count = this.numberOption(options.count, 1);
+      const maxCount = this.numberOption(capability.maxCount, 4);
+      if (count < 1 || count > maxCount) {
+        throw new AppError(
+          "MODEL_IMAGE_COUNT_UNSUPPORTED",
+          `当前模型最多支持生成 ${maxCount} 张图片`,
+          400,
+        );
+      }
+      options.count = count;
+    } else if (capability.durationOptions?.length) {
+      const duration = this.numberOption(
+        options.duration,
+        capability.durationOptions[0],
+      );
+      if (!capability.durationOptions.includes(duration)) {
+        throw new AppError(
+          "MODEL_DURATION_UNSUPPORTED",
+          "当前模型不支持所选视频时长",
+          400,
+        );
+      }
+      options.duration = duration;
+    }
+    return options;
+  }
+
+  capabilityFor(profile: ModelProfile, type: GenerationType) {
+    const capability = this.capability(profile);
+    return {
+      ...capability,
+      aspectRatios: this.aspectRatios(capability, type),
+    };
+  }
+
   adapterFor(provider: ModelProvider): ModelProviderAdapter {
     if (provider.kind === ProviderKind.OPENAI_COMPATIBLE) {
       return this.compatibleAdapter;
@@ -310,5 +397,30 @@ export class ModelGatewayService {
       options: input.options,
       idempotencyKey: input.idempotencyKey,
     };
+  }
+
+  private capability(profile: ModelProfile) {
+    const value = profile.capability;
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+    return value as ModelCapability;
+  }
+
+  private aspectRatios(capability: ModelCapability, type: GenerationType) {
+    const specific =
+      type === GenerationType.IMAGE
+        ? capability.imageAspectRatios
+        : capability.videoAspectRatios;
+    const ratios = specific?.length ? specific : capability.aspectRatios;
+    return Array.isArray(ratios)
+      ? ratios
+          .filter((item): item is string => typeof item === "string")
+          .map((item) => item.trim())
+          .filter(Boolean)
+      : [];
+  }
+
+  private numberOption(value: unknown, fallback: number) {
+    const number = typeof value === "number" ? value : Number(value);
+    return Number.isInteger(number) ? number : fallback;
   }
 }

@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { TaskStatus } from "@prisma/client";
+import { randomInt } from "node:crypto";
 
 import { AppError } from "../../common/errors/app-error";
 import { MediaService } from "../../common/media/media.service";
@@ -78,20 +79,26 @@ export class GenerationService {
       user,
       dto.productId,
     );
-    const prompt = await this.prompts.compile(user, dto.productId, {
-      idea: dto.idea,
-      type: dto.type,
-      aspectRatio:
-        typeof dto.options?.aspectRatio === "string"
-          ? dto.options.aspectRatio
-          : undefined,
-    });
     const profile = await this.models.getProfileForTask(
       dto.modelProfileId,
       dto.type,
     );
+    const options = this.models.normalizeTaskOptions(
+      profile,
+      dto.type,
+      dto.options,
+      inputAssets.length,
+    );
+    const prompt = await this.prompts.compile(user, dto.productId, {
+      idea: dto.idea,
+      type: dto.type,
+      aspectRatio:
+        typeof options.aspectRatio === "string"
+          ? options.aspectRatio
+          : undefined,
+    });
 
-    const task = await this.repository.create({
+    const taskData = {
       productId: product.data.id,
       variantId: dto.variantId,
       createdById: user.id,
@@ -102,14 +109,45 @@ export class GenerationService {
       idea: dto.idea.trim(),
       promptSnapshot: {
         ...prompt.data,
-        options: dto.options ?? {},
+        options,
       },
       memorySnapshot,
       inputAssets,
       idempotencyKey,
       maxRetries: this.config.get<number>("GENERATION_MAX_RETRIES", 2),
       nextPollAt: new Date(),
-    });
+    };
+    let task;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      try {
+        task = await this.repository.create({
+          ...taskData,
+          historyCode: this.generateHistoryCode(),
+        });
+        break;
+      } catch (error) {
+        if ((error as { code?: string }).code !== "P2002") throw error;
+        if (idempotencyKey) {
+          const existing = await this.repository.findByIdempotencyKey(
+            user.id,
+            idempotencyKey,
+          );
+          if (existing) {
+            return {
+              data: this.toPublicTask(existing),
+              meta: { idempotent: true },
+            };
+          }
+        }
+      }
+    }
+    if (!task) {
+      throw new AppError(
+        "GENERATION_HISTORY_CODE_EXHAUSTED",
+        "生成历史编号分配失败，请稍后重试",
+        503,
+      );
+    }
     this.events.publish(task.id, "generation.queued", {
       status: task.status,
       createdAt: task.createdAt.toISOString(),
@@ -117,9 +155,14 @@ export class GenerationService {
     return { data: this.toPublicTask(task), meta: { idempotent: false } };
   }
 
-  async list(user: AuthenticatedUser, take = 20, cursor?: string) {
+  async list(
+    user: AuthenticatedUser,
+    take = 20,
+    cursor?: string,
+    historyCode?: string,
+  ) {
     const boundedTake = Math.min(Math.max(take, 1), 100);
-    const where = this.rbac.isSystemAdmin(user)
+    const scope = this.rbac.isSystemAdmin(user)
       ? {}
       : {
           OR: [
@@ -127,6 +170,7 @@ export class GenerationService {
             { product: { teamId: { in: user.teamIds } } },
           ],
         };
+    const where = historyCode ? { ...scope, historyCode } : scope;
     const rows = await this.repository.list(where, boundedTake, cursor);
     const hasNext = rows.length > boundedTake;
     const data = hasNext ? rows.slice(0, boundedTake) : rows;
@@ -287,5 +331,9 @@ export class GenerationService {
       promptSnapshot: task.promptSnapshot,
       memorySnapshot: task.memorySnapshot,
     };
+  }
+
+  private generateHistoryCode() {
+    return String(randomInt(1_000_000, 10_000_000));
   }
 }
