@@ -362,7 +362,11 @@ export function App() {
   }>({});
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [adminTab, setAdminTab] = useState<AdminTab>("users");
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 680px)").matches,
+  );
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [quickSearchOpen, setQuickSearchOpen] = useState(false);
   const handleTaskUpdated = useCallback((updated: Task) => {
@@ -413,6 +417,13 @@ export function App() {
   async function logout() {
     await api("/auth/logout", { method: "POST" });
     setUser(null);
+  }
+
+  function navigateToView(nextView: View) {
+    setView(nextView);
+    if (window.matchMedia("(max-width: 680px)").matches) {
+      setSidebarCollapsed(true);
+    }
   }
 
   if (!user) {
@@ -478,6 +489,14 @@ export function App() {
     <div
       className={`app-shell admin-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}
     >
+      {!sidebarCollapsed && (
+        <button
+          className="sidebar-backdrop"
+          type="button"
+          aria-label="关闭侧栏"
+          onClick={() => setSidebarCollapsed(true)}
+        />
+      )}
       <aside className="sidebar">
         <div className="brand-lockup">
           <div className="brand-mark">CS</div>
@@ -492,13 +511,13 @@ export function App() {
             icon="⌂"
             label="工作台首页"
             active={view === "overview"}
-            onClick={() => setView("overview")}
+            onClick={() => navigateToView("overview")}
           />
           <NavItem
             icon="◎"
             label="个人中心"
             active={view === "account"}
-            onClick={() => setView("account")}
+            onClick={() => navigateToView("account")}
           />
           <div className="nav-section-label">创作中心</div>
           {canGenerate && (
@@ -507,14 +526,14 @@ export function App() {
                 icon="✦"
                 label="图片创作"
                 active={view === "image"}
-                onClick={() => setView("image")}
+                onClick={() => navigateToView("image")}
                 badge="IMAGE"
               />
               <NavItem
                 icon="▶"
                 label="视频创作"
                 active={view === "video"}
-                onClick={() => setView("video")}
+                onClick={() => navigateToView("video")}
                 badge="VIDEO"
               />
             </>
@@ -524,7 +543,7 @@ export function App() {
               icon="∞"
               label="Infinite Canvas"
               active={view === "canvas"}
-              onClick={() => setView("canvas")}
+              onClick={() => navigateToView("canvas")}
             />
           )}
           <div className="nav-section-label">资源中心</div>
@@ -533,7 +552,7 @@ export function App() {
               icon="□"
               label="产品中心"
               active={view === "products"}
-              onClick={() => setView("products")}
+              onClick={() => navigateToView("products")}
             />
           )}
           {canReadTasks && (
@@ -541,7 +560,7 @@ export function App() {
               icon="◷"
               label="生成历史"
               active={view === "tasks"}
-              onClick={() => setView("tasks")}
+              onClick={() => navigateToView("tasks")}
             />
           )}
           {canManageSystem && (
@@ -551,7 +570,7 @@ export function App() {
                 icon="⚙"
                 label="系统配置"
                 active={view === "admin"}
-                onClick={() => setView("admin")}
+                onClick={() => navigateToView("admin")}
               />
             </>
           )}
@@ -578,6 +597,12 @@ export function App() {
                 <span>工作台</span>
                 <span className="breadcrumb-separator">/</span>
                 <strong>{viewTitle(view)}</strong>
+                {view === "admin" && (
+                  <>
+                    <span className="breadcrumb-separator">/</span>
+                    <strong>{adminTabTitle(adminTab)}</strong>
+                  </>
+                )}
               </div>
               <div className="topbar-context">
                 <span className="topbar-context-dot" />
@@ -625,7 +650,7 @@ export function App() {
                   <button
                     type="button"
                     onClick={() => {
-                      setView("account");
+                      navigateToView("account");
                       setUserMenuOpen(false);
                     }}
                   >
@@ -635,7 +660,7 @@ export function App() {
                     <button
                       type="button"
                       onClick={() => {
-                        setView("admin");
+                        navigateToView("admin");
                         setUserMenuOpen(false);
                       }}
                     >
@@ -659,7 +684,7 @@ export function App() {
             items={searchableViews}
             onClose={() => setQuickSearchOpen(false)}
             onNavigate={(nextView) => {
-              setView(nextView);
+              navigateToView(nextView);
               setQuickSearchOpen(false);
             }}
           />
@@ -673,7 +698,7 @@ export function App() {
               <Overview
                 products={products}
                 tasks={tasks}
-                onNavigate={setView}
+                onNavigate={navigateToView}
               />
             )}
             {view === "products" && (
@@ -1201,66 +1226,77 @@ function ProductsView({
         }
       />
       {createOpen && canEdit && (
-        <form className="product-create-drawer" onSubmit={createProduct}>
-          <div>
-            <span className="eyebrow">NEW PRODUCT SOURCE</span>
-            <h3>建立产品数据源</h3>
-            <p>
-              产品名称和编码用于后续生成历史、素材与 Product Memory 的唯一识别。
-            </p>
-          </div>
-          <div className="compact-form-grid">
+        <div
+          className="drawer-backdrop product-drawer-backdrop"
+          role="presentation"
+          onClick={() => setCreateOpen(false)}
+        >
+          <form
+            className="product-create-drawer"
+            onSubmit={createProduct}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div>
+              <span className="eyebrow">NEW PRODUCT SOURCE</span>
+              <h3>建立产品数据源</h3>
+              <p>
+                产品名称和编码用于后续生成历史、素材与 Product Memory
+                的唯一识别。
+              </p>
+            </div>
+            <div className="compact-form-grid">
+              <label>
+                产品名称
+                <input
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  required
+                  placeholder="例如：高级无线耳机"
+                />
+              </label>
+              <label>
+                产品编码
+                <input
+                  value={code}
+                  onChange={(event) => setCode(event.target.value)}
+                  required
+                  placeholder="例如：HEADPHONE-001"
+                />
+              </label>
+              <label>
+                品牌
+                <input
+                  value={brand}
+                  onChange={(event) => setBrand(event.target.value)}
+                  placeholder="品牌名称"
+                />
+              </label>
+              <label>
+                类目
+                <input
+                  value={category}
+                  onChange={(event) => setCategory(event.target.value)}
+                  placeholder="例如：消费电子"
+                />
+              </label>
+            </div>
             <label>
-              产品名称
-              <input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                required
-                placeholder="例如：高级无线耳机"
+              产品描述
+              <textarea
+                rows={3}
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                placeholder="记录产品定位、主要卖点和电商展示要求"
               />
             </label>
-            <label>
-              产品编码
-              <input
-                value={code}
-                onChange={(event) => setCode(event.target.value)}
-                required
-                placeholder="例如：HEADPHONE-001"
-              />
-            </label>
-            <label>
-              品牌
-              <input
-                value={brand}
-                onChange={(event) => setBrand(event.target.value)}
-                placeholder="品牌名称"
-              />
-            </label>
-            <label>
-              类目
-              <input
-                value={category}
-                onChange={(event) => setCategory(event.target.value)}
-                placeholder="例如：消费电子"
-              />
-            </label>
-          </div>
-          <label>
-            产品描述
-            <textarea
-              rows={3}
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              placeholder="记录产品定位、主要卖点和电商展示要求"
-            />
-          </label>
-          <div className="drawer-actions">
-            {message && <div className="alert success">{message}</div>}
-            <button className="button primary" disabled={creating}>
-              {creating ? "创建中..." : "创建并打开产品"}
-            </button>
-          </div>
-        </form>
+            <div className="drawer-actions">
+              {message && <div className="alert success">{message}</div>}
+              <button className="button primary" disabled={creating}>
+                {creating ? "创建中..." : "创建并打开产品"}
+              </button>
+            </div>
+          </form>
+        </div>
       )}
       <div className="product-center-layout">
         <section className="panel product-catalog-panel">
@@ -6080,4 +6116,17 @@ function viewTitle(view: View) {
     account: "个人中心",
     admin: "系统配置",
   }[view];
+}
+
+function adminTabTitle(tab: AdminTab) {
+  return {
+    users: "用户管理",
+    roles: "角色权限",
+    teams: "部门管理",
+    menus: "菜单权限",
+    settings: "系统设置",
+    providers: "模型供应商",
+    skills: "Skill 配置",
+    audit: "审计日志",
+  }[tab];
 }
