@@ -18,6 +18,7 @@ React Flow Canvas 保存和 Docker/Nginx/systemd 部署模板。
 - [实施路线](./docs/architecture/implementation-roadmap.md)
 - [本地开发运行手册](./docs/runbooks/local-development.md)
 - [infinite-canvas 源码分析](./docs/research/infinite-canvas-v0.15.1-analysis.md)
+- [Skill 配置格式](./docs/architecture/skill-format.md)
 
 当前已实现：
 

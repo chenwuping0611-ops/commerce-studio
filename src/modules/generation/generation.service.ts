@@ -92,6 +92,10 @@ export class GenerationService {
     const prompt = await this.prompts.compile(user, dto.productId, {
       idea: dto.idea,
       type: dto.type,
+      skillId:
+        typeof dto.options?.skillId === "string"
+          ? dto.options.skillId
+          : undefined,
       aspectRatio:
         typeof options.aspectRatio === "string"
           ? options.aspectRatio

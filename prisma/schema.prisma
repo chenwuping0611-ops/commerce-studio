@@ -65,6 +65,7 @@ model User {
   auditLogs        AuditLog[]       @relation("AuditActor")
   memoryVersions   ProductMemoryVersion[] @relation("MemoryCreatedBy")
   promptVersions   PromptVersion[]  @relation("PromptCreatedBy")
+  createdSkills    SkillProfile[]   @relation("SkillCreatedBy")
 }
 
 model Role {
@@ -346,6 +347,27 @@ model ModelProfile {
 
   @@unique([providerId, name])
   @@index([providerId])
+}
+
+model SkillProfile {
+  id             String   @id @default(cuid())
+  name           String
+  code           String   @unique
+  mediaType      String
+  description    String?  @db.Text
+  version        String?
+  tags           Json?
+  promptTemplate String?  @db.Text
+  negativePrompt String?  @db.Text
+  settings       Json?
+  enabled        Boolean  @default(true)
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  createdBy      User     @relation("SkillCreatedBy", fields: [createdById], references: [id])
+
+  @@index([mediaType, enabled])
+  @@index([createdById, createdAt])
 }
 
 model GenerationTask {

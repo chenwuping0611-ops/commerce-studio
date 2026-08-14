@@ -99,6 +99,22 @@ type ModelProvider = {
   profiles: ModelProfile[];
 };
 
+type SkillProfile = {
+  id: string;
+  name: string;
+  code: string;
+  mediaType: "IMAGE" | "VIDEO" | "BOTH" | string;
+  description?: string | null;
+  version?: string | null;
+  tags?: string[] | null;
+  promptTemplate?: string | null;
+  negativePrompt?: string | null;
+  settings?: Record<string, unknown> | null;
+  enabled: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 type ManagedUser = {
   id: string;
   email: string;
@@ -181,6 +197,7 @@ type AdminTab =
   | "teams"
   | "settings"
   | "providers"
+  | "skills"
   | "audit";
 
 function hasPermission(user: User, permission: string) {
@@ -626,41 +643,56 @@ function Overview({
       task.status,
     ),
   ).length;
+  const recentTasks = tasks.slice(0, 4);
   return (
-    <>
-      <div className="hero-band">
+    <div className="overview-page">
+      <div className="overview-header page-toolbar">
         <div>
-          <span className="eyebrow">CREATIVE OPERATIONS</span>
-          <h2>从产品记忆开始，做出一致的视觉内容。</h2>
-          <p>产品、Prompt、模型和结果在同一个业务工作台里持续沉淀。</p>
+          <span className="eyebrow">GOOD MORNING · CREATIVE OPS</span>
+          <h2>今天要为哪个产品创造内容？</h2>
+          <p>产品记忆、模型和生成结果都在这里持续沉淀。</p>
         </div>
-        <button className="button primary" onClick={() => onNavigate("image")}>
-          开始生成
-        </button>
+        <div className="toolbar-actions">
+          <button
+            className="button ghost"
+            type="button"
+            onClick={() => onNavigate("products")}
+          >
+            管理产品
+          </button>
+          <button
+            className="button primary"
+            type="button"
+            onClick={() => onNavigate("image")}
+          >
+            开始创作
+          </button>
+        </div>
       </div>
       <div className="metric-grid">
         <Metric
-          label="产品资料"
+          label="产品数据源"
           value={products.length}
-          caption="已建立的产品数据源"
+          caption="已建立的产品资料"
         />
         <Metric
           label="生成任务"
           value={tasks.length}
           caption="图片与视频任务记录"
         />
-        <Metric label="进行中" value={running} caption="正在等待或处理" />
-        <Metric label="Canvas" value="∞" caption="可组合的创作空间" />
+        <Metric label="处理中" value={running} caption="正在等待或处理" />
+        <Metric label="创作画布" value="∞" caption="可组合的工作流空间" />
       </div>
-      <div className="section-grid">
-        <section className="panel">
+      <div className="overview-grid">
+        <section className="panel overview-workflow-card">
           <div className="panel-heading">
             <div>
-              <span className="eyebrow">FLOW</span>
-              <h3>推荐工作流</h3>
+              <span className="eyebrow">RECOMMENDED FLOW</span>
+              <h3>从产品到成片</h3>
             </div>
             <button
               className="button ghost small"
+              type="button"
               onClick={() => onNavigate("canvas")}
             >
               打开 Canvas
@@ -684,21 +716,98 @@ function Overview({
             />
           </div>
         </section>
-        <section className="panel dark-panel">
-          <span className="eyebrow">SYSTEM</span>
-          <h3>服务状态</h3>
+        <section className="panel overview-recent-card">
+          <div className="panel-heading">
+            <div>
+              <span className="eyebrow">RECENT ACTIVITY</span>
+              <h3>最近任务</h3>
+            </div>
+            <button
+              className="text-button"
+              type="button"
+              onClick={() => onNavigate("tasks")}
+            >
+              查看全部
+            </button>
+          </div>
+          <div className="overview-task-list">
+            {recentTasks.length ? (
+              recentTasks.map((task) => (
+                <button
+                  className="overview-task-row"
+                  type="button"
+                  key={task.id}
+                  onClick={() => onNavigate("tasks")}
+                >
+                  <span
+                    className={`overview-task-icon ${
+                      task.type === "VIDEO" ? "video" : "image"
+                    }`}
+                  >
+                    {task.type === "VIDEO" ? "▶" : "✦"}
+                  </span>
+                  <span>
+                    <strong>{task.idea}</strong>
+                    <small>
+                      {task.product?.name || "未关联产品"} ·{" "}
+                      {task.historyCode || "待分配编号"}
+                    </small>
+                  </span>
+                  <StatusBadge status={task.status} />
+                </button>
+              ))
+            ) : (
+              <EmptyState text="还没有生成任务" />
+            )}
+          </div>
+        </section>
+      </div>
+      <div className="overview-lower-grid">
+        <section className="panel quick-action-panel">
+          <div className="panel-heading">
+            <div>
+              <span className="eyebrow">QUICK START</span>
+              <h3>快速入口</h3>
+            </div>
+          </div>
+          <div className="quick-action-grid">
+            <button type="button" onClick={() => onNavigate("image")}>
+              <span>✦</span>
+              <strong>生成图片</strong>
+              <small>适合主图、细节图和电商场景</small>
+            </button>
+            <button type="button" onClick={() => onNavigate("video")}>
+              <span>▶</span>
+              <strong>生成视频</strong>
+              <small>选择产品后快速制作广告镜头</small>
+            </button>
+            <button type="button" onClick={() => onNavigate("products")}>
+              <span>□</span>
+              <strong>维护产品</strong>
+              <small>更新档案、记忆和参考素材</small>
+            </button>
+          </div>
+        </section>
+        <section className="panel system-status-card">
+          <div className="panel-heading">
+            <div>
+              <span className="eyebrow">SYSTEM STATUS</span>
+              <h3>服务状态</h3>
+            </div>
+            <span className="status-dot" />
+          </div>
           <div className="system-row">
             <span className="status-dot" /> API 应用在线
           </div>
           <div className="system-row">
-            <span className="status-dot amber" /> MySQL 等待外置连接
+            <span className="status-dot amber" /> MySQL 外部连接
           </div>
           <div className="system-row">
             <span className="status-dot blue" /> 模型网关已就绪
           </div>
         </section>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -1584,6 +1693,7 @@ function AdminCenter({
       ? [
           { id: "settings" as const, label: "系统设置" },
           { id: "providers" as const, label: "模型供应商" },
+          { id: "skills" as const, label: "Skill 配置" },
         ]
       : []),
     ...(has("audit:read:system")
@@ -1617,6 +1727,9 @@ function AdminCenter({
       )}
       {tab === "providers" && has("model_config:read:system") && (
         <ProvidersAdmin canWrite={has("model_config:update:system")} />
+      )}
+      {tab === "skills" && has("model_config:read:system") && (
+        <SkillsAdmin canWrite={has("model_config:update:system")} />
       )}
       {tab === "audit" && has("audit:read:system") && <AuditAdmin />}
     </div>
@@ -2379,6 +2492,376 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
   );
 }
 
+function SkillsAdmin({ canWrite = true }: { canWrite?: boolean }) {
+  const [skills, setSkills] = useState<SkillProfile[]>([]);
+  const [mode, setMode] = useState<"import" | "manual">("import");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({
+    name: "",
+    code: "",
+    mediaType: "BOTH",
+    version: "1.0.0",
+    description: "",
+    tags: "",
+    promptTemplate: "",
+    negativePrompt: "",
+  });
+
+  const reload = useCallback(
+    () =>
+      api<SkillProfile[]>("/skills/admin").then((data) =>
+        setSkills(data ?? []),
+      ),
+    [],
+  );
+
+  useEffect(() => {
+    void reload().catch((error) => setMessage(error.message));
+  }, [reload]);
+
+  async function saveManual(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setMessage("");
+    try {
+      await api<SkillProfile>("/skills", {
+        method: "POST",
+        bodyJson: {
+          name: form.name,
+          code: form.code,
+          mediaType: form.mediaType,
+          version: form.version || undefined,
+          description: form.description || undefined,
+          tags: parseCommaList(form.tags),
+          promptTemplate: form.promptTemplate || undefined,
+          negativePrompt: form.negativePrompt || undefined,
+        },
+      });
+      setForm({
+        name: "",
+        code: "",
+        mediaType: "BOTH",
+        version: "1.0.0",
+        description: "",
+        tags: "",
+        promptTemplate: "",
+        negativePrompt: "",
+      });
+      await reload();
+      setMessage("Skill 已保存，可在图片或视频创作页使用");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Skill 保存失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function importSkills(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const parsed = JSON.parse(await file.text()) as unknown;
+      const records = Array.isArray(parsed) ? parsed : [parsed];
+      let imported = 0;
+      for (const value of records) {
+        if (!value || typeof value !== "object") continue;
+        const raw = value as Record<string, unknown>;
+        const name = String(raw.name ?? raw.title ?? "未命名 Skill").trim();
+        if (!name) continue;
+        const mediaType = normalizeSkillType(
+          raw.mediaType ?? raw.type ?? raw.kind,
+        );
+        await api<SkillProfile>("/skills", {
+          method: "POST",
+          bodyJson: {
+            name,
+            code: String(raw.code ?? slugifySkillCode(name)),
+            mediaType,
+            version: raw.version ? String(raw.version) : undefined,
+            description: raw.description ? String(raw.description) : undefined,
+            tags: Array.isArray(raw.tags)
+              ? raw.tags.map(String)
+              : parseCommaList(String(raw.tags ?? "")),
+            promptTemplate: String(
+              raw.promptTemplate ?? raw.prompt ?? raw.instructions ?? "",
+            ),
+            negativePrompt: String(raw.negativePrompt ?? ""),
+            settings:
+              raw.settings ??
+              (raw.parameters && typeof raw.parameters === "object"
+                ? raw.parameters
+                : {}),
+          },
+        });
+        imported += 1;
+      }
+      await reload();
+      setMessage(
+        imported ? `已导入 ${imported} 个 Skill` : "文件中没有可导入的 Skill",
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? `导入失败：${error.message}`
+          : "Skill 文件导入失败",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleSkill(skill: SkillProfile) {
+    setBusy(true);
+    setMessage("");
+    try {
+      await api(`/skills/${skill.id}`, {
+        method: "PATCH",
+        bodyJson: { enabled: !skill.enabled },
+      });
+      await reload();
+      setMessage(skill.enabled ? "Skill 已停用" : "Skill 已重新启用");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Skill 状态更新失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="skill-center">
+      <div className="skill-intro">
+        <div>
+          <span className="eyebrow">SKILL LIBRARY</span>
+          <h2>Skill 配置中心</h2>
+          <p>
+            把一套成熟的图片或视频创作方法保存成可复用模板，新手只需选择 Skill
+            和产品即可开始。
+          </p>
+        </div>
+        <div className="skill-intro-stat">
+          <strong>{skills.filter((skill) => skill.enabled).length}</strong>
+          <span>个可用 Skill</span>
+        </div>
+      </div>
+      <div className="skill-layout">
+        <section className="panel skill-list-panel">
+          <div className="panel-heading">
+            <div>
+              <span className="eyebrow">AVAILABLE SKILLS</span>
+              <h3>已配置 Skill</h3>
+            </div>
+            <span className="count-badge">{skills.length}</span>
+          </div>
+          <div className="skill-list">
+            {skills.length ? (
+              skills.map((skill) => (
+                <div
+                  className={`skill-row ${!skill.enabled ? "disabled" : ""}`}
+                  key={skill.id}
+                >
+                  <div className="skill-row-icon">
+                    {skill.mediaType === "VIDEO"
+                      ? "▶"
+                      : skill.mediaType === "IMAGE"
+                        ? "✦"
+                        : "◆"}
+                  </div>
+                  <div className="skill-row-copy">
+                    <div className="skill-row-title">
+                      <strong>{skill.name}</strong>
+                      <StatusBadge
+                        status={skill.enabled ? "ACTIVE" : "DISABLED"}
+                      />
+                    </div>
+                    <span>
+                      {skill.code} · {skill.mediaType} · v
+                      {skill.version || "1.0.0"}
+                    </span>
+                    <small>{skill.description || "未填写使用说明"}</small>
+                    {Array.isArray(skill.tags) && skill.tags.length > 0 && (
+                      <div className="skill-tag-list">
+                        {skill.tags.slice(0, 4).map((tag) => (
+                          <span key={tag}>{tag}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {canWrite && (
+                    <button
+                      className="button ghost small skill-toggle"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void toggleSkill(skill)}
+                    >
+                      {skill.enabled ? "停用" : "启用"}
+                    </button>
+                  )}
+                </div>
+              ))
+            ) : (
+              <EmptyState text="还没有 Skill，请导入一个 JSON 配置" />
+            )}
+          </div>
+        </section>
+        {canWrite && (
+          <section className="panel skill-editor-panel">
+            <div className="panel-heading">
+              <div>
+                <span className="eyebrow">IMPORT OR CREATE</span>
+                <h3>添加创作 Skill</h3>
+              </div>
+            </div>
+            <div className="segmented skill-mode-switcher">
+              <button
+                type="button"
+                className={mode === "import" ? "active" : ""}
+                onClick={() => setMode("import")}
+              >
+                导入 JSON
+              </button>
+              <button
+                type="button"
+                className={mode === "manual" ? "active" : ""}
+                onClick={() => setMode("manual")}
+              >
+                手动创建
+              </button>
+            </div>
+            {mode === "import" ? (
+              <div className="skill-import-box">
+                <label className="skill-dropzone">
+                  <span className="skill-dropzone-icon">↑</span>
+                  <strong>选择 Skill JSON 文件</strong>
+                  <small>
+                    支持单个对象或对象数组，导入后可直接在创作页选择
+                  </small>
+                  <input
+                    type="file"
+                    accept=".json,application/json"
+                    disabled={busy}
+                    onChange={(event) => void importSkills(event)}
+                  />
+                </label>
+                <div className="skill-schema-note">
+                  <strong>推荐字段</strong>
+                  <code>
+                    name · code · mediaType · promptTemplate · negativePrompt ·
+                    tags
+                  </code>
+                  <span>
+                    mediaType 可填写 IMAGE、VIDEO 或 BOTH；promptTemplate
+                    会自动追加到产品记忆 Prompt。
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <form className="form-panel skill-form" onSubmit={saveManual}>
+                <div className="compact-form-grid">
+                  <label>
+                    Skill 名称
+                    <input
+                      required
+                      value={form.name}
+                      onChange={(event) =>
+                        setForm({ ...form, name: event.target.value })
+                      }
+                      placeholder="例如：高级产品主图"
+                    />
+                  </label>
+                  <label>
+                    唯一编码
+                    <input
+                      required
+                      value={form.code}
+                      onChange={(event) =>
+                        setForm({ ...form, code: event.target.value })
+                      }
+                      placeholder="product-hero"
+                    />
+                  </label>
+                  <label>
+                    适用类型
+                    <select
+                      value={form.mediaType}
+                      onChange={(event) =>
+                        setForm({ ...form, mediaType: event.target.value })
+                      }
+                    >
+                      <option value="BOTH">图片 + 视频</option>
+                      <option value="IMAGE">仅图片</option>
+                      <option value="VIDEO">仅视频</option>
+                    </select>
+                  </label>
+                  <label>
+                    版本
+                    <input
+                      value={form.version}
+                      onChange={(event) =>
+                        setForm({ ...form, version: event.target.value })
+                      }
+                    />
+                  </label>
+                </div>
+                <label>
+                  使用说明
+                  <input
+                    value={form.description}
+                    onChange={(event) =>
+                      setForm({ ...form, description: event.target.value })
+                    }
+                    placeholder="告诉团队什么时候使用这个 Skill"
+                  />
+                </label>
+                <label>
+                  标签
+                  <input
+                    value={form.tags}
+                    onChange={(event) =>
+                      setForm({ ...form, tags: event.target.value })
+                    }
+                    placeholder="电商主图,棚拍,高级感"
+                  />
+                </label>
+                <label>
+                  Prompt 模板
+                  <textarea
+                    required
+                    rows={5}
+                    value={form.promptTemplate}
+                    onChange={(event) =>
+                      setForm({ ...form, promptTemplate: event.target.value })
+                    }
+                    placeholder="例如：商业棚拍，主体居中，柔和侧光，保留真实材质..."
+                  />
+                </label>
+                <label>
+                  禁止规则补充
+                  <textarea
+                    rows={3}
+                    value={form.negativePrompt}
+                    onChange={(event) =>
+                      setForm({ ...form, negativePrompt: event.target.value })
+                    }
+                    placeholder="例如：禁止出现额外 Logo、禁止改变产品结构"
+                  />
+                </label>
+                <button className="button primary" disabled={busy}>
+                  {busy ? "保存中..." : "保存并启用 Skill"}
+                </button>
+              </form>
+            )}
+            {message && <div className="alert success">{message}</div>}
+          </section>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AuditAdmin() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [message, setMessage] = useState("");
@@ -2442,6 +2925,8 @@ function GenerationStudio({
     type === "IMAGE" ? "生成一组高级电商主图" : "生成一个高级产品广告视频",
   );
   const [profileId, setProfileId] = useState("");
+  const [skills, setSkills] = useState<SkillProfile[]>([]);
+  const [skillId, setSkillId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [modelLoadError, setModelLoadError] = useState("");
@@ -2478,6 +2963,22 @@ function GenerationStudio({
         setProfileId("");
       });
   }, [onProfiles, type]);
+  useEffect(() => {
+    void api<SkillProfile[]>(`/skills?type=${type}`)
+      .then((next) => {
+        const available = next ?? [];
+        setSkills(available);
+        setSkillId((current) =>
+          available.some((skill) => skill.id === current)
+            ? current
+            : available[0]?.id || "",
+        );
+      })
+      .catch(() => {
+        setSkills([]);
+        setSkillId("");
+      });
+  }, [type]);
   useEffect(() => {
     const nextPreview =
       tasks.find((task) => task.type === type && task.assets?.length) ?? null;
@@ -2545,6 +3046,7 @@ function GenerationStudio({
     setAspectRatio("");
     setImageCount("1");
     setVideoDuration("");
+    setSkillId("");
   }, [selectedProductId, type]);
   useEffect(() => {
     if (!selectedProductId) {
@@ -2578,6 +3080,7 @@ function GenerationStudio({
         bodyJson: {
           idea,
           type,
+          ...(skillId ? { skillId } : {}),
           ...(aspectRatio ? { aspectRatio } : {}),
         },
       });
@@ -2656,6 +3159,7 @@ function GenerationStudio({
     try {
       const options: Record<string, unknown> = {
         ...(aspectRatio ? { aspectRatio } : {}),
+        ...(skillId ? { skillId } : {}),
         ...(type === "IMAGE" ? { count } : { duration }),
       };
       const task = await api<Task>("/generation-tasks", {
@@ -2881,6 +3385,23 @@ function GenerationStudio({
             </div>
           )}
           <div className="generation-control-divider" />
+          <label className="compact-label">
+            创作 Skill
+            <select
+              value={skillId}
+              onChange={(event) => setSkillId(event.target.value)}
+              disabled={!skills.length}
+            >
+              <option value="">
+                {skills.length ? "不使用 Skill" : "暂无可用 Skill"}
+              </option>
+              {skills.map((skill) => (
+                <option key={skill.id} value={skill.id}>
+                  {skill.name} · {skill.mediaType}
+                </option>
+              ))}
+            </select>
+          </label>
           {type === "IMAGE" ? (
             <>
               <label className="compact-label">
@@ -3650,6 +4171,14 @@ function CanvasView({
         <div className="canvas-top-actions">
           {message && <span className="toolbar-message">{message}</span>}
           <button
+            className="button ghost canvas-exit-button"
+            type="button"
+            title="退出 Infinite Canvas"
+            onClick={onExit}
+          >
+            返回工作台
+          </button>
+          <button
             className={`canvas-icon-button ${showInspector ? "active" : ""}`}
             title="打开节点检查器"
             aria-label="打开节点检查器"
@@ -4379,6 +4908,32 @@ function parseNumberList(value: string) {
   return parseCommaList(value)
     .map((item) => Number(item))
     .filter((item) => Number.isInteger(item) && item > 0);
+}
+
+function normalizeSkillType(value: unknown): "IMAGE" | "VIDEO" | "BOTH" {
+  const normalized = String(value ?? "BOTH")
+    .trim()
+    .toUpperCase();
+  if (normalized.includes("IMAGE") && normalized.includes("VIDEO"))
+    return "BOTH";
+  if (
+    normalized === "IMAGE" ||
+    normalized === "IMG" ||
+    normalized === "PICTURE"
+  )
+    return "IMAGE";
+  if (normalized === "VIDEO" || normalized === "VID") return "VIDEO";
+  return "BOTH";
+}
+
+function slugifySkillCode(value: string) {
+  return (
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || `skill-${Date.now()}`
+  );
 }
 
 function getModelAspectRatios(

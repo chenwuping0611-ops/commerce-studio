@@ -24,4 +24,10 @@ export class CompilePromptDto {
   @IsString()
   @MaxLength(20)
   aspectRatio?: string;
+
+  @ApiPropertyOptional({ description: "可选的图片/视频 Skill ID" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  skillId?: string;
 }

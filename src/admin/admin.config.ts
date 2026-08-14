@@ -22,6 +22,7 @@ export function buildAdminOptions(
             ProductAsset: "产品素材",
             ModelProvider: "模型供应商",
             ModelProfile: "模型配置",
+            SkillProfile: "创作 Skill",
             GenerationTask: "生成任务",
             AuditLog: "审计日志",
             SystemSetting: "系统设置",
@@ -59,6 +60,9 @@ export function buildAdminOptions(
         properties: { apiKeyEncrypted: { isVisible: false } },
       }),
       resource(prisma, getModelByName, "ModelProfile", {
+        navigation: "模型配置",
+      }),
+      resource(prisma, getModelByName, "SkillProfile", {
         navigation: "模型配置",
       }),
       resource(prisma, getModelByName, "GenerationTask", {

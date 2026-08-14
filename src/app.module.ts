@@ -17,6 +17,7 @@ import { PromptsModule } from "./modules/prompts/prompts.module";
 import { ModelGatewayModule } from "./modules/model-gateway/model-gateway.module";
 import { GenerationModule } from "./modules/generation/generation.module";
 import { CanvasModule } from "./modules/canvas/canvas.module";
+import { SkillsModule } from "./modules/skills/skills.module";
 import { SystemModule } from "./modules/system/system.module";
 
 @Module({
@@ -40,6 +41,7 @@ import { SystemModule } from "./modules/system/system.module";
     ModelGatewayModule,
     GenerationModule,
     CanvasModule,
+    SkillsModule,
     SystemModule,
     AdminModule,
   ],
