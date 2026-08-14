@@ -195,10 +195,85 @@ type AdminTab =
   | "users"
   | "roles"
   | "teams"
+  | "menus"
   | "settings"
   | "providers"
   | "skills"
   | "audit";
+
+type MenuDefinition = {
+  code: string;
+  label: string;
+  group: string;
+  icon: string;
+  permission?: string;
+  description: string;
+};
+
+const MENU_DEFINITIONS: MenuDefinition[] = [
+  {
+    code: "overview",
+    label: "工作台首页",
+    group: "工作台",
+    icon: "⌂",
+    description: "查看工作台概览、最近任务和快速入口",
+  },
+  {
+    code: "image",
+    label: "图片创作",
+    group: "创作中心",
+    icon: "✦",
+    permission: "generation:create:team",
+    description: "创建电商产品图片并查看生成结果",
+  },
+  {
+    code: "video",
+    label: "视频创作",
+    group: "创作中心",
+    icon: "▶",
+    permission: "generation:create:team",
+    description: "创建电商产品视频并查看生成结果",
+  },
+  {
+    code: "canvas",
+    label: "Infinite Canvas",
+    group: "创作中心",
+    icon: "∞",
+    permission: "canvas:manage:team",
+    description: "组合产品、记忆、Prompt 和生成节点",
+  },
+  {
+    code: "products",
+    label: "产品中心",
+    group: "资源中心",
+    icon: "□",
+    permission: "product:read:team",
+    description: "管理产品档案、产品记忆和参考素材",
+  },
+  {
+    code: "tasks",
+    label: "生成历史",
+    group: "资源中心",
+    icon: "◷",
+    permission: "generation:read:team",
+    description: "查询生成编号、任务状态和输出资产",
+  },
+  {
+    code: "account",
+    label: "个人中心",
+    group: "工作台",
+    icon: "◎",
+    description: "维护个人资料、密码和当前授权",
+  },
+  {
+    code: "admin",
+    label: "系统配置",
+    group: "系统管理",
+    icon: "⚙",
+    permission: "user:manage:system",
+    description: "管理用户、角色、菜单、模型和审计日志",
+  },
+];
 
 function hasPermission(user: User, permission: string) {
   return (
@@ -287,6 +362,9 @@ export function App() {
   }>({});
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [adminTab, setAdminTab] = useState<AdminTab>("users");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [quickSearchOpen, setQuickSearchOpen] = useState(false);
   const handleTaskUpdated = useCallback((updated: Task) => {
     setActiveTask(updated);
     setTasks((current) =>
@@ -328,6 +406,10 @@ export function App() {
     void loadWorkspace();
   }, [loadWorkspace]);
 
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [view, adminTab]);
+
   async function logout() {
     await api("/auth/logout", { method: "POST" });
     setUser(null);
@@ -347,6 +429,7 @@ export function App() {
   }
 
   const canReadProducts = hasPermission(user, "product:read:team");
+  const canEditProducts = hasPermission(user, "product:update:team");
   const canGenerate = hasPermission(user, "generation:create:team");
   const canReadTasks = hasPermission(user, "generation:read:team");
   const canManageCanvas = hasPermission(user, "canvas:manage:team");
@@ -359,6 +442,25 @@ export function App() {
         "audit:read:system",
       ].includes(permission),
     );
+  const searchableViews = MENU_DEFINITIONS.filter((item) => {
+    if (!item.permission) return true;
+    return hasPermission(user, item.permission);
+  }).map((item) => ({
+    view: item.code as View,
+    label: item.label,
+    description: item.description,
+  }));
+  async function toggleFullscreen() {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await document.documentElement.requestFullscreen();
+      }
+    } catch {
+      // Fullscreen is a browser capability; the workbench remains usable if it is denied.
+    }
+  }
 
   if (view === "canvas" && canManageCanvas) {
     return (
@@ -373,23 +475,32 @@ export function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div
+      className={`app-shell admin-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}
+    >
       <aside className="sidebar">
         <div className="brand-lockup">
           <div className="brand-mark">CS</div>
-          <div>
+          <div className="brand-copy">
             <strong>Commerce Studio</strong>
             <span>AI 产品创作工作台</span>
           </div>
         </div>
-        <nav className="nav-list">
+        <nav className="nav-list admin-nav">
+          <div className="nav-section-label">工作台</div>
           <NavItem
             icon="⌂"
             label="工作台首页"
             active={view === "overview"}
             onClick={() => setView("overview")}
           />
-          <div className="nav-section-label">创作</div>
+          <NavItem
+            icon="◎"
+            label="个人中心"
+            active={view === "account"}
+            onClick={() => setView("account")}
+          />
+          <div className="nav-section-label">创作中心</div>
           {canGenerate && (
             <>
               <NavItem
@@ -397,12 +508,14 @@ export function App() {
                 label="图片创作"
                 active={view === "image"}
                 onClick={() => setView("image")}
+                badge="IMAGE"
               />
               <NavItem
                 icon="▶"
                 label="视频创作"
                 active={view === "video"}
                 onClick={() => setView("video")}
+                badge="VIDEO"
               />
             </>
           )}
@@ -414,7 +527,7 @@ export function App() {
               onClick={() => setView("canvas")}
             />
           )}
-          <div className="nav-section-label">资源</div>
+          <div className="nav-section-label">资源中心</div>
           {canReadProducts && (
             <NavItem
               icon="□"
@@ -431,45 +544,126 @@ export function App() {
               onClick={() => setView("tasks")}
             />
           )}
-          <div className="nav-section-label">工作台</div>
-          <NavItem
-            icon="◎"
-            label="个人中心"
-            active={view === "account"}
-            onClick={() => setView("account")}
-          />
           {canManageSystem && (
-            <NavItem
-              icon="⚙"
-              label="系统配置"
-              active={view === "admin"}
-              onClick={() => setView("admin")}
-            />
+            <>
+              <div className="nav-section-label">系统管理</div>
+              <NavItem
+                icon="⚙"
+                label="系统配置"
+                active={view === "admin"}
+                onClick={() => setView("admin")}
+              />
+            </>
           )}
         </nav>
         <div className="sidebar-footer">
           <div className="status-dot" />
-          <span>产品记忆已连接</span>
+          <span className="sidebar-footer-copy">产品记忆已连接</span>
         </div>
       </aside>
       <main className="main-panel">
-        <header className="topbar">
-          <div className="topbar-context">
-            <span className="topbar-context-dot" />
-            <strong>创作运营工作台</strong>
+        <header className="topbar admin-topbar">
+          <div className="topbar-leading">
+            <button
+              className="icon-button sidebar-toggle"
+              type="button"
+              title={sidebarCollapsed ? "展开侧栏" : "收起侧栏"}
+              aria-label={sidebarCollapsed ? "展开侧栏" : "收起侧栏"}
+              onClick={() => setSidebarCollapsed((current) => !current)}
+            >
+              ☰
+            </button>
+            <div className="breadcrumb-stack">
+              <div className="breadcrumb-row">
+                <span>工作台</span>
+                <span className="breadcrumb-separator">/</span>
+                <strong>{viewTitle(view)}</strong>
+              </div>
+              <div className="topbar-context">
+                <span className="topbar-context-dot" />
+                <span>创作运营工作台</span>
+              </div>
+            </div>
           </div>
           <div className="topbar-actions">
-            <span className="user-chip">{user.displayName}</span>
             <button
-              className="icon-button"
-              title="退出工作台"
-              aria-label="退出工作台"
-              onClick={() => void logout()}
+              className="icon-button topbar-tool"
+              type="button"
+              title="全屏"
+              aria-label="全屏"
+              onClick={() => void toggleFullscreen()}
             >
-              ↪
+              ⛶
             </button>
+            <button
+              className="icon-button topbar-tool"
+              type="button"
+              title="快捷搜索"
+              aria-label="快捷搜索"
+              onClick={() => setQuickSearchOpen(true)}
+            >
+              ⌕
+            </button>
+            <div className="user-menu">
+              <button
+                className="user-menu-trigger"
+                type="button"
+                aria-expanded={userMenuOpen}
+                onClick={() => setUserMenuOpen((current) => !current)}
+              >
+                <span className="user-avatar">
+                  {user.displayName.slice(0, 1)}
+                </span>
+                <span className="user-menu-copy">
+                  <strong>{user.displayName}</strong>
+                  <small>{user.roles[0] || "成员"}</small>
+                </span>
+                <span className="user-menu-chevron">⌄</span>
+              </button>
+              {userMenuOpen && (
+                <div className="user-menu-popover">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setView("account");
+                      setUserMenuOpen(false);
+                    }}
+                  >
+                    个人中心
+                  </button>
+                  {canManageSystem && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setView("admin");
+                        setUserMenuOpen(false);
+                      }}
+                    >
+                      系统配置
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="danger-text"
+                    onClick={() => void logout()}
+                  >
+                    退出登录
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
+        {quickSearchOpen && (
+          <QuickSearch
+            items={searchableViews}
+            onClose={() => setQuickSearchOpen(false)}
+            onNavigate={(nextView) => {
+              setView(nextView);
+              setQuickSearchOpen(false);
+            }}
+          />
+        )}
         {error && <div className="alert error">{error}</div>}
         {loading ? (
           <div className="loading-panel">正在加载工作台...</div>
@@ -487,6 +681,7 @@ export function App() {
                 products={products}
                 selectedProductId={selectedProductId}
                 onSelect={setSelectedProductId}
+                canEdit={canEditProducts}
                 onCreated={async () => {
                   const data = await api<Product[]>("/products");
                   setProducts(data ?? []);
@@ -546,6 +741,118 @@ export function App() {
           </section>
         )}
       </main>
+    </div>
+  );
+}
+
+function QuickSearch({
+  items,
+  onClose,
+  onNavigate,
+}: {
+  items: Array<{ view: View; label: string; description: string }>;
+  onClose: () => void;
+  onNavigate: (view: View) => void;
+}) {
+  const [query, setQuery] = useState("");
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleItems = items.filter((item) =>
+    [item.label, item.description, item.view].some((value) =>
+      value.toLowerCase().includes(normalizedQuery),
+    ),
+  );
+  return (
+    <div className="quick-search-layer" role="presentation" onClick={onClose}>
+      <section
+        className="quick-search-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="快捷搜索"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="quick-search-heading">
+          <div>
+            <span className="eyebrow">QUICK SEARCH</span>
+            <h2>跳转到工作台功能</h2>
+          </div>
+          <button
+            className="icon-button"
+            type="button"
+            title="关闭搜索"
+            aria-label="关闭搜索"
+            onClick={onClose}
+          >
+            ×
+          </button>
+        </div>
+        <input
+          autoFocus
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="搜索产品、图片创作、系统配置..."
+        />
+        <div className="quick-search-results">
+          {visibleItems.length ? (
+            visibleItems.map((item) => (
+              <button
+                key={item.view}
+                type="button"
+                className="quick-search-result"
+                onClick={() => onNavigate(item.view)}
+              >
+                <span className="quick-search-result-icon">
+                  {MENU_DEFINITIONS.find((menu) => menu.code === item.view)
+                    ?.icon || "·"}
+                </span>
+                <span>
+                  <strong>{item.label}</strong>
+                  <small>{item.description}</small>
+                </span>
+                <span className="quick-search-result-key">↵</span>
+              </button>
+            ))
+          ) : (
+            <EmptyState text="没有匹配的工作台功能" />
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function PageHeader({
+  eyebrow,
+  title,
+  description,
+  actions,
+  aside,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  actions?: React.ReactNode;
+  aside?: React.ReactNode;
+}) {
+  return (
+    <div className="page-heading">
+      <div className="page-heading-copy">
+        <span className="eyebrow">{eyebrow}</span>
+        <h2>{title}</h2>
+        <p>{description}</p>
+      </div>
+      {(actions || aside) && (
+        <div className="page-heading-actions">
+          {aside}
+          {actions}
+        </div>
+      )}
     </div>
   );
 }
@@ -815,11 +1122,13 @@ function ProductsView({
   products,
   selectedProductId,
   onSelect,
+  canEdit,
   onCreated,
 }: {
   products: Product[];
   selectedProductId: string;
   onSelect: (id: string) => void;
+  canEdit: boolean;
   onCreated: () => Promise<void>;
 }) {
   const [query, setQuery] = useState("");
@@ -872,7 +1181,26 @@ function ProductsView({
 
   return (
     <div className="product-center-shell">
-      {createOpen && (
+      <PageHeader
+        eyebrow="PRODUCT CENTER"
+        title="产品中心"
+        description="先建立产品资料，再维护 Product Profile、产品记忆与可引用素材。"
+        aside={
+          <span className="page-heading-count">{products.length} 个产品</span>
+        }
+        actions={
+          canEdit && (
+            <button
+              className="button primary"
+              type="button"
+              onClick={() => setCreateOpen((current) => !current)}
+            >
+              {createOpen ? "关闭新建" : "新建产品"}
+            </button>
+          )
+        }
+      />
+      {createOpen && canEdit && (
         <form className="product-create-drawer" onSubmit={createProduct}>
           <div>
             <span className="eyebrow">NEW PRODUCT SOURCE</span>
@@ -939,21 +1267,12 @@ function ProductsView({
           <div className="panel-heading product-catalog-heading">
             <div>
               <span className="eyebrow">DATA SOURCES</span>
-              <h3>产品数据源</h3>
+              <h3>产品资料</h3>
               <p className="panel-subtitle">
-                选择一个产品维护档案、记忆和参考素材
+                选择产品后，在右侧维护档案、记忆和参考素材
               </p>
             </div>
-            <div className="product-catalog-actions">
-              <span className="count-badge">{visibleProducts.length}</span>
-              <button
-                className="button ghost small"
-                type="button"
-                onClick={() => setCreateOpen((current) => !current)}
-              >
-                {createOpen ? "关闭" : "新建"}
-              </button>
-            </div>
+            <span className="count-badge">{visibleProducts.length}</span>
           </div>
           <div className="catalog-filters">
             <input
@@ -1005,7 +1324,7 @@ function ProductsView({
         </section>
         <div className="product-detail-workspace">
           {selectedProductId ? (
-            <ProductDetails productId={selectedProductId} />
+            <ProductDetails productId={selectedProductId} canEdit={canEdit} />
           ) : (
             <section className="panel product-empty-detail">
               <div className="empty-illustration">□</div>
@@ -1014,13 +1333,15 @@ function ProductsView({
                 产品档案、Product Memory
                 和素材库会在这里分层管理，并自动供图片与视频创作引用。
               </p>
-              <button
-                className="button primary"
-                type="button"
-                onClick={() => setCreateOpen(true)}
-              >
-                建立第一个产品
-              </button>
+              {canEdit && (
+                <button
+                  className="button primary"
+                  type="button"
+                  onClick={() => setCreateOpen(true)}
+                >
+                  建立第一个产品
+                </button>
+              )}
             </section>
           )}
         </div>
@@ -1152,7 +1473,13 @@ function PromptView({
   );
 }
 
-function ProductDetails({ productId }: { productId: string }) {
+function ProductDetails({
+  productId,
+  canEdit,
+}: {
+  productId: string;
+  canEdit: boolean;
+}) {
   const [product, setProduct] = useState<Product | null>(null);
   const [memory, setMemory] = useState<ProductMemory | null>(null);
   const [assets, setAssets] = useState<ProductAsset[]>([]);
@@ -1216,6 +1543,7 @@ function ProductDetails({ productId }: { productId: string }) {
 
   async function saveMemory(event: React.FormEvent) {
     event.preventDefault();
+    if (!canEdit) return;
     setBusy(true);
     setMessage("");
     try {
@@ -1239,6 +1567,7 @@ function ProductDetails({ productId }: { productId: string }) {
 
   async function saveProfile(event: React.FormEvent) {
     event.preventDefault();
+    if (!canEdit) return;
     setBusy(true);
     setMessage("");
     try {
@@ -1262,6 +1591,7 @@ function ProductDetails({ productId }: { productId: string }) {
   }
 
   async function uploadAsset(event: React.ChangeEvent<HTMLInputElement>) {
+    if (!canEdit) return;
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
@@ -1283,6 +1613,7 @@ function ProductDetails({ productId }: { productId: string }) {
   }
 
   async function removeAsset(assetId: string) {
+    if (!canEdit) return;
     if (!window.confirm("确认删除这个产品素材吗？")) return;
     setBusy(true);
     try {
@@ -1317,6 +1648,11 @@ function ProductDetails({ productId }: { productId: string }) {
         </div>
         <StatusBadge status={product.status ?? "DRAFT"} />
       </div>
+      {!canEdit && (
+        <div className="read-only-note">
+          当前账号拥有产品查看权限，编辑、记忆维护和素材上传由管理员授权后开放。
+        </div>
+      )}
       <div className="tab-row">
         <TabButton active={tab === "profile"} onClick={() => setTab("profile")}>
           产品档案
@@ -1350,6 +1686,7 @@ function ProductDetails({ productId }: { productId: string }) {
               产品名称
               <input
                 required
+                disabled={!canEdit}
                 value={profileText.name}
                 onChange={(event) =>
                   setProfileText((current) => ({
@@ -1363,6 +1700,7 @@ function ProductDetails({ productId }: { productId: string }) {
               产品编码
               <input
                 required
+                disabled={!canEdit}
                 value={profileText.code}
                 onChange={(event) =>
                   setProfileText((current) => ({
@@ -1375,6 +1713,7 @@ function ProductDetails({ productId }: { productId: string }) {
             <label>
               品牌
               <input
+                disabled={!canEdit}
                 value={profileText.brand}
                 onChange={(event) =>
                   setProfileText((current) => ({
@@ -1387,6 +1726,7 @@ function ProductDetails({ productId }: { productId: string }) {
             <label>
               类目
               <input
+                disabled={!canEdit}
                 value={profileText.category}
                 onChange={(event) =>
                   setProfileText((current) => ({
@@ -1401,6 +1741,7 @@ function ProductDetails({ productId }: { productId: string }) {
             产品描述
             <textarea
               rows={4}
+              disabled={!canEdit}
               value={profileText.description}
               onChange={(event) =>
                 setProfileText((current) => ({
@@ -1431,9 +1772,11 @@ function ProductDetails({ productId }: { productId: string }) {
             <span className="form-note">
               产品资料会作为 Prompt Engine 的基础输入
             </span>
-            <button className="button primary" disabled={busy}>
-              保存产品档案
-            </button>
+            {canEdit && (
+              <button className="button primary" disabled={busy}>
+                保存产品档案
+              </button>
+            )}
           </div>
         </form>
       )}
@@ -1442,6 +1785,7 @@ function ProductDetails({ productId }: { productId: string }) {
           <MemoryField
             label="产品事实"
             value={memoryText.facts}
+            disabled={!canEdit}
             onChange={(value) =>
               setMemoryText((current) => ({ ...current, facts: value }))
             }
@@ -1450,6 +1794,7 @@ function ProductDetails({ productId }: { productId: string }) {
           <MemoryField
             label="品牌视觉记忆"
             value={memoryText.brandVisual}
+            disabled={!canEdit}
             onChange={(value) =>
               setMemoryText((current) => ({ ...current, brandVisual: value }))
             }
@@ -1458,6 +1803,7 @@ function ProductDetails({ productId }: { productId: string }) {
           <MemoryField
             label="生成规则"
             value={memoryText.generationRules}
+            disabled={!canEdit}
             onChange={(value) =>
               setMemoryText((current) => ({
                 ...current,
@@ -1469,6 +1815,7 @@ function ProductDetails({ productId }: { productId: string }) {
           <MemoryField
             label="禁止规则"
             value={memoryText.forbiddenRules}
+            disabled={!canEdit}
             onChange={(value) =>
               setMemoryText((current) => ({
                 ...current,
@@ -1481,9 +1828,11 @@ function ProductDetails({ productId }: { productId: string }) {
             <span className="form-note">
               当前版本：Memory v{memory?.latestVersion?.version ?? 0}
             </span>
-            <button className="button primary" disabled={busy}>
-              保存产品记忆
-            </button>
+            {canEdit && (
+              <button className="button primary" disabled={busy}>
+                保存产品记忆
+              </button>
+            )}
           </div>
         </form>
       )}
@@ -1492,6 +1841,7 @@ function ProductDetails({ productId }: { productId: string }) {
           <div className="asset-toolbar">
             <select
               value={assetType}
+              disabled={!canEdit}
               onChange={(event) => setAssetType(event.target.value)}
             >
               <option value="PRODUCT_REFERENCE">产品参考图</option>
@@ -1502,6 +1852,7 @@ function ProductDetails({ productId }: { productId: string }) {
             </select>
             <select
               value={assetView}
+              disabled={!canEdit}
               onChange={(event) => setAssetView(event.target.value)}
             >
               <option value="front">正面</option>
@@ -1511,14 +1862,16 @@ function ProductDetails({ productId }: { productId: string }) {
               <option value="detail">细节</option>
               <option value="scene">场景</option>
             </select>
-            <label className="button primary file-button">
-              上传素材
-              <input
-                type="file"
-                accept="image/*,video/*"
-                onChange={(event) => void uploadAsset(event)}
-              />
-            </label>
+            {canEdit && (
+              <label className="button primary file-button">
+                上传素材
+                <input
+                  type="file"
+                  accept="image/*,video/*"
+                  onChange={(event) => void uploadAsset(event)}
+                />
+              </label>
+            )}
           </div>
           <div className="asset-grid">
             {assets.length ? (
@@ -1540,12 +1893,15 @@ function ProductDetails({ productId }: { productId: string }) {
                       {asset.type} · {formatBytes(asset.byteSize)}
                     </span>
                   </div>
-                  <button
-                    className="button danger small"
-                    onClick={() => void removeAsset(asset.id)}
-                  >
-                    删除
-                  </button>
+                  {canEdit && (
+                    <button
+                      className="button danger small"
+                      type="button"
+                      onClick={() => void removeAsset(asset.id)}
+                    >
+                      删除
+                    </button>
+                  )}
                 </div>
               ))
             ) : (
@@ -1600,67 +1956,74 @@ function AccountView({
   }
 
   return (
-    <div className="two-column">
-      <form className="panel form-panel" onSubmit={save}>
-        <div className="panel-heading">
-          <div>
-            <span className="eyebrow">ACCOUNT CENTER</span>
-            <h3>个人中心</h3>
-          </div>
-        </div>
-        <label>
-          登录邮箱
-          <input value={user.email} readOnly />
-        </label>
-        <label>
-          显示名称
-          <input
-            value={displayName}
-            onChange={(event) => setDisplayName(event.target.value)}
-          />
-        </label>
-        <label>
-          当前密码
-          <input
-            type="password"
-            value={currentPassword}
-            onChange={(event) => setCurrentPassword(event.target.value)}
-            placeholder="修改密码时填写"
-          />
-        </label>
-        <label>
-          新密码
-          <input
-            type="password"
-            value={newPassword}
-            onChange={(event) => setNewPassword(event.target.value)}
-            placeholder="至少 8 位"
-          />
-        </label>
-        {message && <div className="alert success">{message}</div>}
-        <button className="button primary" disabled={saving}>
-          {saving ? "保存中..." : "保存个人资料"}
-        </button>
-      </form>
-      <section className="panel">
-        <span className="eyebrow">ACCESS</span>
-        <h3>当前权限</h3>
-        <div className="tag-list">
-          {user.roles.map((role) => (
-            <span className="tag" key={role}>
-              {role}
-            </span>
-          ))}
-        </div>
-        <div className="permission-list">
-          {user.permissions.map((permission) => (
-            <div className="compact-row" key={permission}>
-              <strong>{permission}</strong>
-              <span>已授权</span>
+    <div className="account-page">
+      <PageHeader
+        eyebrow="ACCOUNT CENTER"
+        title="个人中心"
+        description="维护登录资料、密码和当前工作台授权。"
+      />
+      <div className="two-column">
+        <form className="panel form-panel" onSubmit={save}>
+          <div className="panel-heading">
+            <div>
+              <span className="eyebrow">PROFILE</span>
+              <h3>基本资料</h3>
             </div>
-          ))}
-        </div>
-      </section>
+          </div>
+          <label>
+            登录邮箱
+            <input value={user.email} readOnly />
+          </label>
+          <label>
+            显示名称
+            <input
+              value={displayName}
+              onChange={(event) => setDisplayName(event.target.value)}
+            />
+          </label>
+          <label>
+            当前密码
+            <input
+              type="password"
+              value={currentPassword}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+              placeholder="修改密码时填写"
+            />
+          </label>
+          <label>
+            新密码
+            <input
+              type="password"
+              value={newPassword}
+              onChange={(event) => setNewPassword(event.target.value)}
+              placeholder="至少 8 位"
+            />
+          </label>
+          {message && <div className="alert success">{message}</div>}
+          <button className="button primary" disabled={saving}>
+            {saving ? "保存中..." : "保存个人资料"}
+          </button>
+        </form>
+        <section className="panel">
+          <span className="eyebrow">ACCESS</span>
+          <h3>权限概览</h3>
+          <div className="tag-list">
+            {user.roles.map((role) => (
+              <span className="tag" key={role}>
+                {role}
+              </span>
+            ))}
+          </div>
+          <div className="permission-list">
+            {user.permissions.map((permission) => (
+              <div className="compact-row" key={permission}>
+                <strong>{permission}</strong>
+                <span>已授权</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
     </div>
   );
 }
@@ -1676,25 +2039,29 @@ function AdminCenter({
 }) {
   const has = (permission: string) =>
     user.roles.includes("super_admin") || user.permissions.includes(permission);
-  const tabs: Array<{ id: AdminTab; label: string }> = [
-    ...(has("user:manage:system")
-      ? [
-          { id: "users" as const, label: "用户管理" },
-          { id: "roles" as const, label: "角色权限" },
-          { id: "teams" as const, label: "团队管理" },
-        ]
-      : []),
-    ...(has("model_config:read:system")
-      ? [
-          { id: "settings" as const, label: "系统设置" },
-          { id: "providers" as const, label: "模型供应商" },
-          { id: "skills" as const, label: "Skill 配置" },
-        ]
-      : []),
-    ...(has("audit:read:system")
-      ? [{ id: "audit" as const, label: "审计日志" }]
-      : []),
-  ];
+  const tabs = useMemo<Array<{ id: AdminTab; label: string }>>(
+    () => [
+      ...(has("user:manage:system")
+        ? [
+            { id: "users" as const, label: "用户管理" },
+            { id: "roles" as const, label: "角色权限" },
+            { id: "teams" as const, label: "部门管理" },
+            { id: "menus" as const, label: "菜单权限" },
+          ]
+        : []),
+      ...(has("model_config:read:system")
+        ? [
+            { id: "settings" as const, label: "系统设置" },
+            { id: "providers" as const, label: "模型供应商" },
+            { id: "skills" as const, label: "Skill 配置" },
+          ]
+        : []),
+      ...(has("audit:read:system")
+        ? [{ id: "audit" as const, label: "审计日志" }]
+        : []),
+    ],
+    [user],
+  );
   const firstTab = tabs[0]?.id;
   useEffect(() => {
     if (firstTab && !tabs.some((item) => item.id === tab)) {
@@ -1703,6 +2070,12 @@ function AdminCenter({
   }, [firstTab, onTabChange, tab, tabs]);
   return (
     <div className="admin-center">
+      <PageHeader
+        eyebrow="SYSTEM ADMINISTRATION"
+        title="系统管理"
+        description="按后台管理系统的权限边界组织用户、角色、部门、页面权限、模型和审计数据。"
+        aside={<span className="page-heading-count">{tabs.length} 个模块</span>}
+      />
       <div className="admin-tabs">
         {tabs.map((item) => (
           <TabButton
@@ -1717,6 +2090,7 @@ function AdminCenter({
       {tab === "users" && has("user:manage:system") && <UsersAdmin />}
       {tab === "roles" && has("user:manage:system") && <RolesAdmin />}
       {tab === "teams" && has("user:manage:system") && <TeamsAdmin />}
+      {tab === "menus" && has("user:manage:system") && <MenusAdmin />}
       {tab === "settings" && has("model_config:read:system") && (
         <SettingsAdmin canWrite={has("model_config:update:system")} />
       )}
@@ -1735,6 +2109,10 @@ function UsersAdmin() {
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [teams, setTeams] = useState<ManagedTeam[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [selectedUser, setSelectedUser] = useState<ManagedUser | null>(null);
   const [form, setForm] = useState({
     email: "",
     displayName: "",
@@ -1742,24 +2120,119 @@ function UsersAdmin() {
     roleId: "",
     teamId: "",
   });
+  const [editForm, setEditForm] = useState({
+    email: "",
+    displayName: "",
+    status: "ACTIVE",
+    roleIds: [] as string[],
+    teamIds: [] as string[],
+  });
+  const [resetPassword, setResetPassword] = useState("");
+  const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
   const reload = useCallback(async () => {
-    const [userData, roleData, teamData] = await Promise.all([
-      api<ManagedUser[]>("/system/users"),
-      api<{ roles: Role[]; permissions: Permission[] }>("/system/roles"),
-      api<ManagedTeam[]>("/system/teams"),
-    ]);
-    setUsers(userData ?? []);
-    setRoles(roleData.roles ?? []);
-    setTeams(teamData ?? []);
+    setLoading(true);
+    try {
+      const [userData, roleData, teamData] = await Promise.all([
+        api<ManagedUser[]>("/system/users"),
+        api<{ roles: Role[]; permissions: Permission[] }>("/system/roles"),
+        api<ManagedTeam[]>("/system/teams"),
+      ]);
+      setUsers(userData ?? []);
+      setRoles(roleData.roles ?? []);
+      setTeams(teamData ?? []);
+    } finally {
+      setLoading(false);
+    }
   }, []);
   useEffect(() => {
     void reload().catch((error) => setMessage(error.message));
   }, [reload]);
 
+  const visibleUsers = users.filter((item) => {
+    const normalizedQuery = query.trim().toLowerCase();
+    const matchesQuery =
+      !normalizedQuery ||
+      [item.displayName, item.email, ...item.roles.map((role) => role.name)]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedQuery);
+    return (
+      matchesQuery && (statusFilter === "ALL" || item.status === statusFilter)
+    );
+  });
+
+  function openUser(item: ManagedUser) {
+    setSelectedUser(item);
+    setEditForm({
+      email: item.email,
+      displayName: item.displayName,
+      status: item.status,
+      roleIds: item.roles.map((role) => role.id),
+      teamIds: item.teams.map((team) => team.id),
+    });
+    setResetPassword("");
+    setMessage("");
+  }
+
+  function toggleSelection(key: "roleIds" | "teamIds", value: string) {
+    setEditForm((current) => ({
+      ...current,
+      [key]: current[key].includes(value)
+        ? current[key].filter((item) => item !== value)
+        : [...current[key], value],
+    }));
+  }
+
+  async function updateUser(event: React.FormEvent) {
+    event.preventDefault();
+    if (!selectedUser) return;
+    setSaving(true);
+    setMessage("");
+    try {
+      const updated = await api<ManagedUser>(
+        `/system/users/${selectedUser.id}`,
+        {
+          method: "PATCH",
+          bodyJson: editForm,
+        },
+      );
+      await reload();
+      openUser(updated);
+      setMessage("用户信息已更新");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "用户更新失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function changePassword(event: React.FormEvent) {
+    event.preventDefault();
+    if (!selectedUser || resetPassword.length < 8) {
+      setMessage("新密码至少需要 8 位");
+      return;
+    }
+    setSaving(true);
+    setMessage("");
+    try {
+      await api(`/system/users/${selectedUser.id}/reset-password`, {
+        method: "POST",
+        bodyJson: { password: resetPassword },
+      });
+      setResetPassword("");
+      setMessage("密码已重置");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "密码重置失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function create(event: React.FormEvent) {
     event.preventDefault();
+    setSaving(true);
     try {
       await api("/system/users", {
         method: "POST",
@@ -1782,42 +2255,92 @@ function UsersAdmin() {
       setMessage("用户已创建");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "用户创建失败");
+    } finally {
+      setSaving(false);
     }
   }
 
   return (
-    <div className="admin-grid">
-      <section className="panel">
+    <div className="admin-grid users-admin-grid">
+      <section className="panel admin-list-panel">
         <div className="panel-heading">
           <div>
             <span className="eyebrow">USERS</span>
             <h3>用户与状态</h3>
+            <p className="panel-subtitle">
+              点击用户打开编辑抽屉，可调整角色、部门、状态和密码。
+            </p>
           </div>
           <span className="count-badge">{users.length}</span>
         </div>
-        <div className="table-list">
-          {users.map((item) => (
-            <div className="table-row" key={item.id}>
-              <div>
-                <strong>{item.displayName}</strong>
-                <span>{item.email}</span>
-              </div>
-              <div className="row-meta">
-                <span>
-                  {item.roles.map((role) => role.name).join("、") ||
-                    "未分配角色"}
+        <div className="admin-filter-bar">
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="搜索姓名、邮箱或角色"
+            aria-label="搜索用户"
+          />
+          <select
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value)}
+            aria-label="筛选用户状态"
+          >
+            <option value="ALL">全部状态</option>
+            <option value="ACTIVE">正常</option>
+            <option value="DISABLED">已停用</option>
+          </select>
+        </div>
+        <div className="admin-table">
+          <div className="admin-table-head">
+            <span>用户</span>
+            <span>角色 / 部门</span>
+            <span>状态</span>
+          </div>
+          {loading ? (
+            <AdminLoadingState text="正在加载用户、角色和部门..." />
+          ) : visibleUsers.length ? (
+            visibleUsers.map((item) => (
+              <button
+                className={`admin-table-row ${selectedUser?.id === item.id ? "selected" : ""}`}
+                type="button"
+                key={item.id}
+                onClick={() => openUser(item)}
+              >
+                <span className="admin-user-cell">
+                  <span className="user-avatar">
+                    {item.displayName.slice(0, 1)}
+                  </span>
+                  <span>
+                    <strong>{item.displayName}</strong>
+                    <small>{item.email}</small>
+                  </span>
+                </span>
+                <span className="admin-user-meta">
+                  <small>
+                    {item.roles.map((role) => role.name).join("、") ||
+                      "未分配角色"}
+                  </small>
+                  <small>
+                    {item.teams.map((team) => team.name).join("、") ||
+                      "未加入部门"}
+                  </small>
                 </span>
                 <StatusBadge status={item.status} />
-              </div>
-            </div>
-          ))}
+              </button>
+            ))
+          ) : (
+            <EmptyState text="没有匹配的用户" />
+          )}
         </div>
       </section>
-      <form className="panel form-panel" onSubmit={create}>
+      <form className="panel form-panel admin-create-panel" onSubmit={create}>
         <div className="panel-heading">
           <div>
             <span className="eyebrow">NEW USER</span>
             <h3>新增工作台用户</h3>
+            <p className="panel-subtitle">
+              创建后可以继续在用户抽屉中补充授权。
+            </p>
           </div>
         </div>
         <label>
@@ -1888,8 +2411,130 @@ function UsersAdmin() {
           </select>
         </label>
         {message && <div className="alert success">{message}</div>}
-        <button className="button primary">创建用户</button>
+        <button className="button primary" disabled={saving}>
+          {saving ? "保存中..." : "创建用户"}
+        </button>
       </form>
+      {selectedUser && (
+        <div
+          className="drawer-backdrop"
+          role="presentation"
+          onClick={() => setSelectedUser(null)}
+        >
+          <aside
+            className="admin-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-label="编辑用户"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="admin-drawer-header">
+              <div>
+                <span className="eyebrow">EDIT USER</span>
+                <h3>{selectedUser.displayName}</h3>
+                <p>{selectedUser.email}</p>
+              </div>
+              <button
+                className="icon-button"
+                type="button"
+                title="关闭编辑"
+                aria-label="关闭编辑"
+                onClick={() => setSelectedUser(null)}
+              >
+                ×
+              </button>
+            </div>
+            <form className="admin-drawer-form" onSubmit={updateUser}>
+              <label>
+                邮箱
+                <input
+                  type="email"
+                  required
+                  value={editForm.email}
+                  onChange={(event) =>
+                    setEditForm({ ...editForm, email: event.target.value })
+                  }
+                />
+              </label>
+              <label>
+                显示名称
+                <input
+                  required
+                  value={editForm.displayName}
+                  onChange={(event) =>
+                    setEditForm({
+                      ...editForm,
+                      displayName: event.target.value,
+                    })
+                  }
+                />
+              </label>
+              <label>
+                状态
+                <select
+                  value={editForm.status}
+                  onChange={(event) =>
+                    setEditForm({ ...editForm, status: event.target.value })
+                  }
+                >
+                  <option value="ACTIVE">正常</option>
+                  <option value="DISABLED">停用</option>
+                </select>
+              </label>
+              <div className="drawer-section">
+                <span className="section-label">角色</span>
+                <div className="drawer-choice-grid">
+                  {roles.map((role) => (
+                    <label className="checkbox-label" key={role.id}>
+                      <input
+                        type="checkbox"
+                        checked={editForm.roleIds.includes(role.id)}
+                        onChange={() => toggleSelection("roleIds", role.id)}
+                      />
+                      {role.name}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div className="drawer-section">
+                <span className="section-label">部门</span>
+                <div className="drawer-choice-grid">
+                  {teams.map((team) => (
+                    <label className="checkbox-label" key={team.id}>
+                      <input
+                        type="checkbox"
+                        checked={editForm.teamIds.includes(team.id)}
+                        onChange={() => toggleSelection("teamIds", team.id)}
+                      />
+                      {team.name}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              {message && <div className="alert success">{message}</div>}
+              <button className="button primary" disabled={saving}>
+                {saving ? "保存中..." : "保存用户授权"}
+              </button>
+            </form>
+            <form className="drawer-danger-section" onSubmit={changePassword}>
+              <div>
+                <span className="section-label">PASSWORD</span>
+                <strong>重置登录密码</strong>
+              </div>
+              <input
+                type="password"
+                minLength={8}
+                value={resetPassword}
+                onChange={(event) => setResetPassword(event.target.value)}
+                placeholder="输入至少 8 位新密码"
+              />
+              <button className="button danger" disabled={saving}>
+                重置密码
+              </button>
+            </form>
+          </aside>
+        </div>
+      )}
     </div>
   );
 }
@@ -1899,6 +2544,7 @@ function RolesAdmin() {
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [selected, setSelected] = useState("");
   const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(true);
   useEffect(() => {
     void api<{ roles: Role[]; permissions: Permission[] }>("/system/roles")
       .then((data) => {
@@ -1906,9 +2552,19 @@ function RolesAdmin() {
         setPermissions(data.permissions ?? []);
         setSelected(data.roles?.[0]?.id ?? "");
       })
-      .catch((error) => setMessage(error.message));
+      .catch((error) => setMessage(error.message))
+      .finally(() => setLoading(false));
   }, []);
   const active = roles.find((role) => role.id === selected);
+  const permissionGroups = useMemo(
+    () =>
+      permissions.reduce<Record<string, Permission[]>>((groups, permission) => {
+        const group = permission.code.split(":")[0] || "other";
+        (groups[group] ??= []).push(permission);
+        return groups;
+      }, {}),
+    [permissions],
+  );
   async function toggle(permissionId: string) {
     if (!active) return;
     const current = new Set(
@@ -1938,39 +2594,62 @@ function RolesAdmin() {
       </div>
       <div className="role-layout">
         <div className="role-list">
-          {roles.map((role) => (
-            <button
-              className={`role-row ${selected === role.id ? "selected" : ""}`}
-              key={role.id}
-              onClick={() => setSelected(role.id)}
-            >
-              <strong>{role.name}</strong>
-              <span>{role.code}</span>
-            </button>
-          ))}
+          {loading ? (
+            <AdminLoadingState text="正在加载角色..." />
+          ) : (
+            roles.map((role) => (
+              <button
+                className={`role-row ${selected === role.id ? "selected" : ""}`}
+                key={role.id}
+                onClick={() => setSelected(role.id)}
+              >
+                <strong>{role.name}</strong>
+                <span>{role.code}</span>
+              </button>
+            ))
+          )}
         </div>
         <div className="permission-matrix">
-          <div className="section-label">
-            {active?.name || "选择角色"} · 权限
+          <div className="role-permission-summary">
+            <div>
+              <span className="section-label">当前角色</span>
+              <strong>{active?.name || "选择角色"}</strong>
+            </div>
+            <span className="count-badge">
+              {active?.permissions.length ?? 0} / {permissions.length} 项
+            </span>
           </div>
-          {permissions.map((permission) => {
-            const checked = Boolean(
-              active?.permissions.some((item) => item.id === permission.id),
-            );
-            return (
-              <label className="permission-row" key={permission.id}>
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={() => void toggle(permission.id)}
-                />
-                <span>
-                  <strong>{permission.name}</strong>
-                  <small>{permission.code}</small>
-                </span>
-              </label>
-            );
-          })}
+          <div className="permission-group-grid">
+            {loading ? (
+              <AdminLoadingState text="正在加载权限矩阵..." />
+            ) : (
+              Object.entries(permissionGroups).map(([group, items]) => (
+                <div className="permission-group-card" key={group}>
+                  <div className="section-label">{group.toUpperCase()}</div>
+                  {items.map((permission) => {
+                    const checked = Boolean(
+                      active?.permissions.some(
+                        (item) => item.id === permission.id,
+                      ),
+                    );
+                    return (
+                      <label className="permission-row" key={permission.id}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => void toggle(permission.id)}
+                        />
+                        <span>
+                          <strong>{permission.name}</strong>
+                          <small>{permission.code}</small>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              ))
+            )}
+          </div>
           {message && <div className="alert success">{message}</div>}
         </div>
       </div>
@@ -1978,20 +2657,196 @@ function RolesAdmin() {
   );
 }
 
-function TeamsAdmin() {
-  const [teams, setTeams] = useState<ManagedTeam[]>([]);
-  const [form, setForm] = useState({ name: "", code: "" });
+function MenusAdmin() {
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [permissions, setPermissions] = useState<Permission[]>([]);
+  const [selected, setSelected] = useState("");
   const [message, setMessage] = useState("");
-  const reload = useCallback(
-    () =>
-      api<ManagedTeam[]>("/system/teams").then((data) => setTeams(data ?? [])),
-    [],
-  );
+  const [loading, setLoading] = useState(true);
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await api<{ roles: Role[]; permissions: Permission[] }>(
+        "/system/roles",
+      );
+      setRoles(data.roles ?? []);
+      setPermissions(data.permissions ?? []);
+      setSelected((current) => current || data.roles?.[0]?.id || "");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     void reload().catch((error) => setMessage(error.message));
   }, [reload]);
+
+  const active = roles.find((role) => role.id === selected);
+  const permissionGroups = permissions.reduce<Record<string, Permission[]>>(
+    (groups, permission) => {
+      const group = permission.code.split(":")[0] || "other";
+      (groups[group] ??= []).push(permission);
+      return groups;
+    },
+    {},
+  );
+
+  async function toggle(permissionId: string) {
+    if (!active) return;
+    const current = new Set(
+      active.permissions.map((permission) => permission.id),
+    );
+    if (current.has(permissionId)) current.delete(permissionId);
+    else current.add(permissionId);
+    try {
+      const data = await api<{ roles: Role[]; permissions: Permission[] }>(
+        `/system/roles/${active.id}/permissions`,
+        { method: "PATCH", bodyJson: { permissionIds: [...current] } },
+      );
+      setRoles(data.roles ?? []);
+      setPermissions(data.permissions ?? []);
+      setMessage("菜单访问权限已更新");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "权限更新失败");
+    }
+  }
+
+  return (
+    <div className="admin-grid menu-admin-grid">
+      <section className="panel">
+        <div className="panel-heading">
+          <div>
+            <span className="eyebrow">MENU REGISTRY</span>
+            <h3>菜单与页面</h3>
+            <p className="panel-subtitle">
+              菜单沿用页面权限控制，未授权的入口不会出现在侧栏。
+            </p>
+          </div>
+          <span className="count-badge">{MENU_DEFINITIONS.length}</span>
+        </div>
+        <div className="menu-registry-list">
+          {MENU_DEFINITIONS.map((item) => (
+            <div className="menu-registry-row" key={item.code}>
+              <span className="menu-registry-icon">{item.icon}</span>
+              <div>
+                <strong>{item.label}</strong>
+                <span>
+                  {item.group} · {item.permission || "登录后可见"}
+                </span>
+                <small>{item.description}</small>
+              </div>
+              <span
+                className={`status-badge ${
+                  item.permission &&
+                  !active?.permissions.some(
+                    (permission) => permission.code === item.permission,
+                  )
+                    ? "disabled"
+                    : "succeeded"
+                }`}
+              >
+                {item.permission &&
+                !active?.permissions.some(
+                  (permission) => permission.code === item.permission,
+                )
+                  ? "未授权"
+                  : "可访问"}
+              </span>
+            </div>
+          ))}
+        </div>
+      </section>
+      <section className="panel">
+        <div className="panel-heading">
+          <div>
+            <span className="eyebrow">ROLE ACCESS</span>
+            <h3>角色菜单权限</h3>
+          </div>
+          <select
+            className="admin-inline-select"
+            aria-label="选择角色"
+            value={selected}
+            onChange={(event) => setSelected(event.target.value)}
+          >
+            <option value="">选择角色</option>
+            {roles.map((role) => (
+              <option key={role.id} value={role.id}>
+                {role.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="menu-permission-groups">
+          {loading ? (
+            <AdminLoadingState text="正在加载角色菜单权限..." />
+          ) : (
+            Object.entries(permissionGroups).map(([group, items]) => (
+              <div className="menu-permission-group" key={group}>
+                <div className="section-label">{group.toUpperCase()}</div>
+                {items.map((permission) => (
+                  <label className="permission-row" key={permission.id}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(
+                        active?.permissions.some(
+                          (item) => item.id === permission.id,
+                        ),
+                      )}
+                      onChange={() => void toggle(permission.id)}
+                    />
+                    <span>
+                      <strong>{permission.name}</strong>
+                      <small>{permission.code}</small>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            ))
+          )}
+        </div>
+        {message && <div className="alert success">{message}</div>}
+      </section>
+    </div>
+  );
+}
+
+function TeamsAdmin() {
+  const [teams, setTeams] = useState<ManagedTeam[]>([]);
+  const [users, setUsers] = useState<ManagedUser[]>([]);
+  const [selected, setSelected] = useState<ManagedTeam | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState({ name: "", code: "" });
+  const [memberForm, setMemberForm] = useState({ userId: "", isLead: false });
+  const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState(false);
+  const reload = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [teamData, userData] = await Promise.all([
+        api<ManagedTeam[]>("/system/teams"),
+        api<ManagedUser[]>("/system/users"),
+      ]);
+      setTeams(teamData ?? []);
+      setUsers(userData ?? []);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    void reload().catch((error) => setMessage(error.message));
+  }, [reload]);
+
+  function openTeam(team: ManagedTeam) {
+    setSelected(team);
+    setForm({ name: team.name, code: team.code });
+    setMemberForm({ userId: "", isLead: false });
+    setMessage("");
+  }
+
   async function create(event: React.FormEvent) {
     event.preventDefault();
+    setSaving(true);
     try {
       await api("/system/teams", { method: "POST", bodyJson: form });
       setForm({ name: "", code: "" });
@@ -1999,57 +2854,239 @@ function TeamsAdmin() {
       setMessage("团队已创建");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "团队创建失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function updateTeam(event: React.FormEvent) {
+    event.preventDefault();
+    if (!selected) return;
+    setSaving(true);
+    setMessage("");
+    try {
+      await api<ManagedTeam>(`/system/teams/${selected.id}`, {
+        method: "PATCH",
+        bodyJson: form,
+      });
+      const nextTeams = await api<ManagedTeam[]>("/system/teams");
+      setTeams(nextTeams ?? []);
+      const updated = (nextTeams ?? []).find((team) => team.id === selected.id);
+      if (updated) setSelected(updated);
+      setMessage("部门信息已更新");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "部门更新失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function addMember(event: React.FormEvent) {
+    event.preventDefault();
+    if (!selected || !memberForm.userId) return;
+    setSaving(true);
+    setMessage("");
+    try {
+      await api(`/system/teams/${selected.id}/members`, {
+        method: "POST",
+        bodyJson: memberForm,
+      });
+      const nextTeams = await api<ManagedTeam[]>("/system/teams");
+      setTeams(nextTeams ?? []);
+      const updated = (nextTeams ?? []).find((team) => team.id === selected.id);
+      if (updated) setSelected(updated);
+      setMemberForm({ userId: "", isLead: false });
+      setMessage("部门成员已更新");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "成员更新失败");
+    } finally {
+      setSaving(false);
     }
   }
   return (
-    <div className="admin-grid">
-      <section className="panel">
+    <div className="admin-grid teams-admin-grid">
+      <section className="panel admin-list-panel">
         <div className="panel-heading">
           <div>
-            <span className="eyebrow">TEAMS</span>
-            <h3>团队与成员</h3>
+            <span className="eyebrow">DEPARTMENTS</span>
+            <h3>部门与成员</h3>
+            <p className="panel-subtitle">
+              部门对应团队数据域，成员关系会影响产品与生成任务的可见范围。
+            </p>
           </div>
+          <span className="count-badge">{teams.length}</span>
         </div>
-        <div className="table-list">
-          {teams.map((team) => (
-            <div className="table-row" key={team.id}>
-              <div>
-                <strong>{team.name}</strong>
-                <span>{team.code}</span>
-              </div>
-              <div className="row-meta">
-                <span>{team.members.length} 名成员</span>
-              </div>
-            </div>
-          ))}
+        <div className="admin-table">
+          <div className="admin-table-head">
+            <span>部门</span>
+            <span>编码</span>
+            <span>成员</span>
+          </div>
+          {loading ? (
+            <AdminLoadingState text="正在加载部门和成员..." />
+          ) : (
+            teams.map((team) => (
+              <button
+                className={`admin-table-row ${selected?.id === team.id ? "selected" : ""}`}
+                type="button"
+                key={team.id}
+                onClick={() => openTeam(team)}
+              >
+                <span>
+                  <strong>{team.name}</strong>
+                  <small>
+                    {team.members.find((member) => member.isLead)
+                      ?.displayName || "未设置负责人"}
+                  </small>
+                </span>
+                <span className="mono">{team.code}</span>
+                <span>{team.members.length} 人</span>
+              </button>
+            ))
+          )}
         </div>
       </section>
-      <form className="panel form-panel" onSubmit={create}>
+      <form className="panel form-panel admin-create-panel" onSubmit={create}>
         <div className="panel-heading">
           <div>
             <span className="eyebrow">NEW TEAM</span>
-            <h3>新增团队</h3>
+            <h3>新增部门</h3>
           </div>
         </div>
         <label>
-          团队名称
+          部门名称
           <input
             required
-            value={form.name}
+            value={selected ? "" : form.name}
             onChange={(event) => setForm({ ...form, name: event.target.value })}
           />
         </label>
         <label>
-          团队编码
+          部门编码
           <input
             required
-            value={form.code}
+            value={selected ? "" : form.code}
             onChange={(event) => setForm({ ...form, code: event.target.value })}
           />
         </label>
         {message && <div className="alert success">{message}</div>}
-        <button className="button primary">创建团队</button>
+        <button
+          className="button primary"
+          disabled={saving || Boolean(selected)}
+        >
+          {selected ? "请先关闭编辑抽屉" : "创建部门"}
+        </button>
       </form>
+      {selected && (
+        <div
+          className="drawer-backdrop"
+          role="presentation"
+          onClick={() => setSelected(null)}
+        >
+          <aside
+            className="admin-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-label="编辑部门"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="admin-drawer-header">
+              <div>
+                <span className="eyebrow">DEPARTMENT</span>
+                <h3>{selected.name}</h3>
+                <p>
+                  {selected.members.length} 名成员 · {selected.code}
+                </p>
+              </div>
+              <button
+                className="icon-button"
+                type="button"
+                title="关闭编辑"
+                aria-label="关闭编辑"
+                onClick={() => setSelected(null)}
+              >
+                ×
+              </button>
+            </div>
+            <form className="admin-drawer-form" onSubmit={updateTeam}>
+              <label>
+                部门名称
+                <input
+                  required
+                  value={form.name}
+                  onChange={(event) =>
+                    setForm({ ...form, name: event.target.value })
+                  }
+                />
+              </label>
+              <label>
+                部门编码
+                <input
+                  required
+                  value={form.code}
+                  onChange={(event) =>
+                    setForm({ ...form, code: event.target.value })
+                  }
+                />
+              </label>
+              <button className="button primary" disabled={saving}>
+                保存部门
+              </button>
+            </form>
+            <form
+              className="drawer-section drawer-member-form"
+              onSubmit={addMember}
+            >
+              <div className="drawer-section-heading">
+                <span className="section-label">MEMBERS</span>
+                <strong>添加部门成员</strong>
+              </div>
+              <select
+                required
+                value={memberForm.userId}
+                onChange={(event) =>
+                  setMemberForm({ ...memberForm, userId: event.target.value })
+                }
+              >
+                <option value="">选择用户</option>
+                {users.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.displayName} · {user.email}
+                  </option>
+                ))}
+              </select>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={memberForm.isLead}
+                  onChange={(event) =>
+                    setMemberForm({
+                      ...memberForm,
+                      isLead: event.target.checked,
+                    })
+                  }
+                />
+                设为部门负责人
+              </label>
+              <button className="button ghost" disabled={saving}>
+                添加成员
+              </button>
+              <div className="drawer-member-list">
+                {selected.members.map((member) => (
+                  <div className="drawer-member-row" key={member.id}>
+                    <span>
+                      <strong>{member.displayName}</strong>
+                      <small>{member.email}</small>
+                    </span>
+                    {member.isLead && <span className="tag">负责人</span>}
+                  </div>
+                ))}
+              </div>
+            </form>
+            {message && <div className="alert success">{message}</div>}
+          </aside>
+        </div>
+      )}
     </div>
   );
 }
@@ -2060,13 +3097,16 @@ function SettingsAdmin({ canWrite = true }: { canWrite?: boolean }) {
   const [value, setValue] = useState("");
   const [secret, setSecret] = useState(false);
   const [message, setMessage] = useState("");
-  const reload = useCallback(
-    () =>
-      api<SystemSetting[]>("/system/settings").then((data) =>
-        setSettings(data ?? []),
-      ),
-    [],
-  );
+  const [loading, setLoading] = useState(true);
+  const reload = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await api<SystemSetting[]>("/system/settings");
+      setSettings(data ?? []);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
   useEffect(() => {
     void reload().catch((error) => setMessage(error.message));
   }, [reload]);
@@ -2098,21 +3138,27 @@ function SettingsAdmin({ canWrite = true }: { canWrite?: boolean }) {
           </div>
         </div>
         <div className="table-list">
-          {settings.map((setting) => (
-            <div className="table-row" key={setting.id}>
-              <div>
-                <strong>{setting.key}</strong>
-                <span>
-                  {setting.isSecret
-                    ? "敏感配置"
-                    : JSON.stringify(setting.value)}
+          {loading ? (
+            <AdminLoadingState text="正在加载系统设置..." />
+          ) : settings.length ? (
+            settings.map((setting) => (
+              <div className="table-row" key={setting.id}>
+                <div>
+                  <strong>{setting.key}</strong>
+                  <span>
+                    {setting.isSecret
+                      ? "敏感配置"
+                      : JSON.stringify(setting.value)}
+                  </span>
+                </div>
+                <span className="status-badge succeeded">
+                  {setting.isSecret ? "已配置" : "普通"}
                 </span>
               </div>
-              <span className="status-badge succeeded">
-                {setting.isSecret ? "已配置" : "普通"}
-              </span>
-            </div>
-          ))}
+            ))
+          ) : (
+            <EmptyState text="暂未配置系统设置" />
+          )}
         </div>
       </section>
       {canWrite && (
@@ -2178,13 +3224,16 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
     referenceImage: true,
   });
   const [message, setMessage] = useState("");
-  const reload = useCallback(
-    () =>
-      api<ModelProvider[]>("/model-gateway/providers").then((data) =>
-        setProviders(data ?? []),
-      ),
-    [],
-  );
+  const [loading, setLoading] = useState(true);
+  const reload = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await api<ModelProvider[]>("/model-gateway/providers");
+      setProviders(data ?? []);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
   useEffect(() => {
     void reload().catch((error) => setMessage(error.message));
   }, [reload]);
@@ -2249,24 +3298,32 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
           </div>
         </div>
         <div className="table-list">
-          {providers.map((provider) => (
-            <div className="table-row" key={provider.id}>
-              <div>
-                <strong>{provider.name}</strong>
-                <span>
-                  {provider.baseUrl} · {provider.apiKeyHint || "未显示密钥"}
-                </span>
-                {provider.profiles.length > 0 && (
-                  <small className="provider-profile-list">
-                    {provider.profiles
-                      .map((profile) => profile.name)
-                      .join("、")}
-                  </small>
-                )}
+          {loading ? (
+            <AdminLoadingState text="正在加载模型供应商..." />
+          ) : providers.length ? (
+            providers.map((provider) => (
+              <div className="table-row" key={provider.id}>
+                <div>
+                  <strong>{provider.name}</strong>
+                  <span>
+                    {provider.baseUrl} · {provider.apiKeyHint || "未显示密钥"}
+                  </span>
+                  {provider.profiles.length > 0 && (
+                    <small className="provider-profile-list">
+                      {provider.profiles
+                        .map((profile) => profile.name)
+                        .join("、")}
+                    </small>
+                  )}
+                </div>
+                <StatusBadge
+                  status={provider.enabled ? "ACTIVE" : "DISABLED"}
+                />
               </div>
-              <StatusBadge status={provider.enabled ? "ACTIVE" : "DISABLED"} />
-            </div>
-          ))}
+            ))
+          ) : (
+            <EmptyState text="暂未配置模型供应商" />
+          )}
         </div>
       </section>
       <div className="admin-form-stack">
@@ -2492,6 +3549,7 @@ function SkillsAdmin({ canWrite = true }: { canWrite?: boolean }) {
   const [mode, setMode] = useState<"import" | "manual">("import");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({
     name: "",
     code: "",
@@ -2503,13 +3561,15 @@ function SkillsAdmin({ canWrite = true }: { canWrite?: boolean }) {
     negativePrompt: "",
   });
 
-  const reload = useCallback(
-    () =>
-      api<SkillProfile[]>("/skills/admin").then((data) =>
-        setSkills(data ?? []),
-      ),
-    [],
-  );
+  const reload = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await api<SkillProfile[]>("/skills/admin");
+      setSkills(data ?? []);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     void reload().catch((error) => setMessage(error.message));
@@ -2652,7 +3712,9 @@ function SkillsAdmin({ canWrite = true }: { canWrite?: boolean }) {
             <span className="count-badge">{skills.length}</span>
           </div>
           <div className="skill-list">
-            {skills.length ? (
+            {loading ? (
+              <AdminLoadingState text="正在加载 Skill 配置..." />
+            ) : skills.length ? (
               skills.map((skill) => (
                 <div
                   className={`skill-row ${!skill.enabled ? "disabled" : ""}`}
@@ -2860,10 +3922,12 @@ function SkillsAdmin({ canWrite = true }: { canWrite?: boolean }) {
 function AuditAdmin() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(true);
   useEffect(() => {
     void api<AuditLog[]>("/system/audit-logs")
       .then((data) => setLogs(data ?? []))
-      .catch((error) => setMessage(error.message));
+      .catch((error) => setMessage(error.message))
+      .finally(() => setLoading(false));
   }, []);
   return (
     <section className="panel">
@@ -2876,20 +3940,26 @@ function AuditAdmin() {
       </div>
       {message && <div className="alert error">{message}</div>}
       <div className="table-list">
-        {logs.map((log) => (
-          <div className="table-row" key={log.id}>
-            <div>
-              <strong>{log.action}</strong>
-              <span>
-                {log.resource} · {log.resourceId || "—"} ·{" "}
-                {log.actor?.displayName || "系统"}
+        {loading ? (
+          <AdminLoadingState text="正在加载审计日志..." />
+        ) : logs.length ? (
+          logs.map((log) => (
+            <div className="table-row" key={log.id}>
+              <div>
+                <strong>{log.action}</strong>
+                <span>
+                  {log.resource} · {log.resourceId || "—"} ·{" "}
+                  {log.actor?.displayName || "系统"}
+                </span>
+              </div>
+              <span className="row-meta">
+                {new Date(log.createdAt).toLocaleString()}
               </span>
             </div>
-            <span className="row-meta">
-              {new Date(log.createdAt).toLocaleString()}
-            </span>
-          </div>
-        ))}
+          ))
+        ) : (
+          <EmptyState text="暂未产生审计日志" />
+        )}
       </div>
     </section>
   );
@@ -4539,88 +5609,103 @@ function TasksView({
   }
 
   return (
-    <div className="two-column tasks-layout">
-      <section className="panel">
-        <div className="panel-heading">
-          <div>
-            <span className="eyebrow">HISTORY</span>
-            <h3>生成任务</h3>
+    <div className="tasks-page">
+      <PageHeader
+        eyebrow="GENERATION HISTORY"
+        title="生成历史"
+        description="按 7 位生成编号定位图片或视频任务，查看实时状态与输出资产。"
+        aside={
+          <span className="page-heading-count">
+            {displayedTasks.length} 条记录
+          </span>
+        }
+      />
+      <div className="two-column tasks-layout">
+        <section className="panel">
+          <div className="panel-heading">
+            <div>
+              <span className="eyebrow">HISTORY</span>
+              <h3>任务列表</h3>
+            </div>
+            <span className="count-badge">{displayedTasks.length}</span>
           </div>
-          <span className="count-badge">{displayedTasks.length}</span>
-        </div>
-        <form className="history-search" onSubmit={searchHistory}>
-          <div className="history-search-input">
-            <input
-              value={historyCode}
-              onChange={(event) =>
-                setHistoryCode(
-                  event.target.value.replace(/\D/g, "").slice(0, 7),
-                )
-              }
-              inputMode="numeric"
-              maxLength={7}
-              placeholder="输入 7 位生成编号精准查询"
-              aria-label="输入 7 位生成编号"
-            />
-            <button className="button primary small" disabled={searching}>
-              {searching ? "查询中..." : "精准查询"}
-            </button>
-            {searchedTasks !== null && (
-              <button
-                className="button ghost small"
-                type="button"
-                onClick={clearSearch}
-              >
-                清除
+          <form className="history-search" onSubmit={searchHistory}>
+            <div className="history-search-input">
+              <input
+                value={historyCode}
+                onChange={(event) =>
+                  setHistoryCode(
+                    event.target.value.replace(/\D/g, "").slice(0, 7),
+                  )
+                }
+                inputMode="numeric"
+                maxLength={7}
+                placeholder="输入 7 位生成编号精准查询"
+                aria-label="输入 7 位生成编号"
+              />
+              <button className="button primary small" disabled={searching}>
+                {searching ? "查询中..." : "精准查询"}
               </button>
+              {searchedTasks !== null && (
+                <button
+                  className="button ghost small"
+                  type="button"
+                  onClick={clearSearch}
+                >
+                  清除
+                </button>
+              )}
+            </div>
+            {searchMessage && (
+              <span
+                className={`history-search-message ${
+                  searchMessage.includes("没有") ||
+                  searchMessage.includes("失败")
+                    ? "error"
+                    : "success"
+                }`}
+              >
+                {searchMessage}
+              </span>
             )}
+          </form>
+          <div className="task-list">
+            {displayedTasks.length === 0 && (
+              <EmptyState
+                text={
+                  searchedTasks !== null
+                    ? "没有匹配的生成记录"
+                    : "还没有生成任务"
+                }
+              />
+            )}
+            {displayedTasks.map((task) => (
+              <button
+                className={`task-row ${activeTask?.id === task.id ? "selected" : ""}`}
+                key={task.id}
+                onClick={() => onSelect(task)}
+              >
+                <div>
+                  <strong>{task.idea}</strong>
+                  <span>
+                    {task.historyCode || "待分配编号"} ·{" "}
+                    {task.product?.name || "未知产品"} ·{" "}
+                    {task.modelProfile?.name || "未配置模型"}
+                  </span>
+                </div>
+                <StatusBadge status={task.status} />
+              </button>
+            ))}
           </div>
-          {searchMessage && (
-            <span
-              className={`history-search-message ${
-                searchMessage.includes("没有") || searchMessage.includes("失败")
-                  ? "error"
-                  : "success"
-              }`}
-            >
-              {searchMessage}
-            </span>
+        </section>
+        <section className="panel task-detail">
+          {activeTask ? (
+            <TaskDetail task={activeTask} onUpdated={onTaskUpdated} />
+          ) : (
+            <EmptyState text="选择一个任务查看状态" />
           )}
-        </form>
-        <div className="task-list">
-          {displayedTasks.length === 0 && (
-            <EmptyState
-              text={
-                searchedTasks !== null ? "没有匹配的生成记录" : "还没有生成任务"
-              }
-            />
-          )}
-          {displayedTasks.map((task) => (
-            <button
-              className={`task-row ${activeTask?.id === task.id ? "selected" : ""}`}
-              key={task.id}
-              onClick={() => onSelect(task)}
-            >
-              <div>
-                <strong>{task.idea}</strong>
-                <span>
-                  {task.historyCode || "待分配编号"} ·{" "}
-                  {task.product?.name || "未知产品"} ·{" "}
-                  {task.modelProfile?.name || "未配置模型"}
-                </span>
-              </div>
-              <StatusBadge status={task.status} />
-            </button>
-          ))}
-        </div>
-      </section>
-      <section className="panel task-detail">
-        {activeTask ? (
-          <TaskDetail task={activeTask} onUpdated={onTaskUpdated} />
-        ) : (
-          <EmptyState text="选择一个任务查看状态" />
-        )}
-      </section>
+        </section>
+      </div>
     </div>
   );
 }
@@ -4751,18 +5836,25 @@ function NavItem({
   label,
   active,
   onClick,
+  badge,
 }: {
   icon: string;
   label: string;
   active: boolean;
   onClick: () => void;
+  badge?: string;
 }) {
   return (
-    <button className={`nav-item ${active ? "active" : ""}`} onClick={onClick}>
+    <button
+      className={`nav-item ${active ? "active" : ""}`}
+      onClick={onClick}
+      title={label}
+    >
       <span className="nav-icon" aria-hidden="true">
         {icon}
       </span>
-      {label}
+      <span className="nav-label">{label}</span>
+      {badge && <span className="nav-badge">{badge}</span>}
     </button>
   );
 }
@@ -4826,6 +5918,15 @@ function EmptyState({ text }: { text: string }) {
   );
 }
 
+function AdminLoadingState({ text }: { text: string }) {
+  return (
+    <div className="admin-loading" role="status" aria-live="polite">
+      <span className="admin-loading-spinner" aria-hidden="true" />
+      <span>{text}</span>
+    </div>
+  );
+}
+
 function TabButton({
   active,
   onClick,
@@ -4851,17 +5952,20 @@ function MemoryField({
   value,
   onChange,
   placeholder,
+  disabled = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   placeholder: string;
+  disabled?: boolean;
 }) {
   return (
     <label>
       {label}
       <textarea
         rows={4}
+        disabled={disabled}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
