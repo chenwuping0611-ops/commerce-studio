@@ -454,9 +454,9 @@ export function App() {
       </aside>
       <main className="main-panel">
         <header className="topbar">
-          <div>
-            <span className="eyebrow">WORKSPACE</span>
-            <h1>{viewTitle(view)}</h1>
+          <div className="topbar-context">
+            <span className="topbar-context-dot" />
+            <strong>创作运营工作台</strong>
           </div>
           <div className="topbar-actions">
             <span className="user-chip">{user.displayName}</span>
@@ -872,23 +872,6 @@ function ProductsView({
 
   return (
     <div className="product-center-shell">
-      <div className="page-toolbar product-page-toolbar">
-        <div>
-          <span className="eyebrow">PRODUCT CENTER</span>
-          <h2>产品中心</h2>
-          <p>先建立产品数据源，再维护产品档案、素材和长期记忆。</p>
-        </div>
-        <div className="toolbar-actions">
-          <span className="toolbar-note">{products.length} 个产品数据源</span>
-          <button
-            className="button primary"
-            type="button"
-            onClick={() => setCreateOpen((current) => !current)}
-          >
-            {createOpen ? "关闭创建" : "+ 新建产品"}
-          </button>
-        </div>
-      </div>
       {createOpen && (
         <form className="product-create-drawer" onSubmit={createProduct}>
           <div>
@@ -953,12 +936,24 @@ function ProductsView({
       )}
       <div className="product-center-layout">
         <section className="panel product-catalog-panel">
-          <div className="panel-heading">
+          <div className="panel-heading product-catalog-heading">
             <div>
               <span className="eyebrow">DATA SOURCES</span>
               <h3>产品数据源</h3>
+              <p className="panel-subtitle">
+                选择一个产品维护档案、记忆和参考素材
+              </p>
             </div>
-            <span className="count-badge">{visibleProducts.length}</span>
+            <div className="product-catalog-actions">
+              <span className="count-badge">{visibleProducts.length}</span>
+              <button
+                className="button ghost small"
+                type="button"
+                onClick={() => setCreateOpen((current) => !current)}
+              >
+                {createOpen ? "关闭" : "新建"}
+              </button>
+            </div>
           </div>
           <div className="catalog-filters">
             <input
@@ -1311,7 +1306,7 @@ function ProductDetails({ productId }: { productId: string }) {
 
   return (
     <section className="panel product-details">
-      <div className="panel-heading">
+      <div className="panel-heading product-profile-heading">
         <div>
           <span className="eyebrow">PRODUCT PROFILE</span>
           <h3>{product.name}</h3>
