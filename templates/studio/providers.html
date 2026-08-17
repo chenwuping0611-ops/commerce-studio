@@ -1,0 +1,342 @@
+{% extends "studio/base.html" %}
+{% block title %}模型供应商 | Commerce Studio{% endblock %}
+{% block content %}
+<div class="studio-page-header">
+    <div>
+        <div class="studio-eyebrow">MODEL PROVIDERS</div>
+        <h1>模型供应商</h1>
+        <p>供应商保存连接信息，模型单独维护图片或视频类型、提交地址、查询地址和请求字段。</p>
+    </div>
+    <div class="studio-toolbar-right">
+        <button class="layui-btn studio-btn-primary" id="newProvider">新增供应商</button>
+        <button class="layui-btn studio-btn-quiet" id="newModel">新增模型</button>
+    </div>
+</div>
+
+<section class="studio-card">
+    <div class="studio-card-header">
+        <h2>供应商连接</h2>
+        <span class="studio-helper">API Key 只展示配置状态</span>
+    </div>
+    <div class="studio-card-body">
+        <div class="studio-provider-list" id="providerList">
+            <div class="studio-empty">正在加载供应商</div>
+        </div>
+    </div>
+</section>
+
+<section class="studio-card studio-section-gap">
+    <div class="studio-card-header">
+        <h2>模型定义</h2>
+        <span class="studio-helper">空字段、停用字段不会发送给上游</span>
+    </div>
+    <div class="studio-table-wrap">
+        <table class="studio-table">
+            <thead><tr><th>模型名称</th><th>模型标识</th><th>类型</th><th>供应商</th><th>请求字段</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody id="modelTable"><tr><td colspan="7" class="studio-empty">正在加载模型</td></tr></tbody>
+        </table>
+    </div>
+</section>
+
+<div class="studio-modal" id="providerDialog">
+    <form class="layui-form studio-form" id="providerForm">
+        <input type="hidden" name="id" id="providerId">
+        <div class="studio-modal-section">
+            <div class="studio-modal-section-title">连接信息</div>
+            <div class="studio-form-grid">
+                <div><label class="studio-field-label">名称</label><input name="name" id="providerName" required class="layui-input" placeholder="例如 ToAPIs 中转"></div>
+                <div><label class="studio-field-label">接入类型</label><select name="kind" id="providerKind"><option value="relay">中转站</option><option value="official">官方 API</option><option value="custom">自定义</option></select></div>
+                <div class="studio-field-span-2"><label class="studio-field-label">Base URL</label><input name="base_url" id="providerBaseUrl" required class="layui-input" placeholder="https://toapis.com"></div>
+                <div class="studio-field-span-2"><label class="studio-field-label">API Key</label><input name="api_key" id="providerApiKey" type="password" class="layui-input" placeholder="编辑时留空表示保留原 Key"></div>
+                <div><label class="studio-field-label">认证 Header</label><input name="auth_header" id="providerAuthHeader" class="layui-input" placeholder="Authorization"></div>
+                <div><label class="studio-field-label">认证前缀</label><input name="auth_prefix" id="providerAuthPrefix" class="layui-input" placeholder="Bearer"></div>
+                <div><label class="studio-field-label">请求超时（秒）</label><input name="timeout" id="providerTimeout" type="number" min="30" value="120" class="layui-input"></div>
+            </div>
+        </div>
+        <div class="studio-modal-section">
+            <div class="studio-modal-section-title">默认接口路径</div>
+            <div class="studio-form-grid">
+                <div><label class="studio-field-label">余额地址</label><input name="balance_path" id="providerBalancePath" class="layui-input" placeholder="/v1/user/balance"></div>
+                <div><label class="studio-field-label">Token 余额地址</label><input name="token_balance_path" id="providerTokenBalancePath" class="layui-input" placeholder="/v1/balance"></div>
+                <div><label class="studio-field-label">默认提交地址</label><input name="generation_path" id="providerGenerationPath" class="layui-input" placeholder="/v1/images/generations"></div>
+                <div><label class="studio-field-label">默认查询地址</label><input name="result_path" id="providerResultPath" class="layui-input" placeholder="/v1/images/generations/{task_id}"></div>
+                <div class="studio-field-span-2"><label class="studio-field-label">说明</label><textarea name="description" id="providerDescription" class="layui-textarea" rows="2"></textarea></div>
+            </div>
+        </div>
+        <div class="layui-form-item studio-form-actions">
+            <div class="layui-input-block"><button class="layui-btn studio-btn-primary" lay-submit>保存供应商</button><button type="button" class="layui-btn studio-btn-quiet" id="closeProvider">取消</button></div>
+        </div>
+    </form>
+</div>
+
+<div class="studio-modal" id="modelDialog">
+    <form class="layui-form studio-form" id="modelForm">
+        <input type="hidden" name="id" id="modelId">
+        <div class="studio-modal-section">
+            <div class="studio-modal-section-title">模型基础信息</div>
+            <div class="studio-form-grid">
+                <div><label class="studio-field-label">供应商</label><select name="provider_id" id="modelProvider" required></select></div>
+                <div><label class="studio-field-label">媒体类型</label><select name="media_type" id="modelMediaType"><option value="IMAGE">图片</option><option value="VIDEO">视频</option></select></div>
+                <div><label class="studio-field-label">模型名称</label><input name="name" id="modelName" required class="layui-input" placeholder="例如 GPT Image 2"></div>
+                <div><label class="studio-field-label">模型标识</label><input name="model_code" id="modelCode" required class="layui-input" placeholder="例如 gpt-image-2"></div>
+                <div><label class="studio-field-label">提交地址</label><input name="generation_path" id="modelGenerationPath" class="layui-input" placeholder="留空使用供应商默认地址"></div>
+                <div><label class="studio-field-label">查询地址</label><input name="result_path" id="modelResultPath" class="layui-input" placeholder="支持 {task_id} 占位符"></div>
+                <div class="studio-field-span-2"><label class="studio-field-label">模型说明</label><textarea name="description" id="modelDescription" class="layui-textarea" rows="2"></textarea></div>
+            </div>
+        </div>
+        <div class="studio-modal-section">
+            <div class="studio-modal-section-title">请求字段定义</div>
+            <div class="studio-note studio-note-small">字段名是发送到 body 的 key；runtime_key 用于绑定创作页面输入；默认值为空时不会发送。</div>
+            <div class="studio-param-head"><span>字段名</span><span>显示名称</span><span>运行时字段</span><span>默认值</span><span>类型</span><span>启用</span><span></span></div>
+            <div class="studio-param-list" id="modelParams"></div>
+            <button type="button" class="layui-btn layui-btn-xs studio-btn-quiet" id="addParam">添加字段</button>
+        </div>
+        <div class="layui-form-item studio-form-actions">
+            <div class="layui-input-block"><button class="layui-btn studio-btn-primary" lay-submit>保存模型</button><button type="button" class="layui-btn studio-btn-quiet" id="closeModel">取消</button></div>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    var providers = [];
+    var models = [];
+    var providerLayer = null;
+    var modelLayer = null;
+    var params = [];
+    var imageDefaults = [
+        {field: "model", label: "模型标识", runtime_key: "", value: "gpt-image-2", value_type: "string", enabled: true},
+        {field: "prompt", label: "提示词", runtime_key: "prompt", value: "", value_type: "string", enabled: true},
+        {field: "n", label: "生成数量", runtime_key: "count", value: "1", value_type: "number", enabled: true},
+        {field: "size", label: "画面比例", runtime_key: "aspect_ratio", value: "1:1", value_type: "string", enabled: true},
+        {field: "resolution", label: "分辨率", runtime_key: "resolution", value: "1k", value_type: "string", enabled: true},
+        {field: "image_urls", label: "参考图片", runtime_key: "reference_images", value: "", value_type: "json", enabled: true},
+        {field: "response_format", label: "返回格式", runtime_key: "", value: "url", value_type: "string", enabled: true}
+    ];
+    var videoDefaults = [
+        {field: "model", label: "模型标识", runtime_key: "", value: "seedance-2", value_type: "string", enabled: true},
+        {field: "prompt", label: "提示词", runtime_key: "prompt", value: "", value_type: "string", enabled: true},
+        {field: "duration", label: "时长", runtime_key: "duration", value: "5", value_type: "number", enabled: true},
+        {field: "aspect_ratio", label: "画面比例", runtime_key: "aspect_ratio", value: "16:9", value_type: "string", enabled: true},
+        {field: "resolution", label: "分辨率", runtime_key: "resolution", value: "720p", value_type: "string", enabled: true},
+        {field: "image_with_roles", label: "参考图片", runtime_key: "reference_images_with_roles", value: "", value_type: "json", enabled: true},
+        {field: "video_with_roles", label: "参考视频", runtime_key: "reference_videos_with_roles", value: "", value_type: "json", enabled: true},
+        {field: "generate_audio", label: "生成音频", runtime_key: "generate_audio", value: "true", value_type: "boolean", enabled: true}
+    ];
+
+    function defaultParams(type) {
+        return JSON.parse(JSON.stringify(type === "VIDEO" ? videoDefaults : imageDefaults));
+    }
+
+    function loadData() {
+        return Studio.request("/studio/api/providers").then(function (result) {
+            providers = result.data;
+            models = [];
+            providers.forEach(function (provider) {
+                (provider.models || []).forEach(function (model) { models.push(model); });
+            });
+            renderProviders();
+            renderModels();
+        });
+    }
+
+    function renderProviders() {
+        var list = document.getElementById("providerList");
+        if (!providers.length) {
+            list.innerHTML = '<div class="studio-empty">还没有供应商，请先添加一个 API 连接</div>';
+            return;
+        }
+        list.innerHTML = providers.map(function (item) {
+            var activeModels = (item.models || []).filter(function (model) { return model.enabled; });
+            return '<article class="studio-provider-card">' +
+                '<div class="studio-provider-main"><div><div class="studio-provider-title"><h3>' + Studio.escapeHtml(item.name) + '</h3>' +
+                '<span class="studio-pill ' + (item.enabled ? "green" : "gray") + '">' + (item.enabled ? "启用" : "停用") + '</span></div>' +
+                '<div class="studio-provider-url">' + Studio.escapeHtml(item.base_url) + '</div></div>' +
+                '<div class="studio-provider-actions"><button class="layui-btn layui-btn-xs studio-btn-quiet edit-provider" data-id="' + item.id + '">编辑</button>' +
+                '<button class="layui-btn layui-btn-xs studio-btn-quiet balance-provider" data-id="' + item.id + '" data-scope="user">查用户余额</button>' +
+                '<button class="layui-btn layui-btn-xs studio-btn-quiet balance-provider" data-id="' + item.id + '" data-scope="token">查 Token 余额</button></div></div>' +
+                '<div class="studio-provider-meta"><span>API Key：' + (item.api_key_configured ? "已配置" : "未配置") + '</span><span>模型 ' + activeModels.length + ' 个</span><span class="provider-balance-result" id="providerBalance' + item.id + '"></span></div>' +
+                '</article>';
+        }).join("");
+
+        list.querySelectorAll(".edit-provider").forEach(function (button) {
+            button.addEventListener("click", function () {
+                openProvider(providers.find(function (item) { return item.id === Number(button.dataset.id); }));
+            });
+        });
+        list.querySelectorAll(".balance-provider").forEach(function (button) {
+            button.addEventListener("click", function () {
+                var output = document.getElementById("providerBalance" + button.dataset.id);
+                output.textContent = "查询中…";
+                Studio.request("/studio/api/providers/" + button.dataset.id + "/balance?scope=" + button.dataset.scope, {method: "POST"})
+                    .then(function (result) {
+                        output.textContent = button.dataset.scope === "token" ? "Token 余额：" : "用户余额：";
+                        output.title = JSON.stringify(result.data.payload);
+                    })
+                    .catch(function (error) { output.textContent = error.message; });
+            });
+        });
+    }
+
+    function renderModels() {
+        var table = document.getElementById("modelTable");
+        if (!models.length) {
+            table.innerHTML = '<tr><td colspan="7" class="studio-empty">还没有模型定义</td></tr>';
+            return;
+        }
+        table.innerHTML = models.map(function (item) {
+            return '<tr><td><b>' + Studio.escapeHtml(item.name) + '</b></td>' +
+                '<td class="muted">' + Studio.escapeHtml(item.model_code) + '</td>' +
+                '<td>' + (item.media_type === "VIDEO" ? "视频" : "图片") + '</td>' +
+                '<td>' + Studio.escapeHtml(item.provider_name) + '</td>' +
+                '<td>' + (item.parameter_schema || []).length + ' 个</td>' +
+                '<td><span class="studio-pill ' + (item.enabled ? "green" : "gray") + '">' + (item.enabled ? "启用" : "停用") + '</span></td>' +
+                '<td><span class="studio-actions"><button class="layui-btn layui-btn-xs studio-btn-quiet edit-model" data-id="' + item.id + '">编辑</button>' +
+                '<button class="layui-btn layui-btn-xs layui-btn-danger delete-model" data-id="' + item.id + '">停用</button></span></td></tr>';
+        }).join("");
+        table.querySelectorAll(".edit-model").forEach(function (button) {
+            button.addEventListener("click", function () {
+                openModel(models.find(function (item) { return item.id === Number(button.dataset.id); }));
+            });
+        });
+        table.querySelectorAll(".delete-model").forEach(function (button) {
+            button.addEventListener("click", function () {
+                if (!window.confirm("确认停用这个模型吗？")) return;
+                Studio.request("/studio/api/models/" + button.dataset.id, {method: "DELETE"})
+                    .then(loadData).catch(function (error) { Studio.toast(error.message, "error"); });
+            });
+        });
+    }
+
+    function openProvider(item) {
+        item = item || {};
+        document.getElementById("providerId").value = item.id || "";
+        document.getElementById("providerName").value = item.name || "";
+        document.getElementById("providerKind").value = item.kind || "relay";
+        document.getElementById("providerBaseUrl").value = item.base_url || "";
+        document.getElementById("providerApiKey").value = "";
+        document.getElementById("providerAuthHeader").value = item.auth_header || "Authorization";
+        document.getElementById("providerAuthPrefix").value = item.auth_prefix || "Bearer";
+        document.getElementById("providerBalancePath").value = item.balance_path || "/v1/user/balance";
+        document.getElementById("providerTokenBalancePath").value = item.token_balance_path || "/v1/balance";
+        document.getElementById("providerGenerationPath").value = item.generation_path || "/v1/images/generations";
+        document.getElementById("providerResultPath").value = item.result_path || "/v1/images/generations/{task_id}";
+        document.getElementById("providerTimeout").value = item.timeout || 120;
+        document.getElementById("providerDescription").value = item.description || "";
+        layui.use(["layer", "form"], function () {
+            providerLayer = layui.layer.open({
+                type: 1, title: item.id ? "编辑供应商" : "新增供应商", area: ["820px", "760px"],
+                content: document.getElementById("providerDialog"),
+                success: function () { document.getElementById("providerDialog").style.display = "block"; layui.form.render(); },
+                end: function () { document.getElementById("providerDialog").style.display = "none"; }
+            });
+        });
+    }
+
+    function renderParamRows() {
+        var node = document.getElementById("modelParams");
+        node.innerHTML = params.map(function (item, index) {
+            return '<div class="studio-param-row">' +
+                '<input class="layui-input param-field" data-index="' + index + '" value="' + Studio.escapeHtml(item.field || "") + '" placeholder="field">' +
+                '<input class="layui-input param-label" data-index="' + index + '" value="' + Studio.escapeHtml(item.label || "") + '" placeholder="显示名称">' +
+                '<input class="layui-input param-runtime" data-index="' + index + '" value="' + Studio.escapeHtml(item.runtime_key || "") + '" placeholder="runtime_key">' +
+                '<input class="layui-input param-value" data-index="' + index + '" value="' + Studio.escapeHtml(item.value == null ? "" : item.value) + '" placeholder="默认值">' +
+                '<select class="param-type" data-index="' + index + '"><option value="string">string</option><option value="number">number</option><option value="boolean">boolean</option><option value="json">json</option></select>' +
+                '<input type="checkbox" class="param-enabled" data-index="' + index + '" ' + (item.enabled !== false ? "checked" : "") + '>' +
+                '<button type="button" class="layui-btn layui-btn-xs layui-btn-danger remove-param" data-index="' + index + '">×</button>' +
+                '</div>';
+        }).join("");
+        node.querySelectorAll(".param-type").forEach(function (select, index) {
+            select.value = params[index].value_type || "string";
+        });
+        node.querySelectorAll(".remove-param").forEach(function (button) {
+            button.addEventListener("click", function () {
+                params.splice(Number(button.dataset.index), 1);
+                renderParamRows();
+            });
+        });
+        layui.use("form", function () { layui.form.render(); });
+    }
+
+    function openModel(item) {
+        item = item || {};
+        document.getElementById("modelId").value = item.id || "";
+        document.getElementById("modelProvider").innerHTML = providers.filter(function (provider) {
+            return provider.enabled;
+        }).map(function (provider) {
+            return '<option value="' + provider.id + '">' + Studio.escapeHtml(provider.name) + '</option>';
+        }).join("");
+        document.getElementById("modelProvider").value = item.provider_id || (providers[0] && providers[0].id) || "";
+        document.getElementById("modelMediaType").value = item.media_type || "IMAGE";
+        document.getElementById("modelName").value = item.name || "";
+        document.getElementById("modelCode").value = item.model_code || "";
+        document.getElementById("modelGenerationPath").value = item.generation_path || "";
+        document.getElementById("modelResultPath").value = item.result_path || "";
+        document.getElementById("modelDescription").value = item.description || "";
+        params = item.parameter_schema && item.parameter_schema.length ? JSON.parse(JSON.stringify(item.parameter_schema)) : defaultParams(document.getElementById("modelMediaType").value);
+        renderParamRows();
+        layui.use(["layer", "form"], function () {
+            modelLayer = layui.layer.open({
+                type: 1, title: item.id ? "编辑模型" : "新增模型", area: ["1120px", "800px"],
+                content: document.getElementById("modelDialog"),
+                success: function () { document.getElementById("modelDialog").style.display = "block"; layui.form.render(); },
+                end: function () { document.getElementById("modelDialog").style.display = "none"; }
+            });
+        });
+    }
+
+    document.getElementById("modelMediaType").addEventListener("change", function () {
+        if (!document.getElementById("modelId").value) {
+            params = defaultParams(this.value);
+            renderParamRows();
+        }
+    });
+    document.getElementById("addParam").addEventListener("click", function () {
+        params.push({field: "", label: "", runtime_key: "", value: "", value_type: "string", enabled: true});
+        renderParamRows();
+    });
+    document.getElementById("newProvider").addEventListener("click", function () { openProvider(); });
+    document.getElementById("newModel").addEventListener("click", function () {
+        if (!providers.filter(function (provider) { return provider.enabled; }).length) {
+            Studio.toast("请先新增供应商", "error");
+            return;
+        }
+        openModel();
+    });
+    document.getElementById("closeProvider").addEventListener("click", function () { if (providerLayer) layui.layer.close(providerLayer); });
+    document.getElementById("closeModel").addEventListener("click", function () { if (modelLayer) layui.layer.close(modelLayer); });
+    document.getElementById("providerForm").addEventListener("submit", function (event) {
+        event.preventDefault();
+        var payload = {};
+        new FormData(event.target).forEach(function (value, key) { payload[key] = value; });
+        Studio.request("/studio/api/providers", {method: "POST", body: JSON.stringify(payload)}).then(function () {
+            if (providerLayer) layui.layer.close(providerLayer);
+            Studio.toast("供应商已保存");
+            loadData();
+        }).catch(function (error) { Studio.toast(error.message, "error"); });
+    });
+    document.getElementById("modelForm").addEventListener("submit", function (event) {
+        event.preventDefault();
+        document.querySelectorAll("#modelParams .studio-param-row").forEach(function (row, index) {
+            params[index].field = row.querySelector(".param-field").value.trim();
+            params[index].label = row.querySelector(".param-label").value.trim();
+            params[index].runtime_key = row.querySelector(".param-runtime").value.trim();
+            params[index].value = row.querySelector(".param-value").value;
+            params[index].value_type = row.querySelector(".param-type").value;
+            params[index].enabled = row.querySelector(".param-enabled").checked;
+        });
+        var payload = {};
+        new FormData(event.target).forEach(function (value, key) { payload[key] = value; });
+        payload.parameter_schema = params;
+        Studio.request("/studio/api/models", {method: "POST", body: JSON.stringify(payload)}).then(function () {
+            if (modelLayer) layui.layer.close(modelLayer);
+            Studio.toast("模型已保存");
+            loadData();
+        }).catch(function (error) { Studio.toast(error.message, "error"); });
+    });
+    loadData().catch(function (error) { Studio.toast(error.message, "error"); });
+});
+</script>
+{% endblock %}

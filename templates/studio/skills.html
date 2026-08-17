@@ -1,0 +1,171 @@
+{% extends "studio/base.html" %}
+{% block title %}Skill 配置 | Commerce Studio{% endblock %}
+{% block content %}
+<div class="studio-page-header">
+    <div>
+        <div class="studio-eyebrow">SKILL CENTER</div>
+        <h1>Skill 配置</h1>
+        <p>导入 md、json、txt、yaml、yml 文件，沉淀可复用的图片和视频创作指令。</p>
+    </div>
+</div>
+
+<div class="studio-grid-2">
+    <section class="studio-card">
+        <div class="studio-card-header">
+            <h2>拖拽导入</h2>
+            <span class="studio-pill">多文件</span>
+        </div>
+        <div class="studio-card-body">
+            <label class="studio-upload" id="skillDropzone" for="skillFiles">
+                <div><strong>点击或拖动文件到这里</strong><br><span>支持 .md / .json / .txt / .yaml / .yml，可一次选择多个文件</span></div>
+                <input id="skillFiles" type="file" multiple accept=".md,.json,.txt,.yaml,.yml" hidden>
+            </label>
+            <div id="uploadStatus" class="studio-helper studio-upload-status"></div>
+        </div>
+    </section>
+    <section class="studio-card">
+        <div class="studio-card-header">
+            <h2>手动新建</h2>
+            <button class="layui-btn layui-btn-sm studio-btn-primary" id="newSkill">新建</button>
+        </div>
+        <div class="studio-card-body">
+            <div class="studio-note">
+                Skill 可以在图片或视频创作页选择。JSON 文件支持读取 name、media_type、version、tags、prompt_template、negative_prompt 字段。
+            </div>
+        </div>
+    </section>
+</div>
+
+<section class="studio-card studio-section-gap">
+    <div class="studio-card-header">
+        <h2>已配置 Skill</h2>
+        <span class="studio-helper" id="skillCount">0 个</span>
+    </div>
+    <div class="studio-table-wrap">
+        <table class="studio-table">
+            <thead><tr><th>名称</th><th>编码</th><th>适用类型</th><th>版本</th><th>文件</th><th>操作</th></tr></thead>
+            <tbody id="skillTable"><tr><td colspan="6" class="studio-empty">正在加载</td></tr></tbody>
+        </table>
+    </div>
+</section>
+
+<div class="studio-modal" id="skillDialog">
+    <form class="layui-form studio-form" id="skillForm">
+        <input type="hidden" name="id" id="skillId">
+        <div class="studio-form-grid">
+            <div><label class="studio-field-label">名称</label><input name="name" id="skillName" required class="layui-input"></div>
+            <div><label class="studio-field-label">适用类型</label><select name="media_type" id="skillType"><option value="BOTH">图片 + 视频</option><option value="IMAGE">图片</option><option value="VIDEO">视频</option></select></div>
+            <div><label class="studio-field-label">版本</label><input name="version" id="skillVersion" value="1.0.0" class="layui-input"></div>
+            <div><label class="studio-field-label">标签</label><input name="tags" id="skillTags" placeholder="例如 电商,广告,高级感" class="layui-input"></div>
+            <div class="studio-field-span-2"><label class="studio-field-label">Prompt 模板</label><textarea name="prompt_template" id="skillPrompt" class="layui-textarea" rows="6"></textarea></div>
+            <div class="studio-field-span-2"><label class="studio-field-label">反向提示词</label><textarea name="negative_prompt" id="skillNegative" class="layui-textarea" rows="3"></textarea></div>
+        </div>
+        <div class="layui-form-item studio-form-actions"><div class="layui-input-block"><button class="layui-btn studio-btn-primary" lay-submit>保存</button><button type="button" class="layui-btn studio-btn-quiet" id="closeSkill">取消</button></div></div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    var skills = [];
+    var skillLayer = null;
+    var fileInput = document.getElementById("skillFiles");
+    var dropzone = document.getElementById("skillDropzone");
+
+    function loadSkills() {
+        return Studio.request("/studio/api/skills").then(function (result) {
+            skills = result.data;
+            document.getElementById("skillCount").textContent = skills.length + " 个";
+            var table = document.getElementById("skillTable");
+            table.innerHTML = skills.length ? skills.map(function (item) {
+                var type = item.media_type === "BOTH" ? "图片 + 视频" : (item.media_type === "IMAGE" ? "图片" : "视频");
+                return '<tr><td><b>' + Studio.escapeHtml(item.name) + '</b></td>' +
+                    '<td class="muted">' + Studio.escapeHtml(item.code) + '</td><td>' + type + '</td>' +
+                    '<td>' + Studio.escapeHtml(item.version) + '</td><td class="muted">' + Studio.escapeHtml(item.file_name || "手动创建") + '</td>' +
+                    '<td><span class="studio-actions"><button class="layui-btn layui-btn-xs studio-btn-quiet edit-skill" data-id="' + item.id + '">编辑</button>' +
+                    '<button class="layui-btn layui-btn-xs layui-btn-danger delete-skill" data-id="' + item.id + '">停用</button></span></td></tr>';
+            }).join("") : '<tr><td colspan="6" class="studio-empty">还没有 Skill</td></tr>';
+
+            table.querySelectorAll(".edit-skill").forEach(function (button) {
+                button.addEventListener("click", function () {
+                    openSkill(skills.find(function (item) { return item.id === Number(button.dataset.id); }));
+                });
+            });
+            table.querySelectorAll(".delete-skill").forEach(function (button) {
+                button.addEventListener("click", function () {
+                    if (!window.confirm("确认停用这个 Skill 吗？")) return;
+                    Studio.request("/studio/api/skills/" + button.dataset.id, {method: "DELETE"})
+                        .then(loadSkills).catch(function (error) { Studio.toast(error.message, "error"); });
+                });
+            });
+        });
+    }
+
+    function openSkill(item) {
+        item = item || {};
+        document.getElementById("skillId").value = item.id || "";
+        document.getElementById("skillName").value = item.name || "";
+        document.getElementById("skillType").value = item.media_type || "BOTH";
+        document.getElementById("skillVersion").value = item.version || "1.0.0";
+        document.getElementById("skillTags").value = item.tags || "";
+        document.getElementById("skillPrompt").value = item.prompt_template || "";
+        document.getElementById("skillNegative").value = item.negative_prompt || "";
+        layui.use(["layer", "form"], function () {
+            skillLayer = layui.layer.open({
+                type: 1, title: item.id ? "编辑 Skill" : "新建 Skill", area: ["760px", "680px"],
+                content: document.getElementById("skillDialog"),
+                success: function () { document.getElementById("skillDialog").style.display = "block"; layui.form.render(); },
+                end: function () { document.getElementById("skillDialog").style.display = "none"; }
+            });
+        });
+    }
+
+    function uploadFiles(files) {
+        files = Array.from(files || []);
+        if (!files.length) return;
+        var status = document.getElementById("uploadStatus");
+        status.textContent = "正在导入 " + files.length + " 个文件…";
+        Promise.all(files.map(function (file) {
+            var body = new FormData();
+            body.append("file", file);
+            return fetch("/studio/api/skills/upload", {method: "POST", body: body}).then(function (response) { return response.json(); });
+        })).then(function (results) {
+            var failed = results.filter(function (item) { return !item.success; });
+            status.textContent = failed.length ? "部分失败：" + failed.map(function (item) { return item.msg; }).join("；") : "文件导入完成";
+            loadSkills();
+        }).catch(function (error) {
+            status.textContent = error.message;
+        });
+    }
+
+    document.getElementById("newSkill").addEventListener("click", function () { openSkill(); });
+    document.getElementById("closeSkill").addEventListener("click", function () { if (skillLayer) layui.layer.close(skillLayer); });
+    document.getElementById("skillForm").addEventListener("submit", function (event) {
+        event.preventDefault();
+        var payload = {};
+        new FormData(event.target).forEach(function (value, key) { payload[key] = value; });
+        Studio.request("/studio/api/skills", {method: "POST", body: JSON.stringify(payload)}).then(function () {
+            if (skillLayer) layui.layer.close(skillLayer);
+            Studio.toast("Skill 已保存");
+            loadSkills();
+        }).catch(function (error) { Studio.toast(error.message, "error"); });
+    });
+    fileInput.addEventListener("change", function (event) { uploadFiles(event.target.files); event.target.value = ""; });
+    ["dragenter", "dragover"].forEach(function (eventName) {
+        dropzone.addEventListener(eventName, function (event) {
+            event.preventDefault();
+            dropzone.classList.add("is-dragging");
+        });
+    });
+    ["dragleave", "drop"].forEach(function (eventName) {
+        dropzone.addEventListener(eventName, function (event) {
+            event.preventDefault();
+            dropzone.classList.remove("is-dragging");
+        });
+    });
+    dropzone.addEventListener("drop", function (event) { uploadFiles(event.dataTransfer.files); });
+    loadSkills().catch(function (error) { Studio.toast(error.message, "error"); });
+});
+</script>
+{% endblock %}

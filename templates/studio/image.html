@@ -1,0 +1,271 @@
+{% extends "studio/base.html" %}
+{% block title %}图片创作 | Commerce Studio{% endblock %}
+{% block content %}
+<div class="studio-page-header">
+    <div>
+        <div class="studio-eyebrow">IMAGE GENERATION</div>
+        <h1>图片创作</h1>
+        <p>选择产品和模型，产品记忆与引用素材会自动进入生成请求。</p>
+    </div>
+    <a class="layui-btn studio-btn-quiet" href="/studio/history?media_type=IMAGE">图片历史</a>
+</div>
+
+<div class="studio-workspace">
+    <section class="studio-card studio-form-card">
+        <div class="studio-card-header">
+            <h2>创建图片任务</h2>
+            <span class="studio-pill">异步生成</span>
+        </div>
+        <form class="layui-form studio-form" id="imageForm">
+            <div class="layui-form-item">
+                <label class="layui-form-label">模型</label>
+                <div class="layui-input-block">
+                    <select name="model_id" id="imageModel" lay-verify="required"></select>
+                </div>
+            </div>
+            <div class="layui-form-item">
+                <label class="layui-form-label">产品</label>
+                <div class="layui-input-block">
+                    <select name="product_id" id="imageProduct">
+                        <option value="">不关联产品</option>
+                    </select>
+                </div>
+            </div>
+            <div class="layui-form-item">
+                <label class="layui-form-label">Skill</label>
+                <div class="layui-input-block">
+                    <select id="imageSkill"><option value="">不使用 Skill</option></select>
+                </div>
+            </div>
+            <div class="layui-form-item">
+                <label class="layui-form-label">创意描述</label>
+                <div class="layui-input-block">
+                    <textarea name="prompt" id="imagePrompt" required class="layui-textarea" rows="5" placeholder="例如：生成一张高级汽车广告主视觉，突出车身线条和金属质感"></textarea>
+                </div>
+            </div>
+            <div class="layui-form-item">
+                <label class="layui-form-label">反向提示词</label>
+                <div class="layui-input-block">
+                    <textarea name="negative_prompt" id="imageNegative" class="layui-textarea" rows="2" placeholder="可选：不希望出现的元素"></textarea>
+                </div>
+            </div>
+            <div class="studio-form-grid">
+                <div>
+                    <label class="studio-field-label" for="imageCount">生成数量</label>
+                    <input name="count" id="imageCount" type="number" min="1" max="8" value="1" class="layui-input">
+                </div>
+                <div>
+                    <label class="studio-field-label" for="imageAspect">画面比例</label>
+                    <input name="aspect_ratio" id="imageAspect" value="1:1" class="layui-input" placeholder="例如 1:1">
+                </div>
+                <div>
+                    <label class="studio-field-label" for="imageResolution">分辨率</label>
+                    <input name="resolution" id="imageResolution" value="1k" class="layui-input" placeholder="例如 1k">
+                </div>
+            </div>
+            <div class="layui-form-item">
+                <label class="layui-form-label">额外参考图</label>
+                <div class="layui-input-block">
+                    <textarea name="reference_images" class="layui-textarea" rows="3" placeholder="每行一个 URL；产品素材会自动合并"></textarea>
+                </div>
+            </div>
+            <div class="studio-advanced-panel">
+                <div class="studio-panel-heading">
+                    <div>
+                        <strong>当前模型参数</strong>
+                        <span>模型配置中未绑定到基础表单的字段会显示在这里</span>
+                    </div>
+                </div>
+                <div id="imageModelFields" class="studio-dynamic-fields">
+                    <div class="studio-empty studio-empty-compact">请选择模型</div>
+                </div>
+            </div>
+            <div class="layui-form-item">
+                <label class="layui-form-label">扩展 JSON</label>
+                <div class="layui-input-block">
+                    <textarea name="extra_fields" class="layui-textarea" rows="2" placeholder='可选，例如 {"quality":"high"}'></textarea>
+                </div>
+            </div>
+            <div class="studio-note">
+                请求字段以“模型供应商 &gt; 编辑模型”中的定义为准；空字段不会发送给上游。
+            </div>
+            <div class="layui-form-item studio-form-actions">
+                <div class="layui-input-block">
+                    <button class="layui-btn studio-btn-primary" lay-submit>生成图片</button>
+                    <button type="reset" class="layui-btn studio-btn-quiet">清空</button>
+                </div>
+            </div>
+        </form>
+    </section>
+
+    <section class="studio-card studio-preview">
+        <div class="studio-card-header">
+            <h2>生成预览</h2>
+            <span id="imageTaskStatus" class="studio-pill gray">等待任务</span>
+        </div>
+        <div class="studio-preview-body">
+            <div class="studio-preview-placeholder" id="imagePreviewPlaceholder">
+                <div><strong>尚未生成图片</strong><span>提交任务后，状态和输出会在这里更新</span></div>
+            </div>
+            <div id="imagePreview" style="display:none;"></div>
+            <div class="studio-section-caption">最近图片</div>
+            <div class="studio-history-grid" id="imageHistory"></div>
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    var form = document.getElementById("imageForm");
+    var modelSelect = document.getElementById("imageModel");
+    var productSelect = document.getElementById("imageProduct");
+    var skillSelect = document.getElementById("imageSkill");
+    var status = document.getElementById("imageTaskStatus");
+    var modelData = [];
+    var skillData = [];
+    var pollTimer = null;
+
+    function loadOptions() {
+        return Studio.request("/studio/api/options?media_type=IMAGE").then(function (result) {
+            modelData = result.data.models;
+            skillData = result.data.skills.filter(function (item) {
+                return item.media_type === "BOTH" || item.media_type === "IMAGE";
+            });
+            modelSelect.innerHTML = modelData.map(function (item) {
+                return '<option value="' + item.id + '">' +
+                    Studio.escapeHtml(item.name) + ' · ' + Studio.escapeHtml(item.provider_name) + '</option>';
+            }).join("");
+            productSelect.innerHTML = '<option value="">不关联产品</option>' + result.data.products.map(function (item) {
+                return '<option value="' + item.id + '">' +
+                    Studio.escapeHtml(item.name) + ' · ' + Studio.escapeHtml(item.code) + '</option>';
+            }).join("");
+            skillSelect.innerHTML = '<option value="">不使用 Skill</option>' + skillData.map(function (item) {
+                return '<option value="' + item.id + '">' + Studio.escapeHtml(item.name) + '</option>';
+            }).join("");
+            renderModelFields();
+        });
+    }
+
+    function renderModelFields() {
+        var model = modelData.find(function (item) {
+            return item.id === Number(modelSelect.value);
+        });
+        Studio.renderDynamicFields(
+            document.getElementById("imageModelFields"),
+            model ? model.parameter_schema : [],
+            ["model", "prompt", "n", "size", "aspect_ratio", "resolution", "image_urls", "response_format"]
+        );
+    }
+
+    function setStatus(item) {
+        status.className = "studio-pill " + Studio.statusClass(item.status);
+        status.textContent = Studio.statusText(item.status) + (item.progress ? " " + item.progress + "%" : "");
+    }
+
+    function renderOutput(item) {
+        var preview = document.getElementById("imagePreview");
+        var placeholder = document.getElementById("imagePreviewPlaceholder");
+        if (!item.output_url) {
+            placeholder.style.display = "grid";
+            preview.style.display = "none";
+            return;
+        }
+        placeholder.style.display = "none";
+        preview.style.display = "block";
+        preview.innerHTML =
+            '<img class="studio-output-media" src="' + Studio.escapeHtml(item.output_url) + '" alt="生成图片">' +
+            '<div class="studio-output-meta"><span>任务编号：<b>' + item.task_code + '</b></span>' +
+            '<a target="_blank" rel="noopener" href="' + Studio.escapeHtml(item.output_url) + '">打开原图</a></div>';
+    }
+
+    function poll(taskCode) {
+        clearTimeout(pollTimer);
+        Studio.request("/studio/api/tasks/" + taskCode).then(function (result) {
+            var item = result.data;
+            setStatus(item);
+            renderOutput(item);
+            if (item.status === "SUBMITTED" || item.status === "PROCESSING") {
+                pollTimer = setTimeout(function () { poll(taskCode); }, 5000);
+            } else if (item.status === "FAILED") {
+                Studio.toast(item.error_message || "生成失败", "error");
+            }
+            loadHistory();
+        }).catch(function (error) {
+            Studio.toast(error.message, "error");
+        });
+    }
+
+    function loadHistory() {
+        return Studio.request("/studio/api/history?media_type=IMAGE").then(function (result) {
+            var list = result.data.filter(function (item) { return item.output_url; }).slice(0, 8);
+            var node = document.getElementById("imageHistory");
+            node.innerHTML = list.length ? list.map(function (item) {
+                return '<a class="studio-history-item" target="_blank" rel="noopener" href="' +
+                    Studio.escapeHtml(item.output_url) + '">' +
+                    '<div class="studio-history-thumb"><img src="' + Studio.escapeHtml(item.output_url) + '" alt=""></div>' +
+                    '<div class="studio-history-info"><div class="studio-history-code">' + item.task_code + '</div>' +
+                    '<div class="studio-history-time">' + Studio.escapeHtml(item.created_at) + '</div></div></a>';
+            }).join("") : '<div class="studio-empty studio-empty-compact">暂无图片输出</div>';
+        });
+    }
+
+    modelSelect.addEventListener("change", renderModelFields);
+    skillSelect.addEventListener("change", function () {
+        var skill = skillData.find(function (item) { return item.id === Number(skillSelect.value); });
+        if (!skill) return;
+        document.getElementById("imagePrompt").value = skill.prompt_template || "";
+        document.getElementById("imageNegative").value = skill.negative_prompt || "";
+    });
+
+    form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        var data = new FormData(form);
+        var extra;
+        try {
+            extra = Studio.collectDynamicFields(document.getElementById("imageModelFields"));
+        } catch (error) {
+            Studio.toast(error.message, "error");
+            return;
+        }
+        if (data.get("extra_fields")) {
+            try {
+                extra = Object.assign(extra, JSON.parse(data.get("extra_fields")));
+            } catch (error) {
+                Studio.toast("扩展字段必须是合法 JSON", "error");
+                return;
+            }
+        }
+        var payload = {
+            media_type: "IMAGE",
+            model_id: data.get("model_id"),
+            product_id: data.get("product_id"),
+            prompt: data.get("prompt"),
+            negative_prompt: data.get("negative_prompt"),
+            count: data.get("count"),
+            aspect_ratio: data.get("aspect_ratio"),
+            resolution: data.get("resolution"),
+            reference_images: data.get("reference_images"),
+            extra_fields: extra
+        };
+        status.className = "studio-pill";
+        status.textContent = "提交中";
+        Studio.request("/studio/api/generate", {method: "POST", body: JSON.stringify(payload)}).then(function (result) {
+            var item = result.data;
+            setStatus(item);
+            poll(item.task_code);
+            Studio.toast("图片任务已提交");
+        }).catch(function (error) {
+            status.className = "studio-pill red";
+            status.textContent = "提交失败";
+            Studio.toast(error.message, "error");
+        });
+    });
+
+    loadOptions().then(loadHistory).catch(function (error) {
+        Studio.toast(error.message, "error");
+    });
+});
+</script>
+{% endblock %}

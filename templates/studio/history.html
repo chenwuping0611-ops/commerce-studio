@@ -1,0 +1,81 @@
+{% extends "studio/base.html" %}
+{% block title %}生成历史 | Commerce Studio{% endblock %}
+{% block content %}
+<div class="studio-page-header">
+    <div>
+        <div class="studio-eyebrow">GENERATION HISTORY</div>
+        <h1>生成历史</h1>
+        <p>按 7 位生成编号定位图片或视频任务，查看实时状态与输出资产。</p>
+    </div>
+</div>
+
+<section class="studio-card">
+    <div class="studio-card-body">
+        <div class="studio-toolbar">
+            <div class="studio-toolbar-left">
+                <input id="historyCode" class="layui-input" style="width:190px;" maxlength="7" inputmode="numeric" placeholder="输入 7 位编号">
+                <select id="historyType" class="layui-input" style="width:130px;"><option value="">全部类型</option><option value="IMAGE">图片</option><option value="VIDEO">视频</option></select>
+                <button class="layui-btn studio-btn-primary" id="searchHistory">查询</button>
+                <button class="layui-btn studio-btn-quiet" id="refreshHistory">刷新</button>
+            </div>
+            <div class="studio-toolbar-right"><span class="studio-helper">处理中的任务每 15 秒刷新</span></div>
+        </div>
+        <div class="studio-table-wrap">
+            <table class="studio-table">
+                <thead><tr><th>生成编号</th><th>类型</th><th>产品</th><th>模型</th><th>状态</th><th>进度</th><th>输出资产</th><th>创建时间</th></tr></thead>
+                <tbody id="historyTable"><tr><td colspan="8" class="studio-empty">正在加载</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    function loadHistory() {
+        var code = document.getElementById("historyCode").value.trim();
+        var type = document.getElementById("historyType").value;
+        var query = new URLSearchParams();
+        if (code) query.set("code", code);
+        if (type) query.set("media_type", type);
+        Studio.request("/studio/api/history?" + query.toString()).then(function (result) {
+            var table = document.getElementById("historyTable");
+            if (!result.data.length) {
+                table.innerHTML = '<tr><td colspan="8" class="studio-empty">没有找到匹配任务</td></tr>';
+                return;
+            }
+            table.innerHTML = result.data.map(function (item) {
+                var output = item.output_url ?
+                    '<a target="_blank" rel="noopener" href="' + Studio.escapeHtml(item.output_url) + '">' +
+                    (item.media_type === "VIDEO" ? "打开视频" : "打开图片") + '</a>' :
+                    '<span class="muted">等待输出</span>';
+                var error = item.error_message ?
+                    '<div class="studio-error-text">' + Studio.escapeHtml(item.error_message) + '</div>' : "";
+                return '<tr><td><a class="studio-history-code" href="/studio/history?code=' + item.task_code + '">' + item.task_code + '</a></td>' +
+                    '<td>' + (item.media_type === "VIDEO" ? "视频" : "图片") + '</td>' +
+                    '<td>' + Studio.escapeHtml(item.product_name || "未关联") + '</td>' +
+                    '<td>' + Studio.escapeHtml(item.model_name) + '</td>' +
+                    '<td><span class="studio-pill ' + Studio.statusClass(item.status) + '">' + Studio.statusText(item.status) + '</span>' + error + '</td>' +
+                    '<td>' + (item.progress || 0) + '%</td><td>' + output + '</td>' +
+                    '<td class="muted">' + Studio.escapeHtml(item.created_at) + '</td></tr>';
+            }).join("");
+        }).catch(function (error) {
+            Studio.toast(error.message, "error");
+        });
+    }
+
+    document.getElementById("searchHistory").addEventListener("click", loadHistory);
+    document.getElementById("refreshHistory").addEventListener("click", loadHistory);
+    document.getElementById("historyCode").addEventListener("keydown", function (event) {
+        if (event.key === "Enter") loadHistory();
+    });
+    var initialCode = new URLSearchParams(window.location.search).get("code");
+    var initialType = new URLSearchParams(window.location.search).get("media_type");
+    if (initialCode) document.getElementById("historyCode").value = initialCode;
+    if (initialType) document.getElementById("historyType").value = initialType;
+    loadHistory();
+    setInterval(loadHistory, 15000);
+});
+</script>
+{% endblock %}

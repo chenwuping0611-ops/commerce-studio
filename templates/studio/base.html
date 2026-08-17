@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Commerce Studio{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='admin/component/pear/css/pear.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='studio/studio.css') }}">
+    {% block head %}{% endblock %}
+</head>
+<body class="studio-page">
+{% block content %}{% endblock %}
+<script src="{{ url_for('static', filename='admin/component/layui/layui.js') }}"></script>
+<script src="{{ url_for('static', filename='studio/studio.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

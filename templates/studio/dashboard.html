@@ -1,0 +1,115 @@
+{% extends "studio/base.html" %}
+{% block title %}工作台首页 | Commerce Studio{% endblock %}
+{% block content %}
+<div class="studio-page-header">
+    <div>
+        <div class="studio-eyebrow">AI E-COMMERCE STUDIO</div>
+        <h1>工作台首页</h1>
+        <p>集中管理产品资料、模型配置和图片与视频生成任务。</p>
+    </div>
+    <div class="studio-toolbar-right">
+        <a class="layui-btn studio-btn-primary" href="/studio/image">新建图片任务</a>
+        <a class="layui-btn studio-btn-quiet" href="/studio/video">新建视频任务</a>
+    </div>
+</div>
+
+<div class="studio-stat-grid">
+    <div class="studio-stat">
+        <div class="studio-stat-label">累计生成任务</div>
+        <div class="studio-stat-value primary" id="statTotal">0</div>
+    </div>
+    <div class="studio-stat">
+        <div class="studio-stat-label">处理中</div>
+        <div class="studio-stat-value" id="statProcessing">0</div>
+    </div>
+    <div class="studio-stat">
+        <div class="studio-stat-label">已完成</div>
+        <div class="studio-stat-value" id="statSucceeded">0</div>
+    </div>
+    <div class="studio-stat">
+        <div class="studio-stat-label">可用产品 / 模型</div>
+        <div class="studio-stat-value">
+            <span id="statProducts">0</span>
+            <span class="studio-stat-divider">/</span>
+            <span id="statModels">0</span>
+        </div>
+    </div>
+</div>
+
+<div class="studio-grid-2">
+    <section class="studio-card">
+        <div class="studio-card-header">
+            <h2>最近生成任务</h2>
+            <a href="/studio/history" class="studio-helper">查看全部</a>
+        </div>
+        <div class="studio-table-wrap">
+            <table class="studio-table">
+                <thead>
+                <tr><th>编号</th><th>类型</th><th>模型</th><th>状态</th><th>时间</th></tr>
+                </thead>
+                <tbody id="recentTasks">
+                <tr><td colspan="5" class="studio-empty">正在加载</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="studio-card">
+        <div class="studio-card-header"><h2>开始使用</h2></div>
+        <div class="studio-card-body">
+            <div class="studio-note">
+                先在产品中心建立产品资料，再在创作页面选择产品。Product Profile、产品记忆和引用素材会自动进入本次请求。
+            </div>
+            <div class="studio-grid-3 studio-quick-links">
+                <a class="studio-product-card" href="/studio/products">
+                    <div class="studio-eyebrow">01</div>
+                    <h3>产品中心</h3>
+                    <div class="studio-helper">维护产品资料与参考素材</div>
+                </a>
+                <a class="studio-product-card" href="/studio/providers">
+                    <div class="studio-eyebrow">02</div>
+                    <h3>模型供应商</h3>
+                    <div class="studio-helper">配置中转 API 与模型字段</div>
+                </a>
+                <a class="studio-product-card" href="/studio/skills">
+                    <div class="studio-eyebrow">03</div>
+                    <h3>Skill 配置</h3>
+                    <div class="studio-helper">导入可复用创作指令</div>
+                </a>
+            </div>
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    Studio.request("/studio/api/dashboard").then(function (result) {
+        var data = result.data;
+        document.getElementById("statTotal").textContent = data.total;
+        document.getElementById("statProcessing").textContent = data.processing;
+        document.getElementById("statSucceeded").textContent = data.succeeded;
+        document.getElementById("statProducts").textContent = data.products;
+        document.getElementById("statModels").textContent = data.models;
+
+        var tbody = document.getElementById("recentTasks");
+        if (!data.recent.length) {
+            tbody.innerHTML = '<tr><td colspan="5" class="studio-empty">还没有生成任务</td></tr>';
+            return;
+        }
+        tbody.innerHTML = data.recent.map(function (item) {
+            return '<tr>' +
+                '<td><a class="studio-history-code" href="/studio/history?code=' + item.task_code + '">' + item.task_code + '</a></td>' +
+                '<td>' + (item.media_type === "VIDEO" ? "视频" : "图片") + '</td>' +
+                '<td>' + Studio.escapeHtml(item.model_name) + '</td>' +
+                '<td><span class="studio-pill ' + Studio.statusClass(item.status) + '">' + Studio.statusText(item.status) + '</span></td>' +
+                '<td class="muted">' + Studio.escapeHtml(item.created_at) + '</td>' +
+                '</tr>';
+        }).join("");
+    }).catch(function (error) {
+        Studio.toast(error.message, "error");
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>登录 | Commerce Studio</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='admin/component/pear/css/pear.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='admin/admin/css/other/login.css') }}">
+</head>
+<body background="{{ url_for('static', filename='admin/admin/images/background.svg') }}" style="background-size: cover;">
+<form class="layui-form" action="javascript:void(0);">
+    <div class="layui-form-item">
+        <img class="logo" src="{{ url_for('static', filename='admin/admin/images/logo.png') }}" alt="Commerce Studio">
+        <div class="title">Commerce Studio</div>
+        <div class="desc">AI 电商图片与视频生成工作台</div>
+    </div>
+    <div class="layui-form-item">
+        <input name="username" type="text" placeholder="账号：admin" value="admin" autocomplete="username" class="layui-input">
+    </div>
+    <div class="layui-form-item">
+        <input name="password" type="password" placeholder="密码：123456" value="123456" autocomplete="current-password" class="layui-input">
+    </div>
+    <div class="layui-form-item">
+        <input placeholder="验证码" name="captcha" autocomplete="off" class="code layui-input layui-input-inline">
+        <img src="{{ url_for('passport.get_captcha') }}" class="codeImage" id="captchaImage" alt="验证码">
+    </div>
+    <div class="layui-form-item">
+        <input type="checkbox" name="remember-me" title="记住密码" lay-skin="primary">
+    </div>
+    <div class="layui-form-item">
+        <button class="pear-btn pear-btn-success login" lay-submit lay-filter="login">登录</button>
+    </div>
+</form>
+{% include "admin/common/footer.html" %}
+<script>
+layui.use(["form", "jquery", "layer", "button", "popup"], function () {
+    var form = layui.form;
+    var $ = layui.jquery;
+    var layer = layui.layer;
+    var button = layui.button;
+    var popup = layui.popup;
+    var captchaPath = "{{ url_for('passport.get_captcha') }}";
+
+    form.on("submit(login)", function (data) {
+        var loader = layer.load();
+        var btn = button.load({elem: ".login"});
+        $.ajax({
+            data: data.field,
+            type: "post",
+            dataType: "json",
+            url: "{{ url_for('passport.login_post') }}",
+            success: function (result) {
+                layer.close(loader);
+                btn.stop(function () {
+                    if (result.success) {
+                        popup.success(result.msg, function () {
+                            location.href = "{{ url_for('admin.index') }}";
+                        });
+                    } else {
+                        popup.failure(result.msg, function () {
+                            document.getElementById("captchaImage").src = captchaPath + "?" + Math.random();
+                        });
+                    }
+                });
+            }
+        });
+        return false;
+    });
+
+    $("#captchaImage").click(function () {
+        document.getElementById("captchaImage").src = captchaPath + "?" + Math.random();
+    });
+});
+</script>
+</body>
+</html>

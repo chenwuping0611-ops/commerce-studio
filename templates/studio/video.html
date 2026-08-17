@@ -1,0 +1,283 @@
+{% extends "studio/base.html" %}
+{% block title %}视频创作 | Commerce Studio{% endblock %}
+{% block content %}
+<div class="studio-page-header">
+    <div>
+        <div class="studio-eyebrow">VIDEO GENERATION</div>
+        <h1>视频创作</h1>
+        <p>视频模型独立配置时长、比例、分辨率、音频和参考素材字段。</p>
+    </div>
+    <a class="layui-btn studio-btn-quiet" href="/studio/history?media_type=VIDEO">视频历史</a>
+</div>
+
+<div class="studio-workspace">
+    <section class="studio-card studio-form-card">
+        <div class="studio-card-header">
+            <h2>创建视频任务</h2>
+            <span class="studio-pill">异步生成</span>
+        </div>
+        <form class="layui-form studio-form" id="videoForm">
+            <div class="layui-form-item">
+                <label class="layui-form-label">模型</label>
+                <div class="layui-input-block">
+                    <select name="model_id" id="videoModel" lay-verify="required"></select>
+                </div>
+            </div>
+            <div class="layui-form-item">
+                <label class="layui-form-label">产品</label>
+                <div class="layui-input-block">
+                    <select name="product_id" id="videoProduct"><option value="">不关联产品</option></select>
+                </div>
+            </div>
+            <div class="layui-form-item">
+                <label class="layui-form-label">Skill</label>
+                <div class="layui-input-block">
+                    <select id="videoSkill"><option value="">不使用 Skill</option></select>
+                </div>
+            </div>
+            <div class="layui-form-item">
+                <label class="layui-form-label">创意描述</label>
+                <div class="layui-input-block">
+                    <textarea name="prompt" id="videoPrompt" required class="layui-textarea" rows="5" placeholder="例如：生成一个高级汽车广告视频，镜头从车灯推进到侧面，突出速度感"></textarea>
+                </div>
+            </div>
+            <div class="layui-form-item">
+                <label class="layui-form-label">反向提示词</label>
+                <div class="layui-input-block">
+                    <textarea name="negative_prompt" id="videoNegative" class="layui-textarea" rows="2" placeholder="可选：不希望出现的元素"></textarea>
+                </div>
+            </div>
+            <div class="studio-form-grid">
+                <div>
+                    <label class="studio-field-label" for="videoDuration">时长（秒）</label>
+                    <input name="duration" id="videoDuration" value="5" type="number" min="1" max="60" class="layui-input">
+                </div>
+                <div>
+                    <label class="studio-field-label" for="videoAspect">画面比例</label>
+                    <input name="aspect_ratio" id="videoAspect" value="16:9" class="layui-input" placeholder="例如 16:9">
+                </div>
+                <div>
+                    <label class="studio-field-label" for="videoResolution">分辨率</label>
+                    <input name="resolution" id="videoResolution" value="720p" class="layui-input" placeholder="例如 720p">
+                </div>
+            </div>
+            <div class="layui-form-item">
+                <label class="layui-form-label">参考图片</label>
+                <div class="layui-input-block">
+                    <textarea name="reference_images" class="layui-textarea" rows="2" placeholder="每行一个 URL；产品图片会自动按角色携带"></textarea>
+                </div>
+            </div>
+            <div class="layui-form-item">
+                <label class="layui-form-label">参考视频</label>
+                <div class="layui-input-block">
+                    <textarea name="reference_videos" class="layui-textarea" rows="2" placeholder="每行一个视频 URL"></textarea>
+                </div>
+            </div>
+            <div class="layui-form-item studio-switch-row">
+                <label class="layui-form-label">生成音频</label>
+                <div class="layui-input-block">
+                    <input name="generate_audio" id="videoAudio" type="checkbox" checked lay-skin="switch" lay-text="开启|关闭">
+                </div>
+            </div>
+            <div class="studio-advanced-panel">
+                <div class="studio-panel-heading">
+                    <div>
+                        <strong>当前模型参数</strong>
+                        <span>模型配置中未绑定到基础表单的字段会显示在这里</span>
+                    </div>
+                </div>
+                <div id="videoModelFields" class="studio-dynamic-fields">
+                    <div class="studio-empty studio-empty-compact">请选择模型</div>
+                </div>
+            </div>
+            <div class="layui-form-item">
+                <label class="layui-form-label">扩展 JSON</label>
+                <div class="layui-input-block">
+                    <textarea name="extra_fields" class="layui-textarea" rows="2" placeholder='可选，例如 {"return_last_frame":true}'></textarea>
+                </div>
+            </div>
+            <div class="studio-note">
+                Seedance 等模型的真实字段以模型配置为准；空字段不会发送给上游。
+            </div>
+            <div class="layui-form-item studio-form-actions">
+                <div class="layui-input-block">
+                    <button class="layui-btn studio-btn-primary" lay-submit>生成视频</button>
+                    <button type="reset" class="layui-btn studio-btn-quiet">清空</button>
+                </div>
+            </div>
+        </form>
+    </section>
+
+    <section class="studio-card studio-preview">
+        <div class="studio-card-header">
+            <h2>生成预览</h2>
+            <span id="videoTaskStatus" class="studio-pill gray">等待任务</span>
+        </div>
+        <div class="studio-preview-body">
+            <div class="studio-preview-placeholder" id="videoPreviewPlaceholder">
+                <div><strong>尚未生成视频</strong><span>视频任务可能需要几分钟，请在历史中查看状态</span></div>
+            </div>
+            <div id="videoPreview" style="display:none;"></div>
+            <div class="studio-section-caption">最近视频</div>
+            <div class="studio-history-grid" id="videoHistory"></div>
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    var form = document.getElementById("videoForm");
+    var modelSelect = document.getElementById("videoModel");
+    var productSelect = document.getElementById("videoProduct");
+    var skillSelect = document.getElementById("videoSkill");
+    var status = document.getElementById("videoTaskStatus");
+    var modelData = [];
+    var skillData = [];
+    var pollTimer = null;
+
+    function loadOptions() {
+        return Studio.request("/studio/api/options?media_type=VIDEO").then(function (result) {
+            modelData = result.data.models;
+            skillData = result.data.skills.filter(function (item) {
+                return item.media_type === "BOTH" || item.media_type === "VIDEO";
+            });
+            modelSelect.innerHTML = modelData.map(function (item) {
+                return '<option value="' + item.id + '">' +
+                    Studio.escapeHtml(item.name) + ' · ' + Studio.escapeHtml(item.provider_name) + '</option>';
+            }).join("");
+            productSelect.innerHTML = '<option value="">不关联产品</option>' + result.data.products.map(function (item) {
+                return '<option value="' + item.id + '">' +
+                    Studio.escapeHtml(item.name) + ' · ' + Studio.escapeHtml(item.code) + '</option>';
+            }).join("");
+            skillSelect.innerHTML = '<option value="">不使用 Skill</option>' + skillData.map(function (item) {
+                return '<option value="' + item.id + '">' + Studio.escapeHtml(item.name) + '</option>';
+            }).join("");
+            renderModelFields();
+        });
+    }
+
+    function renderModelFields() {
+        var model = modelData.find(function (item) {
+            return item.id === Number(modelSelect.value);
+        });
+        Studio.renderDynamicFields(
+            document.getElementById("videoModelFields"),
+            model ? model.parameter_schema : [],
+            ["model", "prompt", "duration", "aspect_ratio", "resolution",
+                "image_with_roles", "video_with_roles", "generate_audio"]
+        );
+    }
+
+    function setStatus(item) {
+        status.className = "studio-pill " + Studio.statusClass(item.status);
+        status.textContent = Studio.statusText(item.status) + (item.progress ? " " + item.progress + "%" : "");
+    }
+
+    function renderOutput(item) {
+        var preview = document.getElementById("videoPreview");
+        var placeholder = document.getElementById("videoPreviewPlaceholder");
+        if (!item.output_url) {
+            placeholder.style.display = "grid";
+            preview.style.display = "none";
+            return;
+        }
+        placeholder.style.display = "none";
+        preview.style.display = "block";
+        preview.innerHTML =
+            '<video class="studio-output-media" controls src="' + Studio.escapeHtml(item.output_url) + '"></video>' +
+            '<div class="studio-output-meta"><span>任务编号：<b>' + item.task_code + '</b></span>' +
+            '<a target="_blank" rel="noopener" href="' + Studio.escapeHtml(item.output_url) + '">打开视频</a></div>';
+    }
+
+    function poll(taskCode) {
+        clearTimeout(pollTimer);
+        Studio.request("/studio/api/tasks/" + taskCode).then(function (result) {
+            var item = result.data;
+            setStatus(item);
+            renderOutput(item);
+            if (item.status === "SUBMITTED" || item.status === "PROCESSING") {
+                pollTimer = setTimeout(function () { poll(taskCode); }, 10000);
+            } else if (item.status === "FAILED") {
+                Studio.toast(item.error_message || "生成失败", "error");
+            }
+            loadHistory();
+        }).catch(function (error) {
+            Studio.toast(error.message, "error");
+        });
+    }
+
+    function loadHistory() {
+        return Studio.request("/studio/api/history?media_type=VIDEO").then(function (result) {
+            var list = result.data.filter(function (item) { return item.output_url; }).slice(0, 6);
+            document.getElementById("videoHistory").innerHTML = list.length ? list.map(function (item) {
+                return '<a class="studio-history-item" target="_blank" rel="noopener" href="' +
+                    Studio.escapeHtml(item.output_url) + '">' +
+                    '<div class="studio-history-thumb"><video src="' + Studio.escapeHtml(item.output_url) + '" muted></video></div>' +
+                    '<div class="studio-history-info"><div class="studio-history-code">' + item.task_code + '</div>' +
+                    '<div class="studio-history-time">' + Studio.escapeHtml(item.created_at) + '</div></div></a>';
+            }).join("") : '<div class="studio-empty studio-empty-compact">暂无视频输出</div>';
+        });
+    }
+
+    modelSelect.addEventListener("change", renderModelFields);
+    skillSelect.addEventListener("change", function () {
+        var skill = skillData.find(function (item) { return item.id === Number(skillSelect.value); });
+        if (!skill) return;
+        document.getElementById("videoPrompt").value = skill.prompt_template || "";
+        document.getElementById("videoNegative").value = skill.negative_prompt || "";
+    });
+
+    form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        var data = new FormData(form);
+        var extra;
+        try {
+            extra = Studio.collectDynamicFields(document.getElementById("videoModelFields"));
+        } catch (error) {
+            Studio.toast(error.message, "error");
+            return;
+        }
+        if (data.get("extra_fields")) {
+            try {
+                extra = Object.assign(extra, JSON.parse(data.get("extra_fields")));
+            } catch (error) {
+                Studio.toast("扩展字段必须是合法 JSON", "error");
+                return;
+            }
+        }
+        var payload = {
+            media_type: "VIDEO",
+            model_id: data.get("model_id"),
+            product_id: data.get("product_id"),
+            prompt: data.get("prompt"),
+            negative_prompt: data.get("negative_prompt"),
+            duration: data.get("duration"),
+            aspect_ratio: data.get("aspect_ratio"),
+            resolution: data.get("resolution"),
+            generate_audio: data.get("generate_audio") === "on",
+            reference_images: data.get("reference_images"),
+            reference_videos: data.get("reference_videos"),
+            extra_fields: extra
+        };
+        status.className = "studio-pill";
+        status.textContent = "提交中";
+        Studio.request("/studio/api/generate", {method: "POST", body: JSON.stringify(payload)}).then(function (result) {
+            var item = result.data;
+            setStatus(item);
+            poll(item.task_code);
+            Studio.toast("视频任务已提交");
+        }).catch(function (error) {
+            status.className = "studio-pill red";
+            status.textContent = "提交失败";
+            Studio.toast(error.message, "error");
+        });
+    });
+
+    loadOptions().then(loadHistory).catch(function (error) {
+        Studio.toast(error.message, "error");
+    });
+});
+</script>
+{% endblock %}

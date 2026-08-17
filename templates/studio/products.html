@@ -1,0 +1,212 @@
+{% extends "studio/base.html" %}
+{% block title %}产品中心 | Commerce Studio{% endblock %}
+{% block content %}
+<div class="studio-page-header">
+    <div>
+        <div class="studio-eyebrow">PRODUCT CENTER</div>
+        <h1>产品中心</h1>
+        <p>先建立产品资料，再维护 Product Profile、产品记忆与可引用素材。</p>
+    </div>
+    <button class="layui-btn studio-btn-primary" id="newProduct">新建产品</button>
+</div>
+
+<section class="studio-card">
+    <div class="studio-card-header">
+        <h2>产品资料</h2>
+        <span class="studio-helper" id="productCount">0 个产品</span>
+    </div>
+    <div class="studio-card-body">
+        <div class="studio-product-list" id="productList">
+            <div class="studio-empty">正在加载产品</div>
+        </div>
+    </div>
+</section>
+
+<div class="studio-modal" id="productDialog">
+    <form class="layui-form studio-form" id="productForm">
+        <input type="hidden" name="id" id="productId">
+        <div class="studio-modal-section">
+            <div class="studio-modal-section-title">基础资料</div>
+            <div class="studio-form-grid">
+                <div><label class="studio-field-label">产品编码</label><input name="code" id="productCode" required class="layui-input" placeholder="例如 SKU-CAR-001"></div>
+                <div><label class="studio-field-label">产品名称</label><input name="name" id="productName" required class="layui-input" placeholder="例如 智能电动汽车"></div>
+                <div><label class="studio-field-label">品牌</label><input name="brand" id="productBrand" class="layui-input"></div>
+                <div class="studio-field-span-2"><label class="studio-field-label">产品资料</label><textarea name="description" id="productDescription" class="layui-textarea" rows="3" placeholder="材质、规格、卖点、适用人群"></textarea></div>
+            </div>
+        </div>
+        <div class="studio-modal-section">
+            <div class="studio-modal-section-title">产品记忆</div>
+            <div class="studio-form-grid">
+                <div class="studio-field-span-2"><label class="studio-field-label">Product Profile</label><textarea name="product_profile" id="productProfile" class="layui-textarea" rows="3" placeholder="稳定的产品身份定义：外形、颜色、结构、品牌识别"></textarea></div>
+                <div class="studio-field-span-2"><label class="studio-field-label">产品记忆</label><textarea name="product_memory" id="productMemory" class="layui-textarea" rows="3" placeholder="后续创作持续携带的事实、偏好与上下文"></textarea></div>
+                <div><label class="studio-field-label">生成规则</label><textarea name="generation_rules" id="generationRules" class="layui-textarea" rows="3" placeholder="例如保持车标、车灯和轮毂结构一致"></textarea></div>
+                <div><label class="studio-field-label">禁止修改规则</label><textarea name="forbidden_rules" id="forbiddenRules" class="layui-textarea" rows="3" placeholder="例如禁止改变主色、Logo 和核心结构"></textarea></div>
+            </div>
+        </div>
+        <div class="studio-modal-section">
+            <div class="studio-modal-section-title">默认引用素材</div>
+            <label class="studio-field-label">素材 URL</label>
+            <textarea name="asset_urls" id="productAssets" class="layui-textarea" rows="3" placeholder="每行一个图片或视频 URL，生成时自动合并"></textarea>
+        </div>
+        <div class="layui-form-item studio-form-actions">
+            <div class="layui-input-block">
+                <button class="layui-btn studio-btn-primary" lay-submit>保存产品</button>
+                <button type="button" class="layui-btn studio-btn-quiet" id="closeProduct">取消</button>
+            </div>
+        </div>
+    </form>
+</div>
+
+<div class="studio-modal" id="assetDialog">
+    <form class="layui-form studio-form" id="assetForm">
+        <input type="hidden" name="product_id" id="assetProductId">
+        <div class="layui-form-item"><label class="layui-form-label">素材名称</label><div class="layui-input-block"><input name="name" class="layui-input" placeholder="例如 正面参考图"></div></div>
+        <div class="layui-form-item"><label class="layui-form-label">素材类型</label><div class="layui-input-block"><select name="asset_type"><option value="IMAGE">图片</option><option value="VIDEO">视频</option><option value="BOTH">图片与视频</option></select></div></div>
+        <div class="layui-form-item"><label class="layui-form-label">素材 URL</label><div class="layui-input-block"><input name="url" required class="layui-input" placeholder="https://..."></div></div>
+        <div class="layui-form-item studio-form-actions"><div class="layui-input-block"><button class="layui-btn studio-btn-primary" lay-submit>添加素材</button><button type="button" class="layui-btn studio-btn-quiet" id="closeAsset">取消</button></div></div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    var productData = [];
+    var productLayer = null;
+    var assetLayer = null;
+
+    function openProduct(product) {
+        product = product || {};
+        document.getElementById("productId").value = product.id || "";
+        document.getElementById("productCode").value = product.code || "";
+        document.getElementById("productName").value = product.name || "";
+        document.getElementById("productBrand").value = product.brand || "";
+        document.getElementById("productDescription").value = product.description || "";
+        document.getElementById("productProfile").value = product.product_profile || "";
+        document.getElementById("productMemory").value = product.product_memory || "";
+        document.getElementById("generationRules").value = product.generation_rules || "";
+        document.getElementById("forbiddenRules").value = product.forbidden_rules || "";
+        document.getElementById("productAssets").value = (product.asset_urls || []).join("\n");
+        layui.use(["layer", "form"], function () {
+            productLayer = layui.layer.open({
+                type: 1,
+                title: product.id ? "编辑产品" : "新建产品",
+                area: ["820px", "760px"],
+                content: document.getElementById("productDialog"),
+                success: function () {
+                    document.getElementById("productDialog").style.display = "block";
+                    layui.form.render();
+                },
+                end: function () {
+                    document.getElementById("productDialog").style.display = "none";
+                }
+            });
+        });
+    }
+
+    function renderAssets(item) {
+        var assets = (item.assets || []).map(function (asset) {
+            return '<div class="studio-asset-row">' +
+                '<span class="studio-asset-type">' + Studio.escapeHtml(asset.asset_type) + '</span>' +
+                '<a target="_blank" rel="noopener" href="' + Studio.escapeHtml(asset.url) + '">' + Studio.escapeHtml(asset.name) + '</a>' +
+                '<button class="studio-icon-button delete-asset" title="停用素材" data-product-id="' + item.id + '" data-id="' + asset.id + '">×</button>' +
+                '</div>';
+        }).join("");
+        return assets || '<div class="studio-helper">暂无独立素材</div>';
+    }
+
+    function renderProducts() {
+        document.getElementById("productCount").textContent = productData.length + " 个产品";
+        var list = document.getElementById("productList");
+        if (!productData.length) {
+            list.innerHTML = '<div class="studio-empty">还没有产品，请先建立一条产品资料</div>';
+            return;
+        }
+        list.innerHTML = productData.map(function (item) {
+            var summary = item.product_profile || item.description || "尚未填写产品描述";
+            var assetCount = (item.asset_urls || []).length + (item.assets || []).length;
+            return '<article class="studio-product-card">' +
+                '<div class="studio-product-title"><div><h3>' + Studio.escapeHtml(item.name) + '</h3>' +
+                '<div class="studio-product-code">' + Studio.escapeHtml(item.code) + '</div></div>' +
+                '<span class="studio-pill green">启用</span></div>' +
+                '<div class="studio-product-summary">' + Studio.escapeHtml(summary) + '</div>' +
+                '<div class="studio-product-meta"><span>' + Studio.escapeHtml(item.brand || "未设置品牌") + '</span><span>引用素材 ' + assetCount + ' 个</span></div>' +
+                '<div class="studio-product-assets">' + renderAssets(item) + '</div>' +
+                '<div class="studio-product-footer"><span>更新于 ' + Studio.escapeHtml(item.updated_at) + '</span>' +
+                '<span class="studio-actions"><button class="layui-btn layui-btn-xs studio-btn-quiet edit-product" data-id="' + item.id + '">编辑</button>' +
+                '<button class="layui-btn layui-btn-xs studio-btn-quiet add-asset" data-id="' + item.id + '">添加素材</button></span></div>' +
+                '</article>';
+        }).join("");
+
+        list.querySelectorAll(".edit-product").forEach(function (button) {
+            button.addEventListener("click", function () {
+                openProduct(productData.find(function (item) { return item.id === Number(button.dataset.id); }));
+            });
+        });
+        list.querySelectorAll(".add-asset").forEach(function (button) {
+            button.addEventListener("click", function () {
+                document.getElementById("assetProductId").value = button.dataset.id;
+                layui.use(["layer", "form"], function () {
+                    assetLayer = layui.layer.open({
+                        type: 1,
+                        title: "添加引用素材",
+                        area: ["560px", "430px"],
+                        content: document.getElementById("assetDialog"),
+                        success: function () {
+                            document.getElementById("assetDialog").style.display = "block";
+                            layui.form.render();
+                        },
+                        end: function () {
+                            document.getElementById("assetDialog").style.display = "none";
+                        }
+                    });
+                });
+            });
+        });
+        list.querySelectorAll(".delete-asset").forEach(function (button) {
+            button.addEventListener("click", function () {
+                if (!window.confirm("确认停用这条素材吗？")) return;
+                Studio.request("/studio/api/products/" + button.dataset.productId + "/assets/" + button.dataset.id, {method: "DELETE"})
+                    .then(loadProducts)
+                    .catch(function (error) { Studio.toast(error.message, "error"); });
+            });
+        });
+    }
+
+    function loadProducts() {
+        return Studio.request("/studio/api/products").then(function (result) {
+            productData = result.data;
+            renderProducts();
+        });
+    }
+
+    document.getElementById("newProduct").addEventListener("click", function () { openProduct(); });
+    document.getElementById("closeProduct").addEventListener("click", function () { if (productLayer) layui.layer.close(productLayer); });
+    document.getElementById("closeAsset").addEventListener("click", function () { if (assetLayer) layui.layer.close(assetLayer); });
+    document.getElementById("productForm").addEventListener("submit", function (event) {
+        event.preventDefault();
+        var payload = {};
+        new FormData(event.target).forEach(function (value, key) { payload[key] = value; });
+        Studio.request("/studio/api/products", {method: "POST", body: JSON.stringify(payload)}).then(function () {
+            if (productLayer) layui.layer.close(productLayer);
+            Studio.toast("产品已保存");
+            loadProducts();
+        }).catch(function (error) { Studio.toast(error.message, "error"); });
+    });
+    document.getElementById("assetForm").addEventListener("submit", function (event) {
+        event.preventDefault();
+        var formData = new FormData(event.target);
+        var productId = formData.get("product_id");
+        var payload = {};
+        formData.forEach(function (value, key) { payload[key] = value; });
+        Studio.request("/studio/api/products/" + productId + "/assets", {method: "POST", body: JSON.stringify(payload)}).then(function () {
+            if (assetLayer) layui.layer.close(assetLayer);
+            event.target.reset();
+            Studio.toast("素材已添加");
+            loadProducts();
+        }).catch(function (error) { Studio.toast(error.message, "error"); });
+    });
+    loadProducts().catch(function (error) { Studio.toast(error.message, "error"); });
+});
+</script>
+{% endblock %}
