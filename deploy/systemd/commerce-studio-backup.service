@@ -1,9 +1,0 @@
-[Unit]
-Description=Commerce Studio database and media backup
-After=network-online.target
-
-[Service]
-Type=oneshot
-WorkingDirectory=/opt/commerce-studio
-EnvironmentFile=/etc/commerce-studio/backup.env
-ExecStart=/opt/commerce-studio/deploy/scripts/backup.sh
