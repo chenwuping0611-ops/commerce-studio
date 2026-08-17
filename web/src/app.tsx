@@ -133,6 +133,18 @@ type SkillProfile = {
   updatedAt?: string;
 };
 
+type SkillCreatePayload = {
+  name: string;
+  code: string;
+  mediaType: "IMAGE" | "VIDEO" | "BOTH";
+  version?: string;
+  description?: string;
+  tags: string[];
+  promptTemplate: string;
+  negativePrompt: string;
+  settings: unknown;
+};
+
 type ManagedUser = {
   id: string;
   email: string;
@@ -206,6 +218,7 @@ type View =
   | "video"
   | "canvas"
   | "tasks"
+  | "skills"
   | "account"
   | "admin";
 
@@ -216,7 +229,6 @@ type AdminTab =
   | "menus"
   | "settings"
   | "providers"
-  | "skills"
   | "audit";
 
 type MenuDefinition = {
@@ -275,6 +287,14 @@ const MENU_DEFINITIONS: MenuDefinition[] = [
     icon: "◷",
     permission: "generation:read:team",
     description: "查询生成编号、任务状态和输出资产",
+  },
+  {
+    code: "skills",
+    label: "Skill 配置",
+    group: "资源中心",
+    icon: "✧",
+    permission: "model_config:read:system",
+    description: "管理可复用的图片与视频创作方法",
   },
   {
     code: "account",
@@ -461,6 +481,7 @@ export function App() {
   const canEditProducts = hasPermission(user, "product:update:team");
   const canGenerate = hasPermission(user, "generation:create:team");
   const canReadTasks = hasPermission(user, "generation:read:team");
+  const canReadSkills = hasPermission(user, "model_config:read:system");
   const canManageCanvas = hasPermission(user, "canvas:manage:team");
   const canManageSystem =
     user.roles.includes("super_admin") ||
@@ -579,6 +600,14 @@ export function App() {
               label="生成历史"
               active={view === "tasks"}
               onClick={() => navigateToView("tasks")}
+            />
+          )}
+          {canReadSkills && (
+            <NavItem
+              icon="✧"
+              label="Skill 配置"
+              active={view === "skills"}
+              onClick={() => navigateToView("skills")}
             />
           )}
           {canManageSystem && (
@@ -769,6 +798,11 @@ export function App() {
                 activeTask={activeTask}
                 onSelect={setActiveTask}
                 onTaskUpdated={handleTaskUpdated}
+              />
+            )}
+            {view === "skills" && canReadSkills && (
+              <SkillsAdmin
+                canWrite={hasPermission(user, "model_config:update:system")}
               />
             )}
             {view === "account" && (
@@ -2107,7 +2141,6 @@ function AdminCenter({
         ? [
             { id: "settings" as const, label: "系统设置" },
             { id: "providers" as const, label: "模型供应商" },
-            { id: "skills" as const, label: "Skill 配置" },
           ]
         : []),
       ...(has("audit:read:system")
@@ -2150,9 +2183,6 @@ function AdminCenter({
       )}
       {tab === "providers" && has("model_config:read:system") && (
         <ProvidersAdmin canWrite={has("model_config:update:system")} />
-      )}
-      {tab === "skills" && has("model_config:read:system") && (
-        <SkillsAdmin canWrite={has("model_config:update:system")} />
       )}
       {tab === "audit" && has("audit:read:system") && <AuditAdmin />}
     </div>
@@ -5246,6 +5276,8 @@ function SkillsAdmin({ canWrite = true }: { canWrite?: boolean }) {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [dragActive, setDragActive] = useState(false);
+  const [importFileNames, setImportFileNames] = useState<string[]>([]);
   const [form, setForm] = useState({
     name: "",
     code: "",
@@ -5308,51 +5340,71 @@ function SkillsAdmin({ canWrite = true }: { canWrite?: boolean }) {
     }
   }
 
-  async function importSkills(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
+  async function importSkills(files: File[]) {
+    const supportedFiles = files.filter(isSupportedSkillFile);
+    if (!supportedFiles.length) {
+      setMessage("请选择 .json、.md、.markdown、.txt、.yaml 或 .yml 文件");
+      return;
+    }
     setBusy(true);
     setMessage("");
+    setImportFileNames(supportedFiles.map((file) => file.name));
     try {
-      const parsed = JSON.parse(await file.text()) as unknown;
-      const records = Array.isArray(parsed) ? parsed : [parsed];
       let imported = 0;
-      for (const value of records) {
-        if (!value || typeof value !== "object") continue;
-        const raw = value as Record<string, unknown>;
-        const name = String(raw.name ?? raw.title ?? "未命名 Skill").trim();
-        if (!name) continue;
-        const mediaType = normalizeSkillType(
-          raw.mediaType ?? raw.type ?? raw.kind,
-        );
-        await api<SkillProfile>("/skills", {
-          method: "POST",
-          bodyJson: {
-            name,
-            code: String(raw.code ?? slugifySkillCode(name)),
-            mediaType,
-            version: raw.version ? String(raw.version) : undefined,
-            description: raw.description ? String(raw.description) : undefined,
-            tags: Array.isArray(raw.tags)
-              ? raw.tags.map(String)
-              : parseCommaList(String(raw.tags ?? "")),
-            promptTemplate: String(
-              raw.promptTemplate ?? raw.prompt ?? raw.instructions ?? "",
-            ),
-            negativePrompt: String(raw.negativePrompt ?? ""),
-            settings:
-              raw.settings ??
-              (raw.parameters && typeof raw.parameters === "object"
-                ? raw.parameters
-                : {}),
-          },
-        });
-        imported += 1;
+      const skipped: string[] = [];
+      const usedCodes = new Set<string>();
+      for (const file of supportedFiles) {
+        let records: Array<Record<string, unknown>>;
+        try {
+          records = parseSkillFile(file.name, await file.text());
+        } catch (error) {
+          skipped.push(
+            `${file.name}：${
+              error instanceof Error ? error.message : "文件格式无法解析"
+            }`,
+          );
+          continue;
+        }
+        if (!records.length) {
+          skipped.push(`${file.name}：没有识别到 Skill 内容`);
+          continue;
+        }
+        for (const raw of records) {
+          const payload = skillRecordToPayload(
+            raw,
+            skillFileBaseName(file.name),
+          );
+          if (!payload.name) {
+            skipped.push(`${file.name}：缺少 Skill 名称`);
+            continue;
+          }
+          payload.code = uniqueSkillCode(payload.code, usedCodes);
+          try {
+            await api<SkillProfile>("/skills", {
+              method: "POST",
+              bodyJson: payload,
+            });
+            usedCodes.add(payload.code);
+            imported += 1;
+          } catch (error) {
+            skipped.push(
+              `${file.name}：${
+                error instanceof Error ? error.message : "保存失败"
+              }`,
+            );
+          }
+        }
       }
       await reload();
+      const summary = imported
+        ? `已导入 ${imported} 个 Skill`
+        : "文件中没有可导入的 Skill";
       setMessage(
-        imported ? `已导入 ${imported} 个 Skill` : "文件中没有可导入的 Skill",
+        skipped.length
+          ? `${summary}；跳过 ${skipped.length} 项：${skipped
+              .slice(0, 2)
+              .join("；")}${skipped.length > 2 ? "；..." : ""}`
+          : summary,
       );
     } catch (error) {
       setMessage(
@@ -5474,7 +5526,7 @@ function SkillsAdmin({ canWrite = true }: { canWrite?: boolean }) {
                 className={mode === "import" ? "active" : ""}
                 onClick={() => setMode("import")}
               >
-                导入 JSON
+                导入文件
               </button>
               <button
                 type="button"
@@ -5486,19 +5538,60 @@ function SkillsAdmin({ canWrite = true }: { canWrite?: boolean }) {
             </div>
             {mode === "import" ? (
               <div className="skill-import-box">
-                <label className="skill-dropzone">
+                <label
+                  className={`skill-dropzone ${dragActive ? "dragging" : ""}`}
+                  onDragEnter={(event) => {
+                    event.preventDefault();
+                    if (!busy) setDragActive(true);
+                  }}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    if (!busy) setDragActive(true);
+                  }}
+                  onDragLeave={(event) => {
+                    event.preventDefault();
+                    setDragActive(false);
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    setDragActive(false);
+                    if (!busy) {
+                      void importSkills(Array.from(event.dataTransfer.files));
+                    }
+                  }}
+                >
                   <span className="skill-dropzone-icon">↑</span>
-                  <strong>选择 Skill JSON 文件</strong>
+                  <strong>
+                    {dragActive
+                      ? "松开鼠标以导入 Skill"
+                      : "拖入或选择 Skill 文件"}
+                  </strong>
                   <small>
-                    支持单个对象或对象数组，导入后可直接在创作页选择
+                    支持多个 JSON、Markdown、TXT 或 YAML
+                    文件，可一次批量导入；导入后可直接在图片或视频创作页选择
                   </small>
                   <input
                     type="file"
-                    accept=".json,application/json"
+                    multiple
+                    accept=".json,.md,.markdown,.txt,.yaml,.yml,application/json,text/markdown,text/plain,text/yaml"
                     disabled={busy}
-                    onChange={(event) => void importSkills(event)}
+                    onChange={(event) => {
+                      const files = Array.from(event.target.files ?? []);
+                      event.target.value = "";
+                      void importSkills(files);
+                    }}
                   />
                 </label>
+                {importFileNames.length > 0 && (
+                  <div className="skill-import-file-list">
+                    <strong>最近处理的文件</strong>
+                    <div>
+                      {importFileNames.map((fileName) => (
+                        <span key={fileName}>{fileName}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="skill-schema-note">
                   <strong>推荐字段</strong>
                   <code>
@@ -5506,8 +5599,9 @@ function SkillsAdmin({ canWrite = true }: { canWrite?: boolean }) {
                     tags
                   </code>
                   <span>
-                    mediaType 可填写 IMAGE、VIDEO 或 BOTH；promptTemplate
-                    会自动追加到产品记忆 Prompt。
+                    JSON 支持单个对象、对象数组或 skills 数组；Markdown/TXT/YAML
+                    可使用 name、prompt、negativePrompt、mediaType
+                    等字段，未标注的正文会作为 Prompt 模板。
                   </span>
                 </div>
               </div>
@@ -7709,16 +7803,265 @@ function normalizeSkillType(value: unknown): "IMAGE" | "VIDEO" | "BOTH" {
   const normalized = String(value ?? "BOTH")
     .trim()
     .toUpperCase();
-  if (normalized.includes("IMAGE") && normalized.includes("VIDEO"))
-    return "BOTH";
-  if (
-    normalized === "IMAGE" ||
-    normalized === "IMG" ||
-    normalized === "PICTURE"
-  )
-    return "IMAGE";
-  if (normalized === "VIDEO" || normalized === "VID") return "VIDEO";
+  const image =
+    normalized.includes("IMAGE") ||
+    normalized.includes("IMG") ||
+    normalized.includes("PICTURE") ||
+    normalized.includes("图片");
+  const video =
+    normalized.includes("VIDEO") ||
+    normalized.includes("VID") ||
+    normalized.includes("视频");
+  if (image && video) return "BOTH";
+  if (image) return "IMAGE";
+  if (video) return "VIDEO";
   return "BOTH";
+}
+
+function isSupportedSkillFile(file: File) {
+  return [".json", ".md", ".markdown", ".txt", ".yaml", ".yml"].includes(
+    skillFileExtension(file.name),
+  );
+}
+
+function skillFileExtension(fileName: string) {
+  const match = /\.([a-z0-9]+)$/i.exec(fileName.trim());
+  return match ? `.${match[1].toLowerCase()}` : "";
+}
+
+function skillFileBaseName(fileName: string) {
+  return (
+    fileName
+      .replace(/\.[^.]+$/, "")
+      .replace(/[_-]+/g, " ")
+      .trim() || "未命名 Skill"
+  );
+}
+
+function parseSkillFile(
+  fileName: string,
+  text: string,
+): Array<Record<string, unknown>> {
+  const extension = skillFileExtension(fileName);
+  if (extension === ".json") {
+    const parsed = JSON.parse(text) as unknown;
+    if (Array.isArray(parsed)) {
+      return parsed.filter(isRecord);
+    }
+    if (isRecord(parsed)) {
+      for (const key of ["skills", "items", "data"]) {
+        if (Array.isArray(parsed[key])) {
+          return parsed[key].filter(isRecord);
+        }
+      }
+      return [parsed];
+    }
+    return [];
+  }
+  return [
+    parseSkillTextRecord(
+      fileName,
+      text,
+      extension === ".md" || extension === ".markdown",
+    ),
+  ];
+}
+
+function parseSkillTextRecord(
+  fileName: string,
+  text: string,
+  markdown: boolean,
+): Record<string, unknown> {
+  const lines = text.replace(/\r\n?/g, "\n").split("\n");
+  const metadata: Record<string, string> = {};
+  const sections = new Map<string, string[]>();
+  const body: string[] = [];
+  let currentSection = "body";
+  let inFrontmatter = false;
+  let frontmatterDone = false;
+  let firstHeading = "";
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (markdown && !frontmatterDone && trimmed === "---") {
+      if (inFrontmatter) {
+        inFrontmatter = false;
+        frontmatterDone = true;
+      } else if (!body.length && sections.size === 0) {
+        inFrontmatter = true;
+      }
+      continue;
+    }
+    if (inFrontmatter) {
+      appendSkillKeyValue(metadata, line);
+      continue;
+    }
+    const heading = markdown
+      ? /^(#{1,6})\s+(.+?)\s*$/.exec(trimmed)
+      : undefined;
+    if (heading) {
+      const headingText = heading[2].trim();
+      if (!firstHeading && !isSkillMetadataKey(skillFieldKey(headingText))) {
+        firstHeading = headingText;
+      }
+      currentSection = skillFieldKey(headingText);
+      if (!sections.has(currentSection)) sections.set(currentSection, []);
+      continue;
+    }
+    const inlineMetadata = /^([^:：]{1,40})[:：]\s*(.*)$/.exec(trimmed);
+    if (inlineMetadata && (!markdown || currentSection === "body")) {
+      const key = skillFieldKey(inlineMetadata[1]);
+      if (isSkillMetadataKey(key)) {
+        metadata[key] = inlineMetadata[2].trim();
+        currentSection = key;
+        if (!sections.has(key)) sections.set(key, []);
+        continue;
+      }
+    }
+    if (currentSection === "body") body.push(line);
+    else sections.get(currentSection)?.push(line);
+  }
+
+  const sectionText = (...keys: string[]) => {
+    for (const key of keys) {
+      const direct = sections.get(key)?.join("\n").trim();
+      if (direct) return stripSkillMarkdown(direct);
+      for (const [sectionKey, values] of sections) {
+        if (keys.some((item) => sectionKey.includes(item))) {
+          const value = values.join("\n").trim();
+          if (value) return stripSkillMarkdown(value);
+        }
+      }
+    }
+    return "";
+  };
+  const prompt =
+    [
+      metadata.prompttemplate || metadata.prompt || metadata.instructions || "",
+      sectionText("prompttemplate", "prompt", "instructions"),
+    ]
+      .filter(Boolean)
+      .join("\n")
+      .trim() || body.join("\n").trim();
+  const negativePrompt = [
+    metadata.negativeprompt || metadata.negative || "",
+    sectionText("negativeprompt", "negative"),
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+  const description =
+    metadata.description || sectionText("description", "说明") || "";
+  const tags = metadata.tags || sectionText("tags", "标签");
+  const name =
+    metadata.name ||
+    metadata.title ||
+    firstHeading ||
+    skillFileBaseName(fileName);
+
+  return {
+    name,
+    code: metadata.code || slugifySkillCode(name),
+    mediaType:
+      metadata.mediatype ||
+      metadata.type ||
+      metadata.kind ||
+      metadata.media ||
+      "BOTH",
+    version: metadata.version || undefined,
+    description: description || undefined,
+    tags,
+    promptTemplate: prompt,
+    negativePrompt,
+    settings: metadata.settings ? parseSettingValue(metadata.settings) : {},
+  };
+}
+
+function appendSkillKeyValue(target: Record<string, string>, line: string) {
+  const match = /^([^:：]{1,40})[:：]\s*(.*)$/.exec(line.trim());
+  if (!match) return;
+  const key = skillFieldKey(match[1]);
+  if (isSkillMetadataKey(key)) target[key] = match[2].trim();
+}
+
+function isSkillMetadataKey(key: string) {
+  return [
+    "name",
+    "title",
+    "code",
+    "mediatype",
+    "type",
+    "kind",
+    "media",
+    "version",
+    "description",
+    "说明",
+    "tags",
+    "标签",
+    "prompt",
+    "prompttemplate",
+    "instructions",
+    "negative",
+    "negativeprompt",
+    "settings",
+  ].includes(key);
+}
+
+function skillFieldKey(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
+}
+
+function stripSkillMarkdown(value: string) {
+  return value
+    .replace(/^```[a-z0-9_-]*\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+}
+
+function skillRecordToPayload(
+  raw: Record<string, unknown>,
+  fallbackName: string,
+): SkillCreatePayload {
+  const name = String(raw.name ?? raw.title ?? fallbackName).trim();
+  const settings =
+    raw.settings ??
+    (raw.parameters && isRecord(raw.parameters) ? raw.parameters : {});
+  return {
+    name,
+    code: String(raw.code ?? slugifySkillCode(name)).trim(),
+    mediaType: normalizeSkillType(raw.mediaType ?? raw.type ?? raw.kind),
+    version: raw.version ? String(raw.version).trim() : undefined,
+    description: raw.description ? String(raw.description).trim() : undefined,
+    tags: Array.isArray(raw.tags)
+      ? raw.tags
+          .map(String)
+          .map((tag) => tag.trim())
+          .filter(Boolean)
+      : parseCommaList(String(raw.tags ?? "")),
+    promptTemplate: String(
+      raw.promptTemplate ?? raw.prompt ?? raw.instructions ?? "",
+    ).trim(),
+    negativePrompt: String(raw.negativePrompt ?? raw.negative ?? "").trim(),
+    settings,
+  };
+}
+
+function uniqueSkillCode(value: string, usedCodes: Set<string>) {
+  const base = value.trim() || `skill-${Date.now()}`;
+  let candidate = base;
+  let suffix = 2;
+  while (usedCodes.has(candidate.toLowerCase())) {
+    candidate = `${base}-${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 function slugifySkillCode(value: string) {
@@ -7773,6 +8116,7 @@ function viewTitle(view: View) {
     video: "视频创作",
     canvas: "Infinite Canvas",
     tasks: "生成历史",
+    skills: "Skill 配置",
     account: "个人中心",
     admin: "系统配置",
   }[view];
@@ -7786,7 +8130,6 @@ function adminTabTitle(tab: AdminTab) {
     menus: "菜单权限",
     settings: "系统设置",
     providers: "模型供应商",
-    skills: "Skill 配置",
     audit: "审计日志",
   }[tab];
 }

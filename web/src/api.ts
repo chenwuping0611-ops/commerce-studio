@@ -20,7 +20,11 @@ export async function api<T>(
   });
   const payload = (await response.json().catch(() => ({}))) as {
     data?: T;
-    error?: { message?: string; code?: string };
+    error?: {
+      message?: string;
+      code?: string;
+      details?: Record<string, unknown>;
+    };
   };
   if (!response.ok) {
     throwApiError(payload.error, response.status);
@@ -45,10 +49,31 @@ export async function upload<T>(path: string, formData: FormData): Promise<T> {
 }
 
 function throwApiError(
-  error: { message?: string; code?: string } | undefined,
+  error:
+    | {
+        message?: string;
+        code?: string;
+        details?: Record<string, unknown>;
+      }
+    | undefined,
   status: number,
 ): never {
-  const message = error?.message ?? `请求失败（${status}）`;
+  const baseMessage = error?.message ?? `请求失败（${status}）`;
+  const details = error?.details;
+  const detailSummary =
+    details &&
+    [
+      typeof details.endpoint === "string" ? `接口：${details.endpoint}` : "",
+      typeof details.transport === "string" ? `传输：${details.transport}` : "",
+      typeof details.networkCode === "string"
+        ? `网络码：${details.networkCode}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("，");
+  const message = detailSummary
+    ? `${baseMessage}（${detailSummary}）`
+    : baseMessage;
   const code = error?.code;
   throw new Error(
     code && !message.includes(code) ? `${message} [${code}]` : message,

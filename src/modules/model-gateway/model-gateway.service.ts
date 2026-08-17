@@ -19,6 +19,7 @@ import { CreateProviderDto } from "./dto/create-provider.dto";
 import { UpdateModelProfileDto } from "./dto/update-model-profile.dto";
 import { UpdateProviderDto } from "./dto/update-provider.dto";
 import { OpenAiCompatibleAdapter } from "./adapters/openai-compatible.adapter";
+import { fetchProvider, networkCode } from "./provider-http.client";
 import type {
   ModelProviderAdapter,
   ModelRequestParameter,
@@ -667,23 +668,19 @@ export class ModelGatewayService {
     provider: ModelProvider,
     path: string,
   ): Promise<Record<string, any> | any[]> {
-    const controller = new AbortController();
-    const timeout = setTimeout(
-      () => controller.abort(),
-      this.config.get<number>("MODEL_REQUEST_TIMEOUT_MS", 30000),
-    );
+    const endpoint = this.providerUrl(provider, path);
     try {
-      const endpoint = this.providerUrl(provider, path);
-      const response = await fetch(endpoint, {
-        method: "GET",
-        headers: {
-          authorization: `Bearer ${this.encryption.decrypt(provider.apiKeyEncrypted)}`,
-          accept: "application/json",
-          "user-agent": "commerce-studio/0.1",
-          connection: "close",
+      const response = await fetchProvider(
+        endpoint,
+        {
+          method: "GET",
+          headers: {
+            authorization: `Bearer ${this.encryption.decrypt(provider.apiKeyEncrypted)}`,
+            accept: "application/json",
+          },
         },
-        signal: controller.signal,
-      });
+        this.config.get<number>("MODEL_REQUEST_TIMEOUT_MS", 30000),
+      );
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         const message =
@@ -713,26 +710,22 @@ export class ModelGatewayService {
       return payload as Record<string, any> | any[];
     } catch (error) {
       if (error instanceof AppError) throw error;
-      const networkCode =
-        error &&
-        typeof error === "object" &&
-        "cause" in error &&
-        error.cause &&
-        typeof error.cause === "object" &&
-        "code" in error.cause
-          ? String(error.cause.code)
-          : undefined;
+      const code = networkCode(error);
       throw new AppError(
         "MODEL_PROVIDER_NETWORK_ERROR",
         error instanceof Error && error.name === "AbortError"
           ? "供应商请求超时"
-          : networkCode
-            ? `供应商网络请求失败（${networkCode}）`
+          : code
+            ? `供应商网络请求失败（${code}）`
             : "供应商网络请求失败",
         502,
+        {
+          endpoint,
+          transport:
+            process.platform === "win32" ? "node+windows-http" : "node",
+          networkCode: code || "UNKNOWN",
+        },
       );
-    } finally {
-      clearTimeout(timeout);
     }
   }
 

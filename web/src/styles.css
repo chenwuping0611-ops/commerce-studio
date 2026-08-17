@@ -4918,6 +4918,12 @@ summary:focus-visible {
   background: var(--ui-primary-soft);
 }
 
+.admin-shell .skill-dropzone.dragging {
+  border-color: var(--ui-primary);
+  background: #eaf0ff;
+  box-shadow: 0 0 0 3px rgba(49, 90, 223, .12);
+}
+
 .admin-shell .skill-dropzone-icon {
   width: 40px;
   height: 40px;
@@ -4929,6 +4935,40 @@ summary:focus-visible {
 .admin-shell .skill-schema-note {
   border-radius: var(--ui-radius-sm);
   background: var(--ui-surface-subtle);
+}
+
+.admin-shell .skill-import-file-list {
+  display: grid;
+  gap: 7px;
+  padding: 11px 12px;
+  border: 1px solid var(--ui-line);
+  border-radius: var(--ui-radius-sm);
+  background: #fff;
+  color: var(--ui-text-soft);
+  font-size: 10px;
+}
+
+.admin-shell .skill-import-file-list strong {
+  color: var(--ui-text);
+  font-size: 10px;
+}
+
+.admin-shell .skill-import-file-list > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.admin-shell .skill-import-file-list span {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 4px 7px;
+  border-radius: 5px;
+  background: var(--ui-primary-soft);
+  color: var(--ui-primary);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .admin-shell .admin-loading {

@@ -30,6 +30,7 @@ type ValidatedConfig = Record<string, unknown> & {
   GENERATION_MAX_RETRIES: number;
   MODEL_REQUEST_TIMEOUT_MS: number;
   MODEL_DOWNLOAD_TIMEOUT_MS: number;
+  MODEL_WINDOWS_HTTP_FALLBACK: boolean;
 };
 
 export function validateEnv(config: Record<string, unknown>) {
@@ -84,6 +85,10 @@ export function validateEnv(config: Record<string, unknown>) {
       120000,
       "MODEL_DOWNLOAD_TIMEOUT_MS",
       100,
+    ),
+    MODEL_WINDOWS_HTTP_FALLBACK: booleanValue(
+      String(config.MODEL_WINDOWS_HTTP_FALLBACK ?? ""),
+      true,
     ),
   };
 

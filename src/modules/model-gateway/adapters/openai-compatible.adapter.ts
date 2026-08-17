@@ -11,6 +11,7 @@ import type {
   ProviderPollResult,
   ProviderSubmission,
 } from "../model-gateway.types";
+import { fetchProvider, networkCode } from "../provider-http.client";
 import { buildConfiguredRequestBody } from "../request-body.builder";
 
 @Injectable()
@@ -506,34 +507,25 @@ export class OpenAiCompatibleAdapter implements ModelProviderAdapter {
     init: RequestInit,
     timeoutMs: number,
   ) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const headers = new Headers(init.headers);
-      headers.set("user-agent", "commerce-studio/0.1");
-      headers.set("connection", "close");
-      return await fetch(url, { ...init, headers, signal: controller.signal });
+      return await fetchProvider(url, init, timeoutMs);
     } catch (error) {
-      const networkCode =
-        error &&
-        typeof error === "object" &&
-        "cause" in error &&
-        error.cause &&
-        typeof error.cause === "object" &&
-        "code" in error.cause
-          ? String(error.cause.code)
-          : undefined;
+      const code = networkCode(error);
       throw new AppError(
         "MODEL_PROVIDER_NETWORK_ERROR",
         error instanceof Error && error.name === "AbortError"
           ? "供应商请求超时"
-          : networkCode
-            ? `供应商网络请求失败（${networkCode}）`
+          : code
+            ? `供应商网络请求失败（${code}）`
             : "供应商网络请求失败",
         502,
+        {
+          endpoint: url,
+          transport:
+            process.platform === "win32" ? "node+windows-http" : "node",
+          networkCode: code || "UNKNOWN",
+        },
       );
-    } finally {
-      clearTimeout(timeout);
     }
   }
 
