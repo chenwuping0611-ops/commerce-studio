@@ -3,6 +3,33 @@ import os
 from urllib.parse import quote_plus
 
 
+def _mysql_uri(database):
+    """Build the only supported SQLAlchemy connection URI."""
+
+    username = os.getenv("MYSQL_USERNAME") or "root"
+    password = os.getenv("MYSQL_PASSWORD") or "123456"
+    host = os.getenv("MYSQL_HOST") or "127.0.0.1"
+    port = int(os.getenv("MYSQL_PORT") or 3306)
+    return (
+        f"mysql+pymysql://{quote_plus(username)}:{quote_plus(password)}"
+        f"@{host}:{port}/{quote_plus(database)}"
+    )
+
+
+def _mysql_engine_options():
+    """Keep MySQL connections healthy for a small long-running Flask service."""
+
+    return {
+        "pool_pre_ping": True,
+        "pool_recycle": 1800,
+        "pool_size": int(os.getenv("MYSQL_POOL_SIZE") or 5),
+        "max_overflow": int(os.getenv("MYSQL_MAX_OVERFLOW") or 2),
+        "connect_args": {
+            "connect_timeout": int(os.getenv("MYSQL_CONNECT_TIMEOUT") or 10),
+        },
+    }
+
+
 class BaseConfig:
     SYSTEM_NAME = os.getenv("SYSTEM_NAME", "Commerce Studio")
     SYSTEM_PANEL_LINKS = [
@@ -31,24 +58,11 @@ class BaseConfig:
     MYSQL_HOST = os.getenv("MYSQL_HOST") or "127.0.0.1"
     MYSQL_PORT = int(os.getenv("MYSQL_PORT") or 3306)
     MYSQL_DATABASE = os.getenv("MYSQL_DATABASE") or "PearAdminFlask"
-    STUDIO_USE_SQLITE = os.getenv("STUDIO_USE_SQLITE", "0") == "1"
-    STUDIO_SQLITE_PATH = os.getenv(
-        "STUDIO_SQLITE_PATH", "commerce_studio.local.sqlite3"
+    MYSQL_TEST_DATABASE = os.getenv("MYSQL_TEST_DATABASE") or (
+        f"{MYSQL_DATABASE}_test"
     )
-    if STUDIO_USE_SQLITE:
-        SQLALCHEMY_DATABASE_URI = "sqlite:///" + os.path.abspath(STUDIO_SQLITE_PATH)
-        SQLALCHEMY_ENGINE_OPTIONS = {}
-    else:
-        SQLALCHEMY_DATABASE_URI = (
-            f"mysql+pymysql://{quote_plus(MYSQL_USERNAME)}:{quote_plus(MYSQL_PASSWORD)}"
-            f"@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE}"
-        )
-        SQLALCHEMY_ENGINE_OPTIONS = {
-            "pool_pre_ping": True,
-            "pool_recycle": 1800,
-            "pool_size": int(os.getenv("MYSQL_POOL_SIZE") or 5),
-            "max_overflow": int(os.getenv("MYSQL_MAX_OVERFLOW") or 2),
-        }
+    SQLALCHEMY_DATABASE_URI = _mysql_uri(MYSQL_DATABASE)
+    SQLALCHEMY_ENGINE_OPTIONS = _mysql_engine_options()
 
     STUDIO_DEFAULT_PROVIDER_URL = os.getenv(
         "STUDIO_DEFAULT_PROVIDER_URL", "https://toapis.com"
@@ -69,9 +83,10 @@ class BaseConfig:
 
 
 class TestingConfig(BaseConfig):
-    SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
+    MYSQL_DATABASE = BaseConfig.MYSQL_TEST_DATABASE
+    SQLALCHEMY_DATABASE_URI = _mysql_uri(MYSQL_DATABASE)
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SQLALCHEMY_ENGINE_OPTIONS = {}
+    SQLALCHEMY_ENGINE_OPTIONS = _mysql_engine_options()
 
 
 class DevelopmentConfig(BaseConfig):

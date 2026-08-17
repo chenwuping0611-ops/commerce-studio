@@ -23,7 +23,6 @@ Infinite Canvas 不在当前实现范围内。
 - Flask 2.0.2
 - Flask-SQLAlchemy 2.5.1
 - MySQL + PyMySQL
-- SQLite（仅用于本地临时验证）
 - Flask-APScheduler
 - Requests
 - Layui + Pear Admin
@@ -35,13 +34,34 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirement\requirement-dev.txt
 ```
 
-## 临时 SQLite 启动
+## MySQL-only 本地启动
 
-远程 MySQL 尚未放行本机来源时，可以先使用 SQLite 验证页面和业务流程：
+项目只支持 MySQL，不提供 SQLite 回退。先在 `.flaskenv` 配置可访问的 MySQL：
 
 ```powershell
-$env:STUDIO_USE_SQLITE = "1"
+MYSQL_HOST=your-mysql-host
+MYSQL_PORT=3306
+MYSQL_DATABASE=pear_ai_studio
+MYSQL_TEST_DATABASE=pear_ai_studio_test
+MYSQL_USERNAME=your-user
+MYSQL_PASSWORD=your-password
+```
+
+如果目标数据库还不存在，先执行一次 Pear Admin 的 MySQL 初始化命令。它会创建目标数据库并导入基础管理表；数据库已经存在时不会重复导入：
+
+```powershell
+.\.venv\Scripts\python.exe -m flask init
+```
+
+然后创建 Commerce Studio 表、菜单、RBAC、ToAPIs 供应商和默认模型模板：
+
+```powershell
 .\.venv\Scripts\python.exe -m flask studio-init
+```
+
+启动本地服务：
+
+```powershell
 .\.venv\Scripts\python.exe -m flask run --host 127.0.0.1 --port 5000
 ```
 
@@ -57,28 +77,7 @@ http://127.0.0.1:5000/admin/
 admin / 123456
 ```
 
-首次进入后应立即修改密码。
-
-## MySQL 初始化
-
-本地 `.flaskenv` 只用于开发，已经加入 `.gitignore`，不要提交到 Git。部署时配置以下变量：
-
-```text
-MYSQL_HOST=your-mysql-host
-MYSQL_PORT=3306
-MYSQL_DATABASE=pear_ai_studio
-MYSQL_USERNAME=your-user
-MYSQL_PASSWORD=your-password
-```
-
-确认数据库允许当前客户端来源、且目标库已经创建后执行：
-
-```powershell
-.\.venv\Scripts\python.exe -m flask studio-init
-```
-
-`studio-init` 会创建 Commerce Studio 表，补齐后台菜单和 RBAC 权限，并初始化 ToAPIs、`gpt-image-2` 和 `seedance-2` 模板。
-如果需要导入 Pear Admin 原始 SQL，也可以先执行 `flask init`；新安装不要求重复执行。
+首次进入后应立即修改密码。测试配置使用 `MYSQL_TEST_DATABASE`，必须使用独立的 MySQL 测试库，禁止指向生产库。
 
 ## ToAPIs 配置
 

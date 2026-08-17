@@ -12,11 +12,13 @@ Infinite Canvas is intentionally not part of this implementation.
 - Flask 2.0.2
 - Flask-SQLAlchemy 2.5.1
 - SQLAlchemy 1.4.x
-- MySQL with PyMySQL in production
-- SQLite only for temporary local verification
+- MySQL with PyMySQL in local development, testing and production
 - `requests.Session` for upstream API calls
 - Flask-APScheduler for asynchronous task polling
 - Layui and the existing Pear Admin shell for the UI
+
+The application is MySQL-only. There is no SQLite fallback, local SQLite file,
+or `STUDIO_USE_SQLITE` switch. Use a separate MySQL schema for tests.
 
 ## Module Boundaries
 
@@ -134,25 +136,17 @@ Install:
 .\.venv\Scripts\python.exe -m pip install -r requirement\requirement-dev.txt
 ```
 
-Temporary SQLite initialization:
-
-```powershell
-$env:STUDIO_USE_SQLITE = "1"
-.\.venv\Scripts\python.exe -m flask studio-init
-```
-
-Temporary SQLite server:
-
-```powershell
-$env:STUDIO_USE_SQLITE = "1"
-.\.venv\Scripts\python.exe -m flask run --host 127.0.0.1 --port 5000
-```
-
-MySQL initialization after the server allows the client source:
+MySQL initialization:
 
 ```powershell
 .\.venv\Scripts\python.exe -m flask init
 .\.venv\Scripts\python.exe -m flask studio-init
+```
+
+Local MySQL server:
+
+```powershell
+.\.venv\Scripts\python.exe -m flask run --host 127.0.0.1 --port 5000
 ```
 
 Default seeded account:
@@ -171,10 +165,10 @@ Change this password before any shared or production deployment.
 3. Keep provider requests mockable and never require a real paid generation request for a unit test.
 4. Run `python -m compileall -q applications app.py`.
 5. Run an app-factory test using `create_app("testing")`.
-6. Run `studio-init` in a temporary SQLite database and render every studio page.
+6. Run `studio-init` against a disposable MySQL test schema and render every studio page.
 7. Verify the request builder for both image and video payloads.
 8. Verify scheduler jobs execute inside Flask application context.
-9. Never commit `.flaskenv`, API keys, generated SQLite files or uploaded assets.
+9. Never commit `.flaskenv`, API keys, local database dumps or uploaded assets.
 
 ## Model Form Contract
 
