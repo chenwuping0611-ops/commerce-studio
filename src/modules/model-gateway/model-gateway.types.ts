@@ -28,6 +28,7 @@ export interface ProviderPollResult {
   raw?: Record<string, unknown>;
   errorCode?: string;
   errorSummary?: string;
+  retryAfterMs?: number;
 }
 
 export interface ModelProviderAdapter {

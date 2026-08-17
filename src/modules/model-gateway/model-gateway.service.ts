@@ -78,7 +78,10 @@ export class ModelGatewayService {
     const query = type.trim()
       ? `?type=${encodeURIComponent(type.trim())}`
       : "";
-    const payload = await this.fetchProviderJson(provider, `/models${query}`);
+    const payload = await this.fetchProviderJson(
+      provider,
+      `${this.providerRelativePath(provider, "/models")}${query}`,
+    );
     const rawModels = Array.isArray(payload)
       ? payload
       : Array.isArray(payload.data)
@@ -112,7 +115,10 @@ export class ModelGatewayService {
   async getProviderBalance(user: AuthenticatedUser, providerId: string) {
     this.rbac.assertPermission(user, "model_config:read:system");
     const provider = await this.findProviderForAdmin(providerId);
-    const payload = await this.fetchProviderJson(provider, "/balance");
+    const path = this.isToApis(provider)
+      ? this.providerRelativePath(provider, "/user/balance")
+      : "/balance";
+    const payload = await this.fetchProviderJson(provider, path);
     const objectPayload = Array.isArray(payload) ? {} : payload;
     return { data: objectPayload.data ?? objectPayload };
   }
@@ -496,6 +502,23 @@ export class ModelGatewayService {
       .trim()
       .replace(/\/+$/, "")
       .replace(/\/(?:images|videos)\/generations$/i, "");
+  }
+
+  private isToApis(provider: Pick<ModelProvider, "baseUrl">) {
+    try {
+      return new URL(provider.baseUrl).hostname.toLowerCase() === "toapis.com";
+    } catch {
+      return provider.baseUrl.toLowerCase().includes("toapis.com");
+    }
+  }
+
+  private providerRelativePath(
+    provider: Pick<ModelProvider, "baseUrl">,
+    path: string,
+  ) {
+    const base = provider.baseUrl.replace(/\/+$/, "");
+    if (!this.isToApis(provider) || /\/v1$/i.test(base)) return path;
+    return `/v1${path.startsWith("/") ? path : `/${path}`}`;
   }
 
   private async fetchProviderJson(

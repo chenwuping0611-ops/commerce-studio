@@ -3966,15 +3966,21 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
       const balance = await api<Record<string, unknown>>(
         `/model-gateway/providers/${provider.id}/balance`,
       );
-      const remaining =
-        balance.remain_quota ??
-        balance.remaining_quota ??
-        balance.remaining ??
-        balance.balance;
+      const unlimited = balance.unlimited_quota === true;
+      const remaining = unlimited
+        ? "unlimited"
+        : (balance.remain_balance ??
+          balance.remain_quota ??
+          balance.remaining_quota ??
+          balance.remaining ??
+          balance.balance);
+      const credits = balance.remain_credits;
       setMessage(
         remaining === undefined
           ? `${provider.name} 余额接口已连通，请打开供应商控制台查看详细额度。`
-          : `${provider.name} 当前可用额度：${String(remaining)}`,
+          : `${provider.name} 当前可用额度：${String(remaining)}${
+              credits === undefined ? "" : `，剩余积分：${String(credits)}`
+            }`,
       );
     } catch (error) {
       setMessage(

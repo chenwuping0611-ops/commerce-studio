@@ -164,7 +164,7 @@ export class GenerationWorker {
             task.status,
             TaskStatus.PROVIDER_PROCESSING,
           ),
-          nextPollAt: this.nextPollAt(),
+          nextPollAt: this.nextPollAt(1, polled.retryAfterMs),
           leaseUntil: null,
           heartbeatAt: new Date(),
         });
@@ -405,11 +405,15 @@ export class GenerationWorker {
     };
   }
 
-  private nextPollAt(multiplier = 1) {
+  private nextPollAt(multiplier = 1, overrideDelayMs?: number) {
     const intervalMs = this.config.get<number>(
       "GENERATION_POLL_INTERVAL_MS",
       5000,
     );
-    return new Date(Date.now() + intervalMs * multiplier);
+    const delayMs =
+      overrideDelayMs && overrideDelayMs > 0
+        ? overrideDelayMs
+        : intervalMs * multiplier;
+    return new Date(Date.now() + delayMs);
   }
 }
