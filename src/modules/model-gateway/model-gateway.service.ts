@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import {
   GenerationType,
   Prisma,
@@ -42,6 +43,7 @@ export class ModelGatewayService {
     private readonly rbac: RbacService,
     private readonly compatibleAdapter: OpenAiCompatibleAdapter,
     private readonly audit: AuditService,
+    private readonly config: ConfigService,
   ) {}
 
   listProviders(user: AuthenticatedUser) {
@@ -60,6 +62,61 @@ export class ModelGatewayService {
       }));
   }
 
+  /**
+   * 目的：读取官方或 OpenAI 兼容供应商公开的模型目录。
+   * 输入：供应商 ID 和可选模型类型筛选。
+   * 输出：不包含密钥的远程模型 ID 列表，供管理员手动创建 Model Profile。
+   * 外部副作用：一次只读的供应商 HTTP 请求。
+   */
+  async listRemoteModels(
+    user: AuthenticatedUser,
+    providerId: string,
+    type = "all",
+  ) {
+    this.rbac.assertPermission(user, "model_config:read:system");
+    const provider = await this.findProviderForAdmin(providerId);
+    const query = type.trim()
+      ? `?type=${encodeURIComponent(type.trim())}`
+      : "";
+    const payload = await this.fetchProviderJson(provider, `/models${query}`);
+    const rawModels = Array.isArray(payload)
+      ? payload
+      : Array.isArray(payload.data)
+        ? payload.data
+        : Array.isArray(payload.models)
+          ? payload.models
+          : [];
+    const data = rawModels
+      .filter((item): item is Record<string, unknown> => {
+        return Boolean(item && typeof item === "object");
+      })
+      .map((item) => ({
+        id: String(item.id ?? item.name ?? ""),
+        name: String(item.name ?? item.id ?? ""),
+        object: typeof item.object === "string" ? item.object : undefined,
+        ownedBy:
+          typeof item.owned_by === "string"
+            ? item.owned_by
+            : typeof item.ownedBy === "string"
+              ? item.ownedBy
+              : undefined,
+      }))
+      .filter((item) => item.id);
+    return { data };
+  }
+
+  /**
+   * 目的：读取供应商账户余额或额度摘要。
+   * 说明：ToAPIs 兼容接口为 GET /v1/balance；Base URL 中已包含 /v1 时直接拼接。
+   */
+  async getProviderBalance(user: AuthenticatedUser, providerId: string) {
+    this.rbac.assertPermission(user, "model_config:read:system");
+    const provider = await this.findProviderForAdmin(providerId);
+    const payload = await this.fetchProviderJson(provider, "/balance");
+    const objectPayload = Array.isArray(payload) ? {} : payload;
+    return { data: objectPayload.data ?? objectPayload };
+  }
+
   async createProvider(user: AuthenticatedUser, dto: CreateProviderDto) {
     this.rbac.assertPermission(user, "model_config:update:system");
     const encrypted = this.encryption.encrypt(dto.apiKey);
@@ -70,7 +127,7 @@ export class ModelGatewayService {
           dto.kind === "NATIVE"
             ? ProviderKind.NATIVE
             : ProviderKind.OPENAI_COMPATIBLE,
-        baseUrl: dto.baseUrl.replace(/\/+$/, ""),
+        baseUrl: this.normalizeProviderBaseUrl(dto.baseUrl),
         apiKeyEncrypted: encrypted,
         apiKeyHint: this.encryption.hint(dto.apiKey),
         enabled: dto.enabled ?? true,
@@ -180,7 +237,7 @@ export class ModelGatewayService {
         ...(dto.name === undefined ? {} : { name: dto.name.trim() }),
         ...(dto.baseUrl === undefined
           ? {}
-          : { baseUrl: dto.baseUrl.replace(/\/+$/, "") }),
+          : { baseUrl: this.normalizeProviderBaseUrl(dto.baseUrl) }),
         ...(dto.apiKey === undefined
           ? {}
           : {
@@ -422,5 +479,72 @@ export class ModelGatewayService {
   private numberOption(value: unknown, fallback: number) {
     const number = typeof value === "number" ? value : Number(value);
     return Number.isInteger(number) ? number : fallback;
+  }
+
+  private async findProviderForAdmin(providerId: string) {
+    const provider = await this.prisma.modelProvider.findUnique({
+      where: { id: providerId },
+    });
+    if (!provider) {
+      throw new AppError("MODEL_PROVIDER_NOT_FOUND", "模型供应商不存在", 404);
+    }
+    return provider;
+  }
+
+  private normalizeProviderBaseUrl(value: string) {
+    return value
+      .trim()
+      .replace(/\/+$/, "")
+      .replace(/\/(?:images|videos)\/generations$/i, "");
+  }
+
+  private async fetchProviderJson(
+    provider: ModelProvider,
+    path: string,
+  ): Promise<Record<string, any> | any[]> {
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      this.config.get<number>("MODEL_REQUEST_TIMEOUT_MS", 30000),
+    );
+    try {
+      const baseUrl = provider.baseUrl.replace(/\/+$/, "");
+      const response = await fetch(
+        `${baseUrl}${path.startsWith("/") ? path : `/${path}`}`,
+        {
+          method: "GET",
+          headers: {
+            authorization: `Bearer ${this.encryption.decrypt(provider.apiKeyEncrypted)}`,
+            accept: "application/json",
+          },
+          signal: controller.signal,
+        },
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const message =
+          payload?.error?.message ??
+          payload?.error ??
+          payload?.message ??
+          `供应商请求失败（${response.status}）`;
+        throw new AppError(
+          `MODEL_PROVIDER_HTTP_${response.status}`,
+          String(message),
+          response.status >= 500 ? 502 : 400,
+        );
+      }
+      return payload as Record<string, any> | any[];
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      throw new AppError(
+        "MODEL_PROVIDER_NETWORK_ERROR",
+        error instanceof Error && error.name === "AbortError"
+          ? "供应商请求超时"
+          : "供应商网络请求失败",
+        502,
+      );
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 }

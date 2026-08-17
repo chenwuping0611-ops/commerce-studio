@@ -44,13 +44,7 @@ export class OpenAiCompatibleAdapter implements ModelProviderAdapter {
             ? { "idempotency-key": request.idempotencyKey }
             : {}),
         },
-        body: JSON.stringify({
-          model: request.model.name,
-          prompt: request.prompt,
-          negative_prompt: request.negativePrompt,
-          input_assets: request.inputAssets,
-          ...(request.options ?? {}),
-        }),
+        body: JSON.stringify(this.requestBody(request)),
       },
       this.config.get<number>("MODEL_REQUEST_TIMEOUT_MS", 30000),
     );
@@ -72,10 +66,15 @@ export class OpenAiCompatibleAdapter implements ModelProviderAdapter {
         502,
       );
     }
+    const completed = this.isCompletedStatus(payload.status);
     return {
       providerTaskId,
-      status: payload.status === "succeeded" ? "succeeded" : "submitted",
-      output: payload.output,
+      status: completed ? "succeeded" : "submitted",
+      output: completed
+        ? (payload.output ??
+          payload.result ??
+          (payload.url ? { url: payload.url } : undefined))
+        : undefined,
       raw: payload,
     };
   }
@@ -126,7 +125,10 @@ export class OpenAiCompatibleAdapter implements ModelProviderAdapter {
     if (["succeeded", "success", "completed", "done"].includes(status)) {
       return {
         status: "succeeded",
-        output: payload.output ?? payload.result,
+        output:
+          payload.output ??
+          payload.result ??
+          (payload.url ? { url: payload.url } : undefined),
         raw: payload,
       };
     }
@@ -163,6 +165,66 @@ export class OpenAiCompatibleAdapter implements ModelProviderAdapter {
       endpointPath?.trim() ||
       (type === "VIDEO" ? "/videos/generations" : "/images/generations");
     return `${base}${path.startsWith("/") ? path : `/${path}`}${taskId ? `/${encodeURIComponent(taskId)}` : ""}`;
+  }
+
+  /**
+   * ToAPIs uses OpenAI-compatible authentication and paths, but its media
+   * payload names differ from the generic internal task options. Keep the
+   * translation here so the rest of the generation pipeline stays provider
+   * agnostic.
+   */
+  private requestBody(request: ProviderGenerationRequest) {
+    const options = request.options ?? {};
+    const baseUrl = request.provider.baseUrl.toLowerCase();
+    if (baseUrl.includes("toapis.com")) {
+      const body: Record<string, unknown> = {
+        model: request.model.name,
+        prompt: request.prompt,
+        ...(request.idempotencyKey
+          ? { client_business_id: request.idempotencyKey }
+          : {}),
+      };
+      if (request.type === "IMAGE") {
+        body.n = this.numberOption(options.count, 1);
+        body.size =
+          typeof options.aspectRatio === "string"
+            ? options.aspectRatio
+            : "1:1";
+        body.response_format = "url";
+        if (request.inputAssets?.length) {
+          body.image_urls = request.inputAssets;
+        }
+      } else {
+        body.duration = this.numberOption(options.duration, 5);
+        body.aspect_ratio =
+          typeof options.aspectRatio === "string"
+            ? options.aspectRatio
+            : "16:9";
+        if (request.inputAssets?.length) {
+          body.image_urls = request.inputAssets;
+        }
+      }
+      return body;
+    }
+
+    return {
+      model: request.model.name,
+      prompt: request.prompt,
+      negative_prompt: request.negativePrompt,
+      input_assets: request.inputAssets,
+      ...(request.options ?? {}),
+    };
+  }
+
+  private isCompletedStatus(status: unknown) {
+    return ["succeeded", "success", "completed", "done"].includes(
+      String(status ?? "").toLowerCase(),
+    );
+  }
+
+  private numberOption(value: unknown, fallback: number) {
+    const number = typeof value === "number" ? value : Number(value);
+    return Number.isInteger(number) && number > 0 ? number : fallback;
   }
 
   private async fetchWithTimeout(

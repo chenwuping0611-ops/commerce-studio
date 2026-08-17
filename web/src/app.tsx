@@ -74,6 +74,8 @@ type ModelProfile = {
   id: string;
   name: string;
   capability: Record<string, unknown>;
+  endpointPath?: string | null;
+  enabled?: boolean;
   provider?: { id: string; name: string };
   providerId?: string;
 };
@@ -3239,7 +3241,7 @@ function SettingsAdmin({ canWrite = true }: { canWrite?: boolean }) {
   );
 }
 
-function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
+function ProvidersAdminLegacy({ canWrite = true }: { canWrite?: boolean }) {
   const [providers, setProviders] = useState<ModelProvider[]>([]);
   const [form, setForm] = useState({
     name: "",
@@ -3576,6 +3578,958 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
           </form>
         )}
       </div>
+    </div>
+  );
+}
+
+function AdminDialog({
+  eyebrow,
+  title,
+  description,
+  onClose,
+  children,
+  wide = false,
+}: {
+  eyebrow: string;
+  title: string;
+  description?: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  wide?: boolean;
+}) {
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <div
+      className="dialog-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target) onClose();
+      }}
+    >
+      <section
+        className={`admin-dialog ${wide ? "admin-dialog-wide" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="dialog-heading">
+          <div>
+            <span className="eyebrow">{eyebrow}</span>
+            <h3>{title}</h3>
+            {description && <p>{description}</p>}
+          </div>
+          <button
+            className="icon-button"
+            type="button"
+            title="关闭弹窗"
+            aria-label="关闭弹窗"
+            onClick={onClose}
+          >
+            ×
+          </button>
+        </header>
+        {children}
+      </section>
+    </div>
+  );
+}
+
+function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
+  const [providers, setProviders] = useState<ModelProvider[]>([]);
+  const [selectedProviderId, setSelectedProviderId] = useState("");
+  const [providerForm, setProviderForm] = useState({
+    name: "",
+    baseUrl: "",
+    apiKey: "",
+    kind: "OPENAI_COMPATIBLE" as "OPENAI_COMPATIBLE" | "NATIVE",
+    enabled: true,
+  });
+  const [profileForm, setProfileForm] = useState({
+    providerId: "",
+    name: "",
+    endpointPath: "",
+    image: true,
+    video: false,
+    imageAspectRatios: "1:1, 4:5, 16:9",
+    videoAspectRatios: "16:9, 9:16, 1:1",
+    maxCount: "1",
+    durationOptions: "5, 10, 15",
+    referenceImage: true,
+    enabled: true,
+  });
+  const [providerModal, setProviderModal] = useState<"create" | "edit" | null>(
+    null,
+  );
+  const [profileModal, setProfileModal] = useState<"create" | "edit" | null>(
+    null,
+  );
+  const [editingProviderId, setEditingProviderId] = useState("");
+  const [editingProfileId, setEditingProfileId] = useState("");
+  const [message, setMessage] = useState("");
+  const [formMessage, setFormMessage] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [checkingProviderId, setCheckingProviderId] = useState("");
+  const [loadingRemoteModels, setLoadingRemoteModels] = useState(false);
+  const [remoteModelProviderId, setRemoteModelProviderId] = useState("");
+  const [remoteModelOptions, setRemoteModelOptions] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await api<ModelProvider[]>("/model-gateway/providers");
+      const nextProviders = data ?? [];
+      setProviders(nextProviders);
+      setSelectedProviderId((current) =>
+        nextProviders.some((provider) => provider.id === current)
+          ? current
+          : nextProviders[0]?.id || "",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void reload().catch((error) => setMessage(error.message));
+  }, [reload]);
+
+  const selectedProvider = providers.find(
+    (provider) => provider.id === selectedProviderId,
+  );
+
+  function openCreateProvider() {
+    setProviderForm({
+      name: "",
+      baseUrl: "",
+      apiKey: "",
+      kind: "OPENAI_COMPATIBLE",
+      enabled: true,
+    });
+    setEditingProviderId("");
+    setFormMessage("");
+    setProviderModal("create");
+  }
+
+  function openEditProvider(provider: ModelProvider) {
+    setProviderForm({
+      name: provider.name,
+      baseUrl: provider.baseUrl,
+      apiKey: "",
+      kind: provider.kind === "NATIVE" ? "NATIVE" : "OPENAI_COMPATIBLE",
+      enabled: provider.enabled,
+    });
+    setEditingProviderId(provider.id);
+    setFormMessage("");
+    setProviderModal("edit");
+  }
+
+  function openCreateProfile(providerId = selectedProviderId) {
+    setProfileForm({
+      providerId,
+      name: "",
+      endpointPath: "",
+      image: true,
+      video: false,
+      imageAspectRatios: "1:1, 4:5, 16:9",
+      videoAspectRatios: "16:9, 9:16, 1:1",
+      maxCount: "1",
+      durationOptions: "5, 10, 15",
+      referenceImage: true,
+      enabled: true,
+    });
+    setEditingProfileId("");
+    setRemoteModelProviderId("");
+    setRemoteModelOptions([]);
+    setFormMessage("");
+    setProfileModal("create");
+  }
+
+  function openEditProfile(provider: ModelProvider, profile: ModelProfile) {
+    const capability = (profile.capability ?? {}) as ModelCapability;
+    setSelectedProviderId(provider.id);
+    setProfileForm({
+      providerId: provider.id,
+      name: profile.name,
+      endpointPath: profile.endpointPath ?? "",
+      image: capability.image === true,
+      video: capability.video === true,
+      imageAspectRatios: (
+        capability.imageAspectRatios ??
+        capability.aspectRatios ??
+        []
+      ).join(", "),
+      videoAspectRatios: (
+        capability.videoAspectRatios ??
+        capability.aspectRatios ??
+        []
+      ).join(", "),
+      maxCount: String(capability.maxCount ?? 1),
+      durationOptions: (capability.durationOptions ?? [5, 10, 15]).join(", "),
+      referenceImage: capability.referenceImage !== false,
+      enabled: profile.enabled !== false,
+    });
+    setEditingProfileId(profile.id);
+    setRemoteModelProviderId("");
+    setRemoteModelOptions([]);
+    setFormMessage("");
+    setProfileModal("edit");
+  }
+
+  async function saveProvider(event: React.FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    setFormMessage("");
+    try {
+      const body =
+        providerModal === "edit"
+          ? {
+              name: providerForm.name,
+              baseUrl: providerForm.baseUrl,
+              ...(providerForm.apiKey.trim()
+                ? { apiKey: providerForm.apiKey }
+                : {}),
+              enabled: providerForm.enabled,
+            }
+          : {
+              name: providerForm.name,
+              baseUrl: providerForm.baseUrl,
+              apiKey: providerForm.apiKey,
+              kind: providerForm.kind,
+              enabled: providerForm.enabled,
+            };
+      await api(
+        providerModal === "edit"
+          ? `/model-gateway/providers/${editingProviderId}`
+          : "/model-gateway/providers",
+        {
+          method: providerModal === "edit" ? "PATCH" : "POST",
+          bodyJson: body,
+        },
+      );
+      setProviderModal(null);
+      await reload();
+      setMessage(
+        providerModal === "edit"
+          ? "供应商 API 配置已更新"
+          : "供应商已保存，可以继续添加模型 Profile",
+      );
+    } catch (error) {
+      setFormMessage(error instanceof Error ? error.message : "供应商保存失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveProfile(event: React.FormEvent) {
+    event.preventDefault();
+    if (!profileForm.providerId) {
+      setFormMessage("请先选择供应商");
+      return;
+    }
+    if (!profileForm.image && !profileForm.video) {
+      setFormMessage("至少选择图片或视频其中一种能力");
+      return;
+    }
+    setSaving(true);
+    setFormMessage("");
+    try {
+      const body = {
+        name: profileForm.name,
+        endpointPath: profileForm.endpointPath || undefined,
+        enabled: profileForm.enabled,
+        capability: {
+          image: profileForm.image,
+          video: profileForm.video,
+          imageAspectRatios: parseCommaList(profileForm.imageAspectRatios),
+          videoAspectRatios: parseCommaList(profileForm.videoAspectRatios),
+          maxCount: Math.max(1, Number(profileForm.maxCount) || 1),
+          durationOptions: parseNumberList(profileForm.durationOptions),
+          referenceImage: profileForm.referenceImage,
+        },
+      };
+      await api(
+        profileModal === "edit"
+          ? `/model-gateway/profiles/${editingProfileId}`
+          : `/model-gateway/providers/${profileForm.providerId}/profiles`,
+        {
+          method: profileModal === "edit" ? "PATCH" : "POST",
+          bodyJson: body,
+        },
+      );
+      setProfileModal(null);
+      await reload();
+      setSelectedProviderId(profileForm.providerId);
+      setMessage(
+        profileModal === "edit"
+          ? "模型 Profile 已更新"
+          : "模型 Profile 已保存",
+      );
+    } catch (error) {
+      setFormMessage(
+        error instanceof Error ? error.message : "模型 Profile 保存失败",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggleProvider(provider: ModelProvider) {
+    try {
+      await api(`/model-gateway/providers/${provider.id}`, {
+        method: "PATCH",
+        bodyJson: { enabled: !provider.enabled },
+      });
+      await reload();
+      setMessage(provider.enabled ? "供应商已停用" : "供应商已启用");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "供应商状态更新失败");
+    }
+  }
+
+  async function toggleProfile(profile: ModelProfile) {
+    if (!profile.providerId && !selectedProvider) return;
+    try {
+      await api(`/model-gateway/profiles/${profile.id}`, {
+        method: "PATCH",
+        bodyJson: { enabled: profile.enabled === false },
+      });
+      await reload();
+      setMessage(
+        profile.enabled === false ? "模型 Profile 已启用" : "模型 Profile 已停用",
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "模型 Profile 状态更新失败",
+      );
+    }
+  }
+
+  async function checkProviderConnection(provider: ModelProvider) {
+    setCheckingProviderId(provider.id);
+    setMessage("");
+    try {
+      const models = await api<Array<{ id: string; name: string }>>(
+        `/model-gateway/providers/${provider.id}/remote-models?type=all`,
+      );
+      setMessage(
+        `${provider.name} 连接正常，远程模型目录返回 ${models.length} 个模型。`,
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? `${provider.name} 连接检查失败：${error.message}`
+          : `${provider.name} 连接检查失败`,
+      );
+    } finally {
+      setCheckingProviderId("");
+    }
+  }
+
+  async function readRemoteModels(providerId: string) {
+    setLoadingRemoteModels(true);
+    setFormMessage("");
+    try {
+      const models = await api<Array<{ id: string; name: string }>>(
+        `/model-gateway/providers/${providerId}/remote-models?type=all`,
+      );
+      setRemoteModelProviderId(providerId);
+      setRemoteModelOptions(models);
+      setFormMessage(
+        models.length
+          ? `已读取 ${models.length} 个远程模型，可直接选择或继续手动输入。`
+          : "远程模型目录为空，请手动填写模型名称。",
+      );
+    } catch (error) {
+      setFormMessage(
+        error instanceof Error ? error.message : "远程模型目录读取失败",
+      );
+    } finally {
+      setLoadingRemoteModels(false);
+    }
+  }
+
+  async function readProviderBalance(provider: ModelProvider) {
+    setCheckingProviderId(provider.id);
+    setMessage("");
+    try {
+      const balance = await api<Record<string, unknown>>(
+        `/model-gateway/providers/${provider.id}/balance`,
+      );
+      const remaining =
+        balance.remain_quota ??
+        balance.remaining_quota ??
+        balance.remaining ??
+        balance.balance;
+      setMessage(
+        remaining === undefined
+          ? `${provider.name} 余额接口已连通，请打开供应商控制台查看详细额度。`
+          : `${provider.name} 当前可用额度：${String(remaining)}`,
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? `${provider.name} 余额查询失败：${error.message}`
+          : `${provider.name} 余额查询失败`,
+      );
+    } finally {
+      setCheckingProviderId("");
+    }
+  }
+
+  return (
+    <div className="provider-admin">
+      <div className="provider-admin-toolbar">
+        <div>
+          <span className="eyebrow">MODEL GATEWAY</span>
+          <h3>模型供应商</h3>
+          <p>
+            供应商只维护连接信息；模型的 Endpoint、图片/视频能力、画幅和数量在
+            Profile 弹窗中单独配置。
+          </p>
+        </div>
+        <div className="provider-admin-toolbar-actions">
+          <span className="page-heading-count">{providers.length} 个供应商</span>
+          {canWrite && (
+            <button
+              className="button primary"
+              type="button"
+              onClick={openCreateProvider}
+            >
+              新增供应商
+            </button>
+          )}
+        </div>
+      </div>
+      {message && (
+        <div className={`alert ${message.includes("失败") ? "error" : "success"}`}>
+          {message}
+        </div>
+      )}
+      <section className="provider-admin-surface provider-directory-surface">
+        <div className="provider-section-heading">
+          <div>
+            <span className="eyebrow">CONNECTIONS</span>
+            <h4>供应商目录</h4>
+            <p>每一行只展示连接摘要；新增、编辑、模型能力和连接检查都从操作按钮进入。</p>
+          </div>
+          <span className="provider-section-note">API Key 仅显示脱敏提示</span>
+        </div>
+        {loading ? (
+          <AdminLoadingState text="正在加载模型供应商..." />
+        ) : providers.length ? (
+          <div className="provider-directory">
+            {providers.map((provider) => (
+              <article className="provider-directory-item" key={provider.id}>
+                <div className="provider-directory-main">
+                  <div className="provider-directory-title">
+                    <span
+                      className={`provider-row-status ${
+                        provider.enabled ? "active" : "disabled"
+                      }`}
+                    />
+                    <div>
+                      <h4>{provider.name}</h4>
+                      <span className="provider-directory-endpoint">
+                        {provider.baseUrl}
+                      </span>
+                    </div>
+                    <StatusBadge
+                      status={provider.enabled ? "ACTIVE" : "DISABLED"}
+                    />
+                  </div>
+                  <div className="provider-directory-meta">
+                    <span>
+                      {provider.kind === "NATIVE"
+                        ? "官方原生适配"
+                        : "OpenAI 兼容 / 中转站"}
+                    </span>
+                    <span>{provider.apiKeyHint || "未显示密钥"}</span>
+                    <span>{provider.profiles.length} 个模型 Profile</span>
+                  </div>
+                  {provider.profiles.length ? (
+                    <details className="provider-models-disclosure">
+                      <summary>
+                        <span>查看已配置模型</span>
+                        <span>{provider.profiles.length}</span>
+                      </summary>
+                      <div className="provider-model-inline-list">
+                        {provider.profiles.map((profile) => {
+                          const capability = (profile.capability ??
+                            {}) as ModelCapability;
+                          const capabilities = [
+                            capability.image ? "图片" : "",
+                            capability.video ? "视频" : "",
+                            capability.referenceImage ? "参考图" : "",
+                          ].filter(Boolean);
+                          return (
+                            <div className="provider-model-inline-row" key={profile.id}>
+                              <div className="model-profile-copy">
+                                <div className="model-profile-title">
+                                  <strong>{profile.name}</strong>
+                                  <StatusBadge
+                                    status={
+                                      profile.enabled === false
+                                        ? "DISABLED"
+                                        : "ACTIVE"
+                                    }
+                                  />
+                                </div>
+                                <span>
+                                  {profile.endpointPath ||
+                                    "使用系统默认图片/视频路径"}
+                                </span>
+                                <small>
+                                  {capabilities.join(" · ") || "未配置媒体能力"}
+                                  {" · "}
+                                  图片最多 {capability.maxCount ?? 1} 张
+                                  {" · "}
+                                  视频{" "}
+                                  {capability.durationOptions?.join(", ") ||
+                                    "5, 10, 15"}{" "}
+                                  秒
+                                </small>
+                              </div>
+                              {canWrite && (
+                                <div className="provider-row-actions">
+                                  <button
+                                    className="button ghost small"
+                                    type="button"
+                                    onClick={() => openEditProfile(provider, profile)}
+                                  >
+                                    编辑模型
+                                  </button>
+                                  <button
+                                    className="button ghost small"
+                                    type="button"
+                                    onClick={() => void toggleProfile(profile)}
+                                  >
+                                    {profile.enabled === false ? "启用" : "停用"}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </details>
+                  ) : (
+                    <p className="provider-directory-empty">尚未添加模型 Profile。</p>
+                  )}
+                </div>
+                <div className="provider-directory-actions">
+                  <button
+                    className="button ghost small"
+                    type="button"
+                    onClick={() => void checkProviderConnection(provider)}
+                    disabled={checkingProviderId === provider.id}
+                  >
+                    {checkingProviderId === provider.id ? "检查中..." : "检查连接"}
+                  </button>
+                  <button
+                    className="button ghost small"
+                    type="button"
+                    onClick={() => void readProviderBalance(provider)}
+                    disabled={checkingProviderId === provider.id}
+                  >
+                    查余额
+                  </button>
+                  {canWrite && (
+                    <>
+                      <button
+                        className="button ghost small"
+                        type="button"
+                        onClick={() => openEditProvider(provider)}
+                      >
+                        编辑 API
+                      </button>
+                      <button
+                        className="button primary small"
+                        type="button"
+                        onClick={() => {
+                          setSelectedProviderId(provider.id);
+                          openCreateProfile(provider.id);
+                        }}
+                      >
+                        新增模型
+                      </button>
+                      <button
+                        className="button ghost small"
+                        type="button"
+                        onClick={() => void toggleProvider(provider)}
+                      >
+                        {provider.enabled ? "停用" : "启用"}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="provider-directory-empty-state">
+            <EmptyState text="暂无配置模型供应商" />
+            {canWrite && (
+              <button className="button primary" type="button" onClick={openCreateProvider}>
+                新增供应商
+              </button>
+            )}
+          </div>
+        )}
+      </section>
+      {providerModal && (
+        <AdminDialog
+          eyebrow={providerModal === "edit" ? "EDIT CONNECTION" : "NEW CONNECTION"}
+          title={providerModal === "edit" ? "编辑供应商 API" : "新增供应商 API"}
+          description="官方 API 和中转站都按连接配置保存，API Key 会在服务端加密存储。"
+          onClose={() => setProviderModal(null)}
+        >
+          <form className="dialog-form" onSubmit={saveProvider}>
+            <div className="dialog-form-section">
+              <span className="section-label">连接信息</span>
+              <div className="compact-form-grid">
+                <label>
+                  供应商名称
+                  <input
+                    required
+                    value={providerForm.name}
+                    onChange={(event) =>
+                      setProviderForm({
+                        ...providerForm,
+                        name: event.target.value,
+                      })
+                    }
+                    placeholder="例如：ToAPIs"
+                  />
+                </label>
+                <label>
+                  接入类型
+                  <select
+                    value={providerForm.kind}
+                    disabled={providerModal === "edit"}
+                    onChange={(event) =>
+                      setProviderForm({
+                        ...providerForm,
+                        kind: event.target.value as
+                          | "OPENAI_COMPATIBLE"
+                          | "NATIVE",
+                      })
+                    }
+                  >
+                    <option value="OPENAI_COMPATIBLE">OpenAI 兼容 / 中转站</option>
+                    <option value="NATIVE">官方原生</option>
+                  </select>
+                </label>
+              </div>
+              <label>
+                Base URL
+                <input
+                  required
+                  type="url"
+                  value={providerForm.baseUrl}
+                  onChange={(event) =>
+                    setProviderForm({
+                      ...providerForm,
+                      baseUrl: event.target.value,
+                    })
+                  }
+                  placeholder="https://api.example.com/v1"
+                />
+              </label>
+              <label>
+                {providerModal === "edit"
+                  ? "更新 API Key（留空则保持不变）"
+                  : "API Key"}
+                <input
+                  required={providerModal === "create"}
+                  type="password"
+                  value={providerForm.apiKey}
+                  onChange={(event) =>
+                    setProviderForm({
+                      ...providerForm,
+                      apiKey: event.target.value,
+                    })
+                  }
+                  placeholder={
+                    providerModal === "edit"
+                      ? "留空保持当前密钥"
+                      : "请输入服务商 API Key"
+                  }
+                />
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={providerForm.enabled}
+                  onChange={(event) =>
+                    setProviderForm({
+                      ...providerForm,
+                      enabled: event.target.checked,
+                    })
+                  }
+                />
+                启用此供应商
+              </label>
+            </div>
+            <div className="provider-dialog-note">
+              ToAPIs 这类中转站选择“OpenAI 兼容 / 中转站”，Base URL 和具体模型
+              Endpoint 分开填写。Base URL 只填写到版本目录（例如
+              https://toapis.com/v1），不要把 /images/generations 或
+              /videos/generations 写进 Base URL；模型的图片比例、视频时长和参考图能力在下一个弹窗维护。
+            </div>
+            {formMessage && <div className="alert error">{formMessage}</div>}
+            <div className="dialog-actions">
+              <button
+                className="button ghost"
+                type="button"
+                onClick={() => setProviderModal(null)}
+              >
+                取消
+              </button>
+              <button className="button primary" disabled={saving}>
+                {saving ? "保存中..." : "保存供应商"}
+              </button>
+            </div>
+          </form>
+        </AdminDialog>
+      )}
+      {profileModal && (
+        <AdminDialog
+          eyebrow={
+            profileModal === "edit" ? "EDIT MODEL PROFILE" : "NEW MODEL PROFILE"
+          }
+          title={profileModal === "edit" ? "编辑模型 Profile" : "新增模型 Profile"}
+          description="模型能力会直接决定图片/视频创作页显示的画幅、数量、时长和参考图选项。"
+          onClose={() => setProfileModal(null)}
+          wide
+        >
+          <form className="dialog-form" onSubmit={saveProfile}>
+            <div className="dialog-form-section">
+              <span className="section-label">模型标识</span>
+              <div className="compact-form-grid">
+                <label>
+                  所属供应商
+                  <select
+                    required
+                    value={profileForm.providerId}
+                    disabled={profileModal === "edit"}
+                    onChange={(event) =>
+                      setProfileForm({
+                        ...profileForm,
+                        providerId: event.target.value,
+                      })
+                    }
+                  >
+                    <option value="">选择供应商</option>
+                    {providers.map((provider) => (
+                      <option key={provider.id} value={provider.id}>
+                        {provider.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  模型名称
+                  <span className="provider-model-name-field">
+                    <input
+                      required
+                      list="remote-model-options"
+                      value={profileForm.name}
+                      onChange={(event) =>
+                        setProfileForm({
+                          ...profileForm,
+                          name: event.target.value,
+                        })
+                      }
+                      placeholder="例如：gpt-image-2"
+                    />
+                    <button
+                      className="button ghost small"
+                      type="button"
+                      disabled={
+                        !profileForm.providerId ||
+                        loadingRemoteModels ||
+                        profileModal === "edit" && !profileForm.providerId
+                      }
+                      onClick={() => void readRemoteModels(profileForm.providerId)}
+                    >
+                      {loadingRemoteModels ? "读取中..." : "读取模型"}
+                    </button>
+                    <datalist id="remote-model-options">
+                      {remoteModelProviderId === profileForm.providerId &&
+                        remoteModelOptions.map((model) => (
+                          <option key={model.id} value={model.id}>
+                            {model.name}
+                          </option>
+                        ))}
+                    </datalist>
+                  </span>
+                  {remoteModelProviderId === profileForm.providerId &&
+                    remoteModelOptions.length > 0 && (
+                      <small className="field-help">
+                        已载入远程模型目录，可从输入框下拉选择；能力仍需在本窗口手动确认。
+                      </small>
+                    )}
+                </label>
+              </div>
+              <label>
+                Endpoint Path
+                <input
+                  value={profileForm.endpointPath}
+                  onChange={(event) =>
+                    setProfileForm({
+                      ...profileForm,
+                      endpointPath: event.target.value,
+                    })
+                  }
+                  placeholder="/images/generations 或 /videos/generations"
+                />
+              </label>
+            </div>
+            <div className="dialog-form-section">
+              <span className="section-label">媒体能力</span>
+              <div className="capability-row">
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={profileForm.image}
+                    onChange={(event) =>
+                      setProfileForm({
+                        ...profileForm,
+                        image: event.target.checked,
+                      })
+                    }
+                  />
+                  图片生成
+                </label>
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={profileForm.video}
+                    onChange={(event) =>
+                      setProfileForm({
+                        ...profileForm,
+                        video: event.target.checked,
+                      })
+                    }
+                  />
+                  视频生成
+                </label>
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={profileForm.referenceImage}
+                    onChange={(event) =>
+                      setProfileForm({
+                        ...profileForm,
+                        referenceImage: event.target.checked,
+                      })
+                    }
+                  />
+                  支持参考图
+                </label>
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={profileForm.enabled}
+                    onChange={(event) =>
+                      setProfileForm({
+                        ...profileForm,
+                        enabled: event.target.checked,
+                      })
+                    }
+                  />
+                  启用此模型
+                </label>
+              </div>
+            </div>
+            <div className="dialog-form-section">
+              <span className="section-label">生成参数</span>
+              <div className="compact-form-grid model-capability-grid">
+                <label>
+                  图片画幅
+                  <input
+                    value={profileForm.imageAspectRatios}
+                    onChange={(event) =>
+                      setProfileForm({
+                        ...profileForm,
+                        imageAspectRatios: event.target.value,
+                      })
+                    }
+                    placeholder="1:1, 4:5, 16:9"
+                  />
+                  <small className="field-help">按逗号填写该模型支持的画幅。</small>
+                </label>
+                <label>
+                  视频画幅
+                  <input
+                    value={profileForm.videoAspectRatios}
+                    onChange={(event) =>
+                      setProfileForm({
+                        ...profileForm,
+                        videoAspectRatios: event.target.value,
+                      })
+                    }
+                    placeholder="16:9, 9:16"
+                  />
+                </label>
+                <label>
+                  图片最大数量
+                  <input
+                    type="number"
+                    min={1}
+                    max={16}
+                    value={profileForm.maxCount}
+                    onChange={(event) =>
+                      setProfileForm({
+                        ...profileForm,
+                        maxCount: event.target.value,
+                      })
+                    }
+                  />
+                  <small className="field-help">创作页默认从 1 张开始。</small>
+                </label>
+                <label>
+                  视频时长（秒）
+                  <input
+                    value={profileForm.durationOptions}
+                    onChange={(event) =>
+                      setProfileForm({
+                        ...profileForm,
+                        durationOptions: event.target.value,
+                      })
+                    }
+                    placeholder="5, 10, 15"
+                  />
+                </label>
+              </div>
+            </div>
+            {formMessage && <div className="alert error">{formMessage}</div>}
+            <div className="dialog-actions">
+              <button
+                className="button ghost"
+                type="button"
+                onClick={() => setProfileModal(null)}
+              >
+                取消
+              </button>
+              <button className="button primary" disabled={saving}>
+                {saving ? "保存中..." : "保存模型 Profile"}
+              </button>
+            </div>
+          </form>
+        </AdminDialog>
+      )}
     </div>
   );
 }

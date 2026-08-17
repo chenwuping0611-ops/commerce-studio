@@ -35,6 +35,25 @@ export class ModelGatewayController {
     return this.service.listProviders(user);
   }
 
+  @Get("providers/:providerId/remote-models")
+  @RequirePermission("model_config:read:system")
+  listRemoteModels(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("providerId") providerId: string,
+    @Query("type") type?: string,
+  ) {
+    return this.service.listRemoteModels(user, providerId, type);
+  }
+
+  @Get("providers/:providerId/balance")
+  @RequirePermission("model_config:read:system")
+  getProviderBalance(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("providerId") providerId: string,
+  ) {
+    return this.service.getProviderBalance(user, providerId);
+  }
+
   @Get("profiles")
   @RequirePermission("generation:create:team")
   listAvailableProfiles(
