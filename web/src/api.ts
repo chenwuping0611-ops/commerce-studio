@@ -23,7 +23,7 @@ export async function api<T>(
     error?: { message?: string; code?: string };
   };
   if (!response.ok) {
-    throw new Error(payload.error?.message ?? `请求失败（${response.status}）`);
+    throwApiError(payload.error, response.status);
   }
   return payload.data as T;
 }
@@ -39,9 +39,20 @@ export async function upload<T>(path: string, formData: FormData): Promise<T> {
     error?: { message?: string };
   };
   if (!response.ok) {
-    throw new Error(payload.error?.message ?? `请求失败（${response.status}）`);
+    throwApiError(payload.error, response.status);
   }
   return payload.data as T;
+}
+
+function throwApiError(
+  error: { message?: string; code?: string } | undefined,
+  status: number,
+): never {
+  const message = error?.message ?? `请求失败（${status}）`;
+  const code = error?.code;
+  throw new Error(
+    code && !message.includes(code) ? `${message} [${code}]` : message,
+  );
 }
 
 export function streamGeneration(

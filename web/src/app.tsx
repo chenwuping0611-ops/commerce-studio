@@ -89,6 +89,20 @@ type ModelCapability = {
   maxCount?: number;
   durationOptions?: number[];
   referenceImage?: boolean;
+  requestParameters?: {
+    image?: ModelRequestParameter[];
+    video?: ModelRequestParameter[];
+  };
+};
+
+type ModelRequestParameterType = "string" | "number" | "boolean" | "json";
+
+type ModelRequestParameter = {
+  field: string;
+  value: string;
+  valueType: ModelRequestParameterType;
+  enabled: boolean;
+  description?: string;
 };
 
 type ModelProvider = {
@@ -96,6 +110,8 @@ type ModelProvider = {
   name: string;
   kind: string;
   baseUrl: string;
+  modelsPath?: string | null;
+  balancePath?: string | null;
   apiKeyHint?: string | null;
   enabled: boolean;
   profiles: ModelProfile[];
@@ -3642,12 +3658,186 @@ function AdminDialog({
   );
 }
 
+const requestParameterPresets: Record<
+  "IMAGE" | "VIDEO",
+  Array<{
+    field: string;
+    label: string;
+    value: string;
+    valueType: ModelRequestParameterType;
+  }>
+> = {
+  IMAGE: [
+    {
+      field: "model",
+      label: "model · 模型名称",
+      value: "{{model}}",
+      valueType: "string",
+    },
+    {
+      field: "prompt",
+      label: "prompt · 运行时 Prompt",
+      value: "{{prompt}}",
+      valueType: "string",
+    },
+    {
+      field: "n",
+      label: "n · 生成数量",
+      value: "{{count}}",
+      valueType: "number",
+    },
+    {
+      field: "size",
+      label: "size · 图片尺寸",
+      value: "{{aspect_ratio}}",
+      valueType: "string",
+    },
+    {
+      field: "resolution",
+      label: "resolution · 分辨率",
+      value: "",
+      valueType: "string",
+    },
+    {
+      field: "image_urls",
+      label: "image_urls · 参考图地址",
+      value: "{{image_urls}}",
+      valueType: "json",
+    },
+    {
+      field: "response_format",
+      label: "response_format · 返回格式",
+      value: "",
+      valueType: "string",
+    },
+  ],
+  VIDEO: [
+    {
+      field: "model",
+      label: "model · 模型名称",
+      value: "{{model}}",
+      valueType: "string",
+    },
+    {
+      field: "prompt",
+      label: "prompt · 运行时 Prompt",
+      value: "{{prompt}}",
+      valueType: "string",
+    },
+    {
+      field: "duration",
+      label: "duration · 视频时长",
+      value: "{{duration}}",
+      valueType: "number",
+    },
+    {
+      field: "aspect_ratio",
+      label: "aspect_ratio · 视频比例",
+      value: "{{aspect_ratio}}",
+      valueType: "string",
+    },
+    {
+      field: "resolution",
+      label: "resolution · 分辨率",
+      value: "",
+      valueType: "string",
+    },
+    {
+      field: "image_with_roles",
+      label: "image_with_roles · 带角色参考图",
+      value: "{{image_with_roles}}",
+      valueType: "json",
+    },
+    {
+      field: "generate_audio",
+      label: "generate_audio · 生成音频",
+      value: "",
+      valueType: "boolean",
+    },
+    {
+      field: "return_last_frame",
+      label: "return_last_frame · 返回尾帧",
+      value: "",
+      valueType: "boolean",
+    },
+  ],
+};
+
+const requestRuntimeValueOptions = [
+  { value: "", label: "选择运行时值（可选）" },
+  { value: "{{model}}", label: "{{model}} · 当前模型名称" },
+  { value: "{{prompt}}", label: "{{prompt}} · 编译后的 Prompt" },
+  { value: "{{negative_prompt}}", label: "{{negative_prompt}} · 反向 Prompt" },
+  { value: "{{count}}", label: "{{count}} · 图片数量" },
+  { value: "{{duration}}", label: "{{duration}} · 视频时长" },
+  { value: "{{aspect_ratio}}", label: "{{aspect_ratio}} · 当前画幅" },
+  { value: "{{resolution}}", label: "{{resolution}} · 生成页分辨率" },
+  { value: "{{response_format}}", label: "{{response_format}} · 返回格式" },
+  { value: "{{generate_audio}}", label: "{{generate_audio}} · 是否生成音频" },
+  {
+    value: "{{return_last_frame}}",
+    label: "{{return_last_frame}} · 是否返回尾帧",
+  },
+  { value: "{{image_urls}}", label: "{{image_urls}} · 参考图 URL 数组" },
+  {
+    value: "{{image_with_roles}}",
+    label: "{{image_with_roles}} · 带角色参考图数组",
+  },
+  {
+    value: "{{client_business_id}}",
+    label: "{{client_business_id}} · 任务幂等业务 ID",
+  },
+];
+
+const toApisSuggestedModels = [
+  { id: "gpt-image-2", name: "gpt-image-2 · 图片" },
+  { id: "seedance-2", name: "seedance-2 · 视频" },
+];
+
+function defaultRequestParameters(
+  type: "IMAGE" | "VIDEO",
+  modelName = "",
+): ModelRequestParameter[] {
+  return requestParameterPresets[type].map((preset) => ({
+    field: preset.field,
+    value: preset.field === "model" && modelName ? "{{model}}" : preset.value,
+    valueType: preset.valueType,
+    enabled: true,
+  }));
+}
+
+function requestParametersFromCapability(
+  capability: ModelCapability,
+  type: "IMAGE" | "VIDEO",
+  modelName: string,
+) {
+  const key = type === "IMAGE" ? "image" : "video";
+  const configured = capability.requestParameters?.[key];
+  return Array.isArray(configured)
+    ? configured.map((item) => ({
+        field: String(item.field ?? ""),
+        value:
+          typeof item.value === "string"
+            ? item.value
+            : item.value === undefined || item.value === null
+              ? ""
+              : JSON.stringify(item.value),
+        valueType: item.valueType ?? "string",
+        enabled: item.enabled !== false,
+        description:
+          typeof item.description === "string" ? item.description : undefined,
+      }))
+    : defaultRequestParameters(type, modelName);
+}
+
 function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
   const [providers, setProviders] = useState<ModelProvider[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState("");
   const [providerForm, setProviderForm] = useState({
     name: "",
     baseUrl: "",
+    modelsPath: "/models",
+    balancePath: "/user/balance",
     apiKey: "",
     kind: "OPENAI_COMPATIBLE" as "OPENAI_COMPATIBLE" | "NATIVE",
     enabled: true,
@@ -3663,6 +3853,9 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
     maxCount: "1",
     durationOptions: "5, 10, 15",
     referenceImage: true,
+    imageParameters: defaultRequestParameters("IMAGE"),
+    videoParameters: defaultRequestParameters("VIDEO"),
+    activeParameterType: "IMAGE" as "IMAGE" | "VIDEO",
     enabled: true,
   });
   const [providerModal, setProviderModal] = useState<"create" | "edit" | null>(
@@ -3683,6 +3876,10 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
   const [remoteModelOptions, setRemoteModelOptions] = useState<
     Array<{ id: string; name: string }>
   >([]);
+  const [parameterToAdd, setParameterToAdd] = useState({
+    IMAGE: "model",
+    VIDEO: "model",
+  });
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -3708,10 +3905,22 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
     (provider) => provider.id === selectedProviderId,
   );
 
+  function selectableModelOptions(providerId: string) {
+    if (remoteModelProviderId === providerId && remoteModelOptions.length > 0) {
+      return remoteModelOptions;
+    }
+    const provider = providers.find((item) => item.id === providerId);
+    return provider?.baseUrl.toLowerCase().includes("toapis.com")
+      ? toApisSuggestedModels
+      : [];
+  }
+
   function openCreateProvider() {
     setProviderForm({
       name: "",
       baseUrl: "",
+      modelsPath: "/models",
+      balancePath: "/user/balance",
       apiKey: "",
       kind: "OPENAI_COMPATIBLE",
       enabled: true,
@@ -3725,6 +3934,10 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
     setProviderForm({
       name: provider.name,
       baseUrl: provider.baseUrl,
+      modelsPath: provider.modelsPath ?? "/models",
+      balancePath:
+        provider.balancePath ??
+        (provider.kind === "NATIVE" ? "/balance" : "/user/balance"),
       apiKey: "",
       kind: provider.kind === "NATIVE" ? "NATIVE" : "OPENAI_COMPATIBLE",
       enabled: provider.enabled,
@@ -3746,6 +3959,9 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
       maxCount: "1",
       durationOptions: "5, 10, 15",
       referenceImage: true,
+      imageParameters: defaultRequestParameters("IMAGE"),
+      videoParameters: defaultRequestParameters("VIDEO"),
+      activeParameterType: "IMAGE",
       enabled: true,
     });
     setEditingProfileId("");
@@ -3777,6 +3993,17 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
       maxCount: String(capability.maxCount ?? 1),
       durationOptions: (capability.durationOptions ?? [5, 10, 15]).join(", "),
       referenceImage: capability.referenceImage !== false,
+      imageParameters: requestParametersFromCapability(
+        capability,
+        "IMAGE",
+        profile.name,
+      ),
+      videoParameters: requestParametersFromCapability(
+        capability,
+        "VIDEO",
+        profile.name,
+      ),
+      activeParameterType: capability.image ? "IMAGE" : "VIDEO",
       enabled: profile.enabled !== false,
     });
     setEditingProfileId(profile.id);
@@ -3784,6 +4011,275 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
     setRemoteModelOptions([]);
     setFormMessage("");
     setProfileModal("edit");
+  }
+
+  function updateRequestParameter(
+    type: "IMAGE" | "VIDEO",
+    index: number,
+    patch: Partial<ModelRequestParameter>,
+  ) {
+    const key = type === "IMAGE" ? "imageParameters" : "videoParameters";
+    setProfileForm((current) => ({
+      ...current,
+      [key]: current[key].map((item, itemIndex) =>
+        itemIndex === index ? { ...item, ...patch } : item,
+      ),
+    }));
+  }
+
+  function removeRequestParameter(type: "IMAGE" | "VIDEO", index: number) {
+    const key = type === "IMAGE" ? "imageParameters" : "videoParameters";
+    setProfileForm((current) => ({
+      ...current,
+      [key]: current[key].filter((_item, itemIndex) => itemIndex !== index),
+    }));
+  }
+
+  function addRequestParameter(type: "IMAGE" | "VIDEO") {
+    const key = type === "IMAGE" ? "imageParameters" : "videoParameters";
+    const field = parameterToAdd[type];
+    const preset = requestParameterPresets[type].find(
+      (item) => item.field === field,
+    );
+    setProfileForm((current) => {
+      if (current[key].some((item) => item.field === field && field)) {
+        return current;
+      }
+      return {
+        ...current,
+        [key]: [
+          ...current[key],
+          {
+            field: field || `custom_field_${current[key].length + 1}`,
+            value:
+              preset?.field === "model" ? "{{model}}" : (preset?.value ?? ""),
+            valueType: preset?.valueType ?? "string",
+            enabled: true,
+          },
+        ],
+      };
+    });
+  }
+
+  function validateRequestParameters(
+    type: "IMAGE" | "VIDEO",
+    rows: ModelRequestParameter[],
+  ) {
+    const seen = new Set<string>();
+    for (const [index, row] of rows.entries()) {
+      const field = row.field.trim();
+      if (!field) {
+        return `${type === "IMAGE" ? "图片" : "视频"}请求参数第 ${
+          index + 1
+        } 行缺少 Body 字段名`;
+      }
+      if (!/^[A-Za-z][A-Za-z0-9_.-]*$/.test(field)) {
+        return `${type === "IMAGE" ? "图片" : "视频"}请求字段 ${field} 格式无效`;
+      }
+      if (seen.has(field)) {
+        return `${type === "IMAGE" ? "图片" : "视频"}请求字段 ${field} 重复`;
+      }
+      seen.add(field);
+    }
+    return "";
+  }
+
+  function renderRequestParameterEditor(
+    type: "IMAGE" | "VIDEO",
+    rows: ModelRequestParameter[],
+  ) {
+    return (
+      <div className="request-parameter-editor">
+        <div className="request-parameter-toolbar">
+          <div>
+            <strong>
+              {type === "IMAGE" ? "图片请求参数" : "视频请求参数"}
+            </strong>
+            <small>
+              每一行都会拼接到 JSON body；值为空、禁用或无效时不发送。
+            </small>
+          </div>
+          <div className="request-parameter-add">
+            <select
+              value={parameterToAdd[type]}
+              onChange={(event) =>
+                setParameterToAdd((current) => ({
+                  ...current,
+                  [type]: event.target.value,
+                }))
+              }
+            >
+              {requestParameterPresets[type].map((preset) => (
+                <option key={preset.field} value={preset.field}>
+                  {preset.label}
+                </option>
+              ))}
+              <option value="">自定义字段</option>
+            </select>
+            <button
+              className="button ghost small"
+              type="button"
+              onClick={() => addRequestParameter(type)}
+            >
+              添加字段
+            </button>
+          </div>
+        </div>
+        <div className="request-parameter-list">
+          {rows.length ? (
+            rows.map((row, index) => {
+              const preset = requestParameterPresets[type].find(
+                (item) => item.field === row.field,
+              );
+              return (
+                <div className="request-parameter-row" key={`${type}-${index}`}>
+                  <label>
+                    Body 字段
+                    <input
+                      value={row.field}
+                      onChange={(event) =>
+                        updateRequestParameter(type, index, {
+                          field: event.target.value,
+                        })
+                      }
+                      placeholder="例如：resolution"
+                    />
+                    <small className="field-help">
+                      {preset?.label ?? "自定义 Body 字段，按供应商文档填写"}
+                    </small>
+                  </label>
+                  <label>
+                    值类型
+                    <select
+                      value={row.valueType}
+                      onChange={(event) =>
+                        updateRequestParameter(type, index, {
+                          valueType: event.target
+                            .value as ModelRequestParameterType,
+                        })
+                      }
+                    >
+                      <option value="string">文本</option>
+                      <option value="number">数字</option>
+                      <option value="boolean">布尔值</option>
+                      <option value="json">JSON 数组 / 对象</option>
+                    </select>
+                  </label>
+                  <label className="request-parameter-value">
+                    发送值
+                    {row.valueType === "boolean" ? (
+                      <select
+                        value={row.value}
+                        onChange={(event) =>
+                          updateRequestParameter(type, index, {
+                            value: event.target.value,
+                          })
+                        }
+                      >
+                        <option value="">空值，不发送</option>
+                        <option value="true">true</option>
+                        <option value="false">false</option>
+                      </select>
+                    ) : row.valueType === "json" ? (
+                      <textarea
+                        value={row.value}
+                        onChange={(event) =>
+                          updateRequestParameter(type, index, {
+                            value: event.target.value,
+                          })
+                        }
+                        placeholder='例如：["1:1","16:9"]'
+                      />
+                    ) : (
+                      <input
+                        type={row.valueType === "number" ? "number" : "text"}
+                        value={row.value}
+                        onChange={(event) =>
+                          updateRequestParameter(type, index, {
+                            value: event.target.value,
+                          })
+                        }
+                        placeholder={
+                          row.field === "resolution"
+                            ? "例如：1k、2k、4k"
+                            : "留空则不发送"
+                        }
+                      />
+                    )}
+                    {[
+                      "prompt",
+                      "image_urls",
+                      "reference_images",
+                      "image_with_roles",
+                    ].includes(row.field) && (
+                      <small className="field-help">
+                        可使用动态值：{" "}
+                        {row.field === "prompt"
+                          ? "{{prompt}}"
+                          : row.field === "image_with_roles"
+                            ? "{{image_with_roles}}"
+                            : "{{image_urls}}"}
+                      </small>
+                    )}
+                    <select
+                      className="request-parameter-runtime"
+                      value={
+                        requestRuntimeValueOptions.some(
+                          (option) =>
+                            option.value && option.value === row.value,
+                        )
+                          ? row.value
+                          : ""
+                      }
+                      onChange={(event) =>
+                        event.target.value &&
+                        updateRequestParameter(type, index, {
+                          value: event.target.value,
+                        })
+                      }
+                    >
+                      {requestRuntimeValueOptions.map((option) => (
+                        <option
+                          key={option.value || "runtime-empty"}
+                          value={option.value}
+                        >
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="checkbox-label request-parameter-enabled">
+                    <input
+                      type="checkbox"
+                      checked={row.enabled}
+                      onChange={(event) =>
+                        updateRequestParameter(type, index, {
+                          enabled: event.target.checked,
+                        })
+                      }
+                    />
+                    发送
+                  </label>
+                  <button
+                    className="icon-button request-parameter-remove"
+                    type="button"
+                    title="删除字段"
+                    aria-label="删除字段"
+                    onClick={() => removeRequestParameter(type, index)}
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })
+          ) : (
+            <div className="request-parameter-empty">
+              尚未配置请求字段。点击“添加字段”开始配置。
+            </div>
+          )}
+        </div>
+      </div>
+    );
   }
 
   async function saveProvider(event: React.FormEvent) {
@@ -3796,6 +4292,8 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
           ? {
               name: providerForm.name,
               baseUrl: providerForm.baseUrl,
+              modelsPath: providerForm.modelsPath,
+              balancePath: providerForm.balancePath,
               ...(providerForm.apiKey.trim()
                 ? { apiKey: providerForm.apiKey }
                 : {}),
@@ -3804,6 +4302,8 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
           : {
               name: providerForm.name,
               baseUrl: providerForm.baseUrl,
+              modelsPath: providerForm.modelsPath,
+              balancePath: providerForm.balancePath,
               apiKey: providerForm.apiKey,
               kind: providerForm.kind,
               enabled: providerForm.enabled,
@@ -3841,6 +4341,18 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
       setFormMessage("至少选择图片或视频其中一种能力");
       return;
     }
+    const imageParameterError = validateRequestParameters(
+      "IMAGE",
+      profileForm.imageParameters,
+    );
+    const videoParameterError = validateRequestParameters(
+      "VIDEO",
+      profileForm.videoParameters,
+    );
+    if (imageParameterError || videoParameterError) {
+      setFormMessage(imageParameterError || videoParameterError);
+      return;
+    }
     setSaving(true);
     setFormMessage("");
     try {
@@ -3856,6 +4368,10 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
           maxCount: Math.max(1, Number(profileForm.maxCount) || 1),
           durationOptions: parseNumberList(profileForm.durationOptions),
           referenceImage: profileForm.referenceImage,
+          requestParameters: {
+            image: profileForm.imageParameters,
+            video: profileForm.videoParameters,
+          },
         },
       };
       await api(
@@ -3871,9 +4387,7 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
       await reload();
       setSelectedProviderId(profileForm.providerId);
       setMessage(
-        profileModal === "edit"
-          ? "模型 Profile 已更新"
-          : "模型 Profile 已保存",
+        profileModal === "edit" ? "模型 Profile 已更新" : "模型 Profile 已保存",
       );
     } catch (error) {
       setFormMessage(
@@ -3906,7 +4420,9 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
       });
       await reload();
       setMessage(
-        profile.enabled === false ? "模型 Profile 已启用" : "模型 Profile 已停用",
+        profile.enabled === false
+          ? "模型 Profile 已启用"
+          : "模型 Profile 已停用",
       );
     } catch (error) {
       setMessage(
@@ -3966,15 +4482,27 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
       const balance = await api<Record<string, unknown>>(
         `/model-gateway/providers/${provider.id}/balance`,
       );
-      const unlimited = balance.unlimited_quota === true;
+      const source =
+        balance.data &&
+        typeof balance.data === "object" &&
+        !Array.isArray(balance.data)
+          ? (balance.data as Record<string, unknown>)
+          : balance;
+      const unlimited =
+        source.unlimited_quota === true ||
+        source.unlimited === true ||
+        source.quota_type === "unlimited";
       const remaining = unlimited
         ? "unlimited"
-        : (balance.remain_balance ??
-          balance.remain_quota ??
-          balance.remaining_quota ??
-          balance.remaining ??
-          balance.balance);
-      const credits = balance.remain_credits;
+        : (source.remain_balance ??
+          source.remain_quota ??
+          source.remaining_quota ??
+          source.remaining_balance ??
+          source.remaining ??
+          source.balance ??
+          source.balance_amount);
+      const credits =
+        source.remain_credits ?? source.credits ?? source.credit_balance;
       setMessage(
         remaining === undefined
           ? `${provider.name} 余额接口已连通，请打开供应商控制台查看详细额度。`
@@ -4005,7 +4533,9 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
           </p>
         </div>
         <div className="provider-admin-toolbar-actions">
-          <span className="page-heading-count">{providers.length} 个供应商</span>
+          <span className="page-heading-count">
+            {providers.length} 个供应商
+          </span>
           {canWrite && (
             <button
               className="button primary"
@@ -4018,7 +4548,9 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
         </div>
       </div>
       {message && (
-        <div className={`alert ${message.includes("失败") ? "error" : "success"}`}>
+        <div
+          className={`alert ${message.includes("失败") ? "error" : "success"}`}
+        >
           {message}
         </div>
       )}
@@ -4027,7 +4559,9 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
           <div>
             <span className="eyebrow">CONNECTIONS</span>
             <h4>供应商目录</h4>
-            <p>每一行只展示连接摘要；新增、编辑、模型能力和连接检查都从操作按钮进入。</p>
+            <p>
+              每一行只展示连接摘要；新增、编辑、模型能力和连接检查都从操作按钮进入。
+            </p>
           </div>
           <span className="provider-section-note">API Key 仅显示脱敏提示</span>
         </div>
@@ -4062,6 +4596,14 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
                     </span>
                     <span>{provider.apiKeyHint || "未显示密钥"}</span>
                     <span>{provider.profiles.length} 个模型 Profile</span>
+                    <span>模型目录 {provider.modelsPath || "/models"}</span>
+                    <span>
+                      余额{" "}
+                      {provider.balancePath ||
+                        (provider.kind === "NATIVE"
+                          ? "/balance"
+                          : "/user/balance")}
+                    </span>
                   </div>
                   {provider.profiles.length ? (
                     <details className="provider-models-disclosure">
@@ -4079,7 +4621,10 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
                             capability.referenceImage ? "参考图" : "",
                           ].filter(Boolean);
                           return (
-                            <div className="provider-model-inline-row" key={profile.id}>
+                            <div
+                              className="provider-model-inline-row"
+                              key={profile.id}
+                            >
                               <div className="model-profile-copy">
                                 <div className="model-profile-title">
                                   <strong>{profile.name}</strong>
@@ -4098,8 +4643,7 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
                                 <small>
                                   {capabilities.join(" · ") || "未配置媒体能力"}
                                   {" · "}
-                                  图片最多 {capability.maxCount ?? 1} 张
-                                  {" · "}
+                                  图片最多 {capability.maxCount ?? 1} 张{" · "}
                                   视频{" "}
                                   {capability.durationOptions?.join(", ") ||
                                     "5, 10, 15"}{" "}
@@ -4111,7 +4655,9 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
                                   <button
                                     className="button ghost small"
                                     type="button"
-                                    onClick={() => openEditProfile(provider, profile)}
+                                    onClick={() =>
+                                      openEditProfile(provider, profile)
+                                    }
                                   >
                                     编辑模型
                                   </button>
@@ -4120,7 +4666,9 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
                                     type="button"
                                     onClick={() => void toggleProfile(profile)}
                                   >
-                                    {profile.enabled === false ? "启用" : "停用"}
+                                    {profile.enabled === false
+                                      ? "启用"
+                                      : "停用"}
                                   </button>
                                 </div>
                               )}
@@ -4130,7 +4678,9 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
                       </div>
                     </details>
                   ) : (
-                    <p className="provider-directory-empty">尚未添加模型 Profile。</p>
+                    <p className="provider-directory-empty">
+                      尚未添加模型 Profile。
+                    </p>
                   )}
                 </div>
                 <div className="provider-directory-actions">
@@ -4140,7 +4690,9 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
                     onClick={() => void checkProviderConnection(provider)}
                     disabled={checkingProviderId === provider.id}
                   >
-                    {checkingProviderId === provider.id ? "检查中..." : "检查连接"}
+                    {checkingProviderId === provider.id
+                      ? "检查中..."
+                      : "检查连接"}
                   </button>
                   <button
                     className="button ghost small"
@@ -4186,7 +4738,11 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
           <div className="provider-directory-empty-state">
             <EmptyState text="暂无配置模型供应商" />
             {canWrite && (
-              <button className="button primary" type="button" onClick={openCreateProvider}>
+              <button
+                className="button primary"
+                type="button"
+                onClick={openCreateProvider}
+              >
                 新增供应商
               </button>
             )}
@@ -4195,7 +4751,9 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
       </section>
       {providerModal && (
         <AdminDialog
-          eyebrow={providerModal === "edit" ? "EDIT CONNECTION" : "NEW CONNECTION"}
+          eyebrow={
+            providerModal === "edit" ? "EDIT CONNECTION" : "NEW CONNECTION"
+          }
           title={providerModal === "edit" ? "编辑供应商 API" : "新增供应商 API"}
           description="官方 API 和中转站都按连接配置保存，API Key 会在服务端加密存储。"
           onClose={() => setProviderModal(null)}
@@ -4232,7 +4790,9 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
                       })
                     }
                   >
-                    <option value="OPENAI_COMPATIBLE">OpenAI 兼容 / 中转站</option>
+                    <option value="OPENAI_COMPATIBLE">
+                      OpenAI 兼容 / 中转站
+                    </option>
                     <option value="NATIVE">官方原生</option>
                   </select>
                 </label>
@@ -4252,6 +4812,40 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
                   placeholder="https://api.example.com/v1"
                 />
               </label>
+              <div className="compact-form-grid provider-path-grid">
+                <label>
+                  模型目录路径
+                  <input
+                    value={providerForm.modelsPath}
+                    onChange={(event) =>
+                      setProviderForm({
+                        ...providerForm,
+                        modelsPath: event.target.value,
+                      })
+                    }
+                    placeholder="/models"
+                  />
+                  <small className="field-help">
+                    用于“读取模型”和“检查连接”，按 Base URL 的相对路径填写。
+                  </small>
+                </label>
+                <label>
+                  余额接口路径
+                  <input
+                    value={providerForm.balancePath}
+                    onChange={(event) =>
+                      setProviderForm({
+                        ...providerForm,
+                        balancePath: event.target.value,
+                      })
+                    }
+                    placeholder="/user/balance"
+                  />
+                  <small className="field-help">
+                    ToAPIs 填写 /user/balance，系统会自动补 /v1。
+                  </small>
+                </label>
+              </div>
               <label>
                 {providerModal === "edit"
                   ? "更新 API Key（留空则保持不变）"
@@ -4291,7 +4885,8 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
               ToAPIs 这类中转站选择“OpenAI 兼容 / 中转站”，Base URL 和具体模型
               Endpoint 分开填写。Base URL 只填写到版本目录（例如
               https://toapis.com/v1），不要把 /images/generations 或
-              /videos/generations 写进 Base URL；模型的图片比例、视频时长和参考图能力在下一个弹窗维护。
+              /videos/generations 写进 Base
+              URL；模型的图片比例、视频时长和参考图能力在下一个弹窗维护。
             </div>
             {formMessage && <div className="alert error">{formMessage}</div>}
             <div className="dialog-actions">
@@ -4314,7 +4909,9 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
           eyebrow={
             profileModal === "edit" ? "EDIT MODEL PROFILE" : "NEW MODEL PROFILE"
           }
-          title={profileModal === "edit" ? "编辑模型 Profile" : "新增模型 Profile"}
+          title={
+            profileModal === "edit" ? "编辑模型 Profile" : "新增模型 Profile"
+          }
           description="模型能力会直接决定图片/视频创作页显示的画幅、数量、时长和参考图选项。"
           onClose={() => setProfileModal(null)}
           wide
@@ -4347,9 +4944,52 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
                 <label>
                   模型名称
                   <span className="provider-model-name-field">
+                    {selectableModelOptions(profileForm.providerId).length >
+                      0 && (
+                      <select
+                        className="provider-model-picker"
+                        required
+                        value={
+                          profileForm.name &&
+                          selectableModelOptions(profileForm.providerId).some(
+                            (model) => model.id === profileForm.name,
+                          )
+                            ? profileForm.name
+                            : profileForm.name
+                              ? "__manual__"
+                              : ""
+                        }
+                        onChange={(event) => {
+                          setProfileForm((current) => ({
+                            ...current,
+                            name:
+                              event.target.value === "__manual__"
+                                ? ""
+                                : event.target.value,
+                          }));
+                        }}
+                      >
+                        <option value="">选择模型</option>
+                        {selectableModelOptions(profileForm.providerId).map(
+                          (model) => (
+                            <option key={model.id} value={model.id}>
+                              {model.name}
+                            </option>
+                          ),
+                        )}
+                        <option value="__manual__">手动填写模型名称</option>
+                      </select>
+                    )}
                     <input
                       required
                       list="remote-model-options"
+                      className={
+                        selectableModelOptions(profileForm.providerId).some(
+                          (model) => model.id === profileForm.name,
+                        )
+                          ? "provider-model-manual hidden"
+                          : "provider-model-manual"
+                      }
                       value={profileForm.name}
                       onChange={(event) =>
                         setProfileForm({
@@ -4365,27 +5005,30 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
                       disabled={
                         !profileForm.providerId ||
                         loadingRemoteModels ||
-                        profileModal === "edit" && !profileForm.providerId
+                        (profileModal === "edit" && !profileForm.providerId)
                       }
-                      onClick={() => void readRemoteModels(profileForm.providerId)}
+                      onClick={() =>
+                        void readRemoteModels(profileForm.providerId)
+                      }
                     >
                       {loadingRemoteModels ? "读取中..." : "读取模型"}
                     </button>
                     <datalist id="remote-model-options">
-                      {remoteModelProviderId === profileForm.providerId &&
-                        remoteModelOptions.map((model) => (
+                      {selectableModelOptions(profileForm.providerId).map(
+                        (model) => (
                           <option key={model.id} value={model.id}>
                             {model.name}
                           </option>
-                        ))}
+                        ),
+                      )}
                     </datalist>
                   </span>
-                  {remoteModelProviderId === profileForm.providerId &&
-                    remoteModelOptions.length > 0 && (
-                      <small className="field-help">
-                        已载入远程模型目录，可从输入框下拉选择；能力仍需在本窗口手动确认。
-                      </small>
-                    )}
+                  {selectableModelOptions(profileForm.providerId).length >
+                    0 && (
+                    <small className="field-help">
+                      可从下拉选择模型；点击“读取模型”可刷新供应商远程目录，能力仍需在本窗口确认。
+                    </small>
+                  )}
                 </label>
               </div>
               <label>
@@ -4474,7 +5117,9 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
                     }
                     placeholder="1:1, 4:5, 16:9"
                   />
-                  <small className="field-help">按逗号填写该模型支持的画幅。</small>
+                  <small className="field-help">
+                    按逗号填写该模型支持的画幅。
+                  </small>
                 </label>
                 <label>
                   视频画幅
@@ -4519,6 +5164,61 @@ function ProvidersAdmin({ canWrite = true }: { canWrite?: boolean }) {
                   />
                 </label>
               </div>
+            </div>
+            <div className="dialog-form-section request-parameter-section">
+              <div className="request-parameter-heading">
+                <div>
+                  <span className="section-label">请求 Body 参数</span>
+                  <small className="field-help">
+                    图片和视频分别维护。保存后，启用且有值的字段会按原字段名拼接到供应商
+                    JSON 请求中。
+                  </small>
+                </div>
+                <div className="request-parameter-tabs" role="tablist">
+                  <button
+                    className={`button ghost small ${
+                      profileForm.activeParameterType === "IMAGE"
+                        ? "is-active"
+                        : ""
+                    }`}
+                    type="button"
+                    role="tab"
+                    aria-selected={profileForm.activeParameterType === "IMAGE"}
+                    onClick={() =>
+                      setProfileForm((current) => ({
+                        ...current,
+                        activeParameterType: "IMAGE",
+                      }))
+                    }
+                  >
+                    图片参数
+                  </button>
+                  <button
+                    className={`button ghost small ${
+                      profileForm.activeParameterType === "VIDEO"
+                        ? "is-active"
+                        : ""
+                    }`}
+                    type="button"
+                    role="tab"
+                    aria-selected={profileForm.activeParameterType === "VIDEO"}
+                    onClick={() =>
+                      setProfileForm((current) => ({
+                        ...current,
+                        activeParameterType: "VIDEO",
+                      }))
+                    }
+                  >
+                    视频参数
+                  </button>
+                </div>
+              </div>
+              {renderRequestParameterEditor(
+                profileForm.activeParameterType,
+                profileForm.activeParameterType === "IMAGE"
+                  ? profileForm.imageParameters
+                  : profileForm.videoParameters,
+              )}
             </div>
             {formMessage && <div className="alert error">{formMessage}</div>}
             <div className="dialog-actions">

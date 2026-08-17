@@ -23,6 +23,18 @@ export class CreateProviderDto {
   @IsUrl({ require_protocol: true })
   baseUrl!: string;
 
+  @ApiPropertyOptional({ example: "/models", default: "/models" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  modelsPath?: string;
+
+  @ApiPropertyOptional({ example: "/user/balance", default: "/user/balance" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  balancePath?: string;
+
   @ApiProperty()
   @IsString()
   @MinLength(8)

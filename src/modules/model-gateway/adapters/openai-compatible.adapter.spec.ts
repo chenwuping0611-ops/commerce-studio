@@ -81,10 +81,10 @@ describe("OpenAiCompatibleAdapter", () => {
       size: "1:1",
       resolution: "1k",
       response_format: "url",
-      reference_images: ["https://example.com/product.png"],
+      image_urls: ["https://example.com/product.png"],
       client_business_id: "task-image-1",
     });
-    expect(body.image_urls).toBeUndefined();
+    expect(body.reference_images).toBeUndefined();
   });
 
   it("maps seedance-2 product references to image_with_roles", async () => {
@@ -174,9 +174,67 @@ describe("OpenAiCompatibleAdapter", () => {
     const generationBody = JSON.parse(
       String((generationInit as RequestInit).body),
     );
-    expect(generationBody.reference_images).toEqual([
+    expect(generationBody.image_urls).toEqual([
       "https://files.toapis.com/reference/uploaded.png",
     ]);
+  });
+
+  it("uses separate configured image parameters and omits empty values", async () => {
+    const fetchMock = jest.spyOn(global, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "task_img_configured_1",
+          status: "queued",
+        }),
+        { status: 200 },
+      ),
+    );
+    const adapter = new OpenAiCompatibleAdapter(
+      encryption as any,
+      config as any,
+    );
+
+    await adapter.submit({
+      ...imageRequest,
+      options: {
+        count: 2,
+        aspectRatio: "4:5",
+      },
+      model: {
+        ...imageRequest.model,
+        capability: {
+          requestParameters: {
+            image: [
+              { field: "model", value: "{{model}}", valueType: "string" },
+              { field: "prompt", value: "{{prompt}}", valueType: "string" },
+              { field: "n", value: "{{count}}", valueType: "number" },
+              {
+                field: "size",
+                value: "{{aspect_ratio}}",
+                valueType: "string",
+              },
+              { field: "resolution", value: "", valueType: "string" },
+              {
+                field: "image_urls",
+                value: "{{image_urls}}",
+                valueType: "string",
+              },
+            ],
+          },
+        },
+      },
+    } as any);
+
+    const [, init] = fetchMock.mock.calls[0];
+    const body = JSON.parse(String((init as RequestInit).body));
+    expect(body).toEqual({
+      model: "gpt-image-2",
+      prompt: "product studio photo",
+      n: 2,
+      size: "4:5",
+      image_urls: ["https://example.com/product.png"],
+    });
+    expect(body.resolution).toBeUndefined();
   });
 
   it("keeps polling on provider rate limits and honors Retry-After", async () => {

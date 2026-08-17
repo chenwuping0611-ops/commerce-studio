@@ -21,6 +21,18 @@ export class UpdateProviderDto {
   @MaxLength(500)
   baseUrl?: string;
 
+  @ApiPropertyOptional({ example: "/models" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  modelsPath?: string;
+
+  @ApiPropertyOptional({ example: "/user/balance" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  balancePath?: string;
+
   @ApiPropertyOptional({ example: "sk-new-key" })
   @IsOptional()
   @IsString()

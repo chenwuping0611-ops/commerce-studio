@@ -818,6 +818,141 @@ body {
   line-height: 1.6;
 }
 
+.provider-model-picker {
+  grid-column: 1 / -1;
+}
+
+.provider-path-grid {
+  align-items: start;
+}
+
+.provider-model-manual.hidden {
+  display: none;
+}
+
+.request-parameter-section {
+  display: grid;
+  gap: 14px;
+}
+
+.request-parameter-heading,
+.request-parameter-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.request-parameter-heading > div:first-child,
+.request-parameter-toolbar > div:first-child {
+  display: grid;
+  gap: 5px;
+}
+
+.request-parameter-tabs,
+.request-parameter-add {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.request-parameter-tabs .button.is-active {
+  border-color: #9eb5e9;
+  background: var(--ui-primary-soft);
+  color: var(--ui-primary);
+}
+
+.request-parameter-editor {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--ui-line);
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-muted);
+}
+
+.request-parameter-toolbar small {
+  max-width: 620px;
+  color: var(--ui-ink-soft);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.request-parameter-list {
+  display: grid;
+  gap: 8px;
+}
+
+.request-parameter-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.75fr) minmax(110px, 0.65fr) minmax(220px, 1.45fr) auto auto;
+  align-items: start;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--ui-line);
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-surface);
+}
+
+.request-parameter-row label {
+  min-width: 0;
+}
+
+.request-parameter-row textarea {
+  min-height: 58px;
+  resize: vertical;
+}
+
+.request-parameter-value {
+  display: grid;
+  gap: 6px;
+}
+
+.request-parameter-runtime {
+  min-width: 0;
+  color: var(--ui-ink-soft);
+  font-size: 10px;
+}
+
+.request-parameter-enabled {
+  align-self: center;
+  white-space: nowrap;
+}
+
+.request-parameter-remove {
+  align-self: center;
+}
+
+.request-parameter-empty {
+  padding: 18px;
+  border: 1px dashed var(--ui-line-strong);
+  color: var(--ui-ink-faint);
+  text-align: center;
+  font-size: 11px;
+}
+
+@media (max-width: 900px) {
+  .request-parameter-heading,
+  .request-parameter-toolbar {
+    flex-direction: column;
+  }
+
+  .request-parameter-tabs,
+  .request-parameter-add {
+    justify-content: flex-start;
+  }
+
+  .request-parameter-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .request-parameter-value {
+    grid-column: 1 / -1;
+  }
+}
+
 .dialog-actions {
   display: flex;
   align-items: center;

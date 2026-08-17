@@ -21,6 +21,8 @@ import { UpdateProviderDto } from "./dto/update-provider.dto";
 import { OpenAiCompatibleAdapter } from "./adapters/openai-compatible.adapter";
 import type {
   ModelProviderAdapter,
+  ModelRequestParameter,
+  ModelRequestParameters,
   ProviderGenerationRequest,
 } from "./model-gateway.types";
 
@@ -33,6 +35,7 @@ type ModelCapability = {
   maxCount?: number;
   durationOptions?: number[];
   referenceImage?: boolean;
+  requestParameters?: ModelRequestParameters;
 };
 
 @Injectable()
@@ -75,12 +78,10 @@ export class ModelGatewayService {
   ) {
     this.rbac.assertPermission(user, "model_config:read:system");
     const provider = await this.findProviderForAdmin(providerId);
-    const query = type.trim()
-      ? `?type=${encodeURIComponent(type.trim())}`
-      : "";
+    const query = type.trim() ? `?type=${encodeURIComponent(type.trim())}` : "";
     const payload = await this.fetchProviderJson(
       provider,
-      `${this.providerRelativePath(provider, "/models")}${query}`,
+      `${this.providerRequestPath(provider, provider.modelsPath, "/models")}${query}`,
     );
     const rawModels = Array.isArray(payload)
       ? payload
@@ -110,17 +111,25 @@ export class ModelGatewayService {
 
   /**
    * 目的：读取供应商账户余额或额度摘要。
-   * 说明：ToAPIs 兼容接口为 GET /v1/balance；Base URL 中已包含 /v1 时直接拼接。
+   * 说明：ToAPIs 默认接口为 GET /v1/user/balance；Base URL 中已包含 /v1
+   * 时只拼接 /user/balance，也允许在供应商配置中覆盖路径。
    */
   async getProviderBalance(user: AuthenticatedUser, providerId: string) {
     this.rbac.assertPermission(user, "model_config:read:system");
     const provider = await this.findProviderForAdmin(providerId);
-    const path = this.isToApis(provider)
-      ? this.providerRelativePath(provider, "/user/balance")
-      : "/balance";
+    const path = this.providerRequestPath(
+      provider,
+      provider.balancePath,
+      this.isToApis(provider) ? "/user/balance" : "/balance",
+    );
     const payload = await this.fetchProviderJson(provider, path);
     const objectPayload = Array.isArray(payload) ? {} : payload;
-    return { data: objectPayload.data ?? objectPayload };
+    return {
+      data: this.unwrapProviderData(objectPayload),
+      meta: {
+        endpoint: this.providerUrl(provider, path),
+      },
+    };
   }
 
   async createProvider(user: AuthenticatedUser, dto: CreateProviderDto) {
@@ -134,6 +143,11 @@ export class ModelGatewayService {
             ? ProviderKind.NATIVE
             : ProviderKind.OPENAI_COMPATIBLE,
         baseUrl: this.normalizeProviderBaseUrl(dto.baseUrl),
+        modelsPath: this.normalizeProviderPath(dto.modelsPath, "/models"),
+        balancePath: this.normalizeProviderPath(
+          dto.balancePath,
+          dto.kind === "NATIVE" ? "/balance" : "/user/balance",
+        ),
         apiKeyEncrypted: encrypted,
         apiKeyHint: this.encryption.hint(dto.apiKey),
         enabled: dto.enabled ?? true,
@@ -208,9 +222,7 @@ export class ModelGatewayService {
       data: {
         providerId,
         name: dto.name.trim(),
-        capability: JSON.parse(
-          JSON.stringify(dto.capability),
-        ) as Prisma.InputJsonValue,
+        capability: this.normalizeCapability(dto.capability),
         endpointPath: dto.endpointPath?.trim(),
         enabled: dto.enabled ?? true,
       },
@@ -244,6 +256,19 @@ export class ModelGatewayService {
         ...(dto.baseUrl === undefined
           ? {}
           : { baseUrl: this.normalizeProviderBaseUrl(dto.baseUrl) }),
+        ...(dto.modelsPath === undefined
+          ? {}
+          : {
+              modelsPath: this.normalizeProviderPath(dto.modelsPath, "/models"),
+            }),
+        ...(dto.balancePath === undefined
+          ? {}
+          : {
+              balancePath: this.normalizeProviderPath(
+                dto.balancePath,
+                "/balance",
+              ),
+            }),
         ...(dto.apiKey === undefined
           ? {}
           : {
@@ -286,9 +311,7 @@ export class ModelGatewayService {
         ...(dto.capability === undefined
           ? {}
           : {
-              capability: JSON.parse(
-                JSON.stringify(dto.capability),
-              ) as Prisma.InputJsonValue,
+              capability: this.normalizeCapability(dto.capability),
             }),
         ...(dto.endpointPath === undefined
           ? {}
@@ -468,6 +491,90 @@ export class ModelGatewayService {
     return value as ModelCapability;
   }
 
+  private normalizeCapability(value: Record<string, unknown>) {
+    const cloned = JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+    if (Object.prototype.hasOwnProperty.call(cloned, "requestParameters")) {
+      cloned.requestParameters = this.normalizeRequestParameters(
+        cloned.requestParameters,
+      );
+    }
+    return cloned as Prisma.InputJsonValue;
+  }
+
+  private normalizeRequestParameters(value: unknown): ModelRequestParameters {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new AppError(
+        "MODEL_REQUEST_PARAMETERS_INVALID",
+        "模型请求参数必须分为 image 和 video 数组",
+        400,
+      );
+    }
+
+    const source = value as Record<string, unknown>;
+    const normalized: ModelRequestParameters = {};
+    for (const type of ["image", "video"] as const) {
+      if (!Object.prototype.hasOwnProperty.call(source, type)) continue;
+      const rows = source[type];
+      if (!Array.isArray(rows)) {
+        throw new AppError(
+          "MODEL_REQUEST_PARAMETERS_INVALID",
+          `${type} 请求参数必须是数组`,
+          400,
+        );
+      }
+
+      const seen = new Set<string>();
+      normalized[type] = rows.map((row, index) => {
+        if (!row || typeof row !== "object" || Array.isArray(row)) {
+          throw new AppError(
+            "MODEL_REQUEST_PARAMETER_INVALID",
+            `${type} 第 ${index + 1} 个请求参数格式无效`,
+            400,
+          );
+        }
+        const item = row as Record<string, unknown>;
+        const field = String(item.field ?? "").trim();
+        if (!/^[A-Za-z][A-Za-z0-9_.-]*$/.test(field)) {
+          throw new AppError(
+            "MODEL_REQUEST_PARAMETER_FIELD_INVALID",
+            `${type} 请求字段 ${field || "(empty)"} 无效`,
+            400,
+          );
+        }
+        if (seen.has(field)) {
+          throw new AppError(
+            "MODEL_REQUEST_PARAMETER_DUPLICATE",
+            `${type} 请求字段 ${field} 重复`,
+            400,
+          );
+        }
+        seen.add(field);
+
+        const valueType = String(item.valueType ?? "string");
+        if (!["string", "number", "boolean", "json"].includes(valueType)) {
+          throw new AppError(
+            "MODEL_REQUEST_PARAMETER_TYPE_INVALID",
+            `${type} 请求字段 ${field} 的值类型无效`,
+            400,
+          );
+        }
+        const rawValue = item.value;
+        const description =
+          typeof item.description === "string"
+            ? item.description.trim().slice(0, 240)
+            : "";
+        return {
+          field,
+          value: rawValue === undefined || rawValue === null ? "" : rawValue,
+          valueType: valueType as ModelRequestParameter["valueType"],
+          enabled: item.enabled !== false,
+          ...(description ? { description } : {}),
+        };
+      });
+    }
+    return normalized;
+  }
+
   private aspectRatios(capability: ModelCapability, type: GenerationType) {
     const specific =
       type === GenerationType.IMAGE
@@ -501,12 +608,16 @@ export class ModelGatewayService {
     return value
       .trim()
       .replace(/\/+$/, "")
-      .replace(/\/(?:images|videos)\/generations$/i, "");
+      .replace(/\/(?:v1\/)?(?:images|videos)\/generations(?:\/[^/]+)?$/i, "")
+      .replace(/\/(?:v1\/)?user\/balance$/i, "")
+      .replace(/\/(?:v1\/)?balance$/i, "")
+      .replace(/\/(?:v1\/)?models$/i, "");
   }
 
   private isToApis(provider: Pick<ModelProvider, "baseUrl">) {
     try {
-      return new URL(provider.baseUrl).hostname.toLowerCase() === "toapis.com";
+      const hostname = new URL(provider.baseUrl).hostname.toLowerCase();
+      return hostname === "toapis.com" || hostname.endsWith(".toapis.com");
     } catch {
       return provider.baseUrl.toLowerCase().includes("toapis.com");
     }
@@ -516,9 +627,40 @@ export class ModelGatewayService {
     provider: Pick<ModelProvider, "baseUrl">,
     path: string,
   ) {
-    const base = provider.baseUrl.replace(/\/+$/, "");
-    if (!this.isToApis(provider) || /\/v1$/i.test(base)) return path;
+    const base = this.normalizeProviderBaseUrl(provider.baseUrl);
+    if (!this.isToApis(provider)) return path;
+    if (/\/v1$/i.test(base)) {
+      return path.replace(/^\/v1(?=\/|$)/i, "") || "/";
+    }
+    if (/^\/v1(?:\/|$)/i.test(path)) return path;
     return `/v1${path.startsWith("/") ? path : `/${path}`}`;
+  }
+
+  private providerRequestPath(
+    provider: Pick<ModelProvider, "baseUrl">,
+    configuredPath: string | null | undefined,
+    fallback: string,
+  ) {
+    const path = this.normalizeProviderPath(configuredPath, fallback);
+    return this.isToApis(provider)
+      ? this.providerRelativePath(provider, path)
+      : path;
+  }
+
+  private providerUrl(provider: Pick<ModelProvider, "baseUrl">, path: string) {
+    const baseUrl = this.normalizeProviderBaseUrl(provider.baseUrl);
+    return `${baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
+  }
+
+  private unwrapProviderData(payload: Record<string, any>) {
+    if (
+      payload.data &&
+      typeof payload.data === "object" &&
+      !Array.isArray(payload.data)
+    ) {
+      return payload.data;
+    }
+    return payload;
   }
 
   private async fetchProviderJson(
@@ -531,18 +673,17 @@ export class ModelGatewayService {
       this.config.get<number>("MODEL_REQUEST_TIMEOUT_MS", 30000),
     );
     try {
-      const baseUrl = provider.baseUrl.replace(/\/+$/, "");
-      const response = await fetch(
-        `${baseUrl}${path.startsWith("/") ? path : `/${path}`}`,
-        {
-          method: "GET",
-          headers: {
-            authorization: `Bearer ${this.encryption.decrypt(provider.apiKeyEncrypted)}`,
-            accept: "application/json",
-          },
-          signal: controller.signal,
+      const endpoint = this.providerUrl(provider, path);
+      const response = await fetch(endpoint, {
+        method: "GET",
+        headers: {
+          authorization: `Bearer ${this.encryption.decrypt(provider.apiKeyEncrypted)}`,
+          accept: "application/json",
+          "user-agent": "commerce-studio/0.1",
+          connection: "close",
         },
-      );
+        signal: controller.signal,
+      });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         const message =
@@ -553,21 +694,54 @@ export class ModelGatewayService {
         throw new AppError(
           `MODEL_PROVIDER_HTTP_${response.status}`,
           String(message),
-          response.status >= 500 ? 502 : 400,
+          response.status >= 500 ? 502 : response.status,
+          { endpoint, providerStatus: response.status },
+        );
+      }
+      if (
+        payload &&
+        !Array.isArray(payload) &&
+        typeof payload === "object" &&
+        payload.success === false
+      ) {
+        throw new AppError(
+          String(payload.code ?? "MODEL_PROVIDER_REQUEST_FAILED"),
+          String(payload.message ?? "供应商返回失败"),
+          400,
         );
       }
       return payload as Record<string, any> | any[];
     } catch (error) {
       if (error instanceof AppError) throw error;
+      const networkCode =
+        error &&
+        typeof error === "object" &&
+        "cause" in error &&
+        error.cause &&
+        typeof error.cause === "object" &&
+        "code" in error.cause
+          ? String(error.cause.code)
+          : undefined;
       throw new AppError(
         "MODEL_PROVIDER_NETWORK_ERROR",
         error instanceof Error && error.name === "AbortError"
           ? "供应商请求超时"
-          : "供应商网络请求失败",
+          : networkCode
+            ? `供应商网络请求失败（${networkCode}）`
+            : "供应商网络请求失败",
         502,
       );
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  private normalizeProviderPath(
+    value: string | null | undefined,
+    fallback: string,
+  ) {
+    const path = value?.trim() || fallback;
+    if (!path.startsWith("/")) return `/${path}`;
+    return path;
   }
 }

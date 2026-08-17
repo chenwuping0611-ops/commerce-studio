@@ -26,4 +26,31 @@ describe("ModelGatewayService provider paths", () => {
       ),
     ).toBe("/user/balance");
   });
+
+  it("removes a manually entered v1 prefix when the base URL already has v1", () => {
+    const service = Object.create(
+      ModelGatewayService.prototype,
+    ) as ModelGatewayService;
+
+    expect(
+      (service as any).providerRelativePath(
+        { baseUrl: "https://toapis.com/v1" },
+        "/v1/user/balance",
+      ),
+    ).toBe("/user/balance");
+  });
+
+  it("keeps custom provider paths relative to the configured base URL", () => {
+    const service = Object.create(
+      ModelGatewayService.prototype,
+    ) as ModelGatewayService;
+
+    expect(
+      (service as any).providerRequestPath(
+        { baseUrl: "https://gateway.example.com/v1" },
+        "/account/credits",
+        "/balance",
+      ),
+    ).toBe("/account/credits");
+  });
 });

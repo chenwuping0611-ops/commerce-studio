@@ -6,10 +6,12 @@ import { AppError } from "../../../common/errors/app-error";
 import { EncryptionService } from "../../../common/security/encryption.service";
 import type {
   ModelProviderAdapter,
+  ModelRequestParameter,
   ProviderGenerationRequest,
   ProviderPollResult,
   ProviderSubmission,
 } from "../model-gateway.types";
+import { buildConfiguredRequestBody } from "../request-body.builder";
 
 @Injectable()
 export class OpenAiCompatibleAdapter implements ModelProviderAdapter {
@@ -159,7 +161,7 @@ export class OpenAiCompatibleAdapter implements ModelProviderAdapter {
     type: GenerationType,
     taskId?: string,
   ) {
-    const base = baseUrl.replace(/\/+$/, "");
+    const base = this.normalizeBaseUrl(baseUrl);
     let path =
       endpointPath?.trim() ||
       (type === "VIDEO" ? "/videos/generations" : "/images/generations");
@@ -174,6 +176,20 @@ export class OpenAiCompatibleAdapter implements ModelProviderAdapter {
   }
 
   private async requestBody(request: ProviderGenerationRequest) {
+    const configuredParameters = this.configuredParameters(request);
+    if (configuredParameters) {
+      const referenceImages = request.inputAssets?.length
+        ? this.isToApis(request.provider.baseUrl)
+          ? await this.toApisReferenceImages(request)
+          : request.inputAssets
+        : [];
+      return this.buildConfiguredBody(
+        request,
+        configuredParameters,
+        referenceImages,
+      );
+    }
+
     const options = request.options ?? {};
     if (this.isToApis(request.provider.baseUrl)) {
       const body: Record<string, unknown> = {
@@ -190,7 +206,7 @@ export class OpenAiCompatibleAdapter implements ModelProviderAdapter {
         body.resolution = this.stringOption(options.resolution, "1k");
         body.response_format = this.stringOption(options.responseFormat, "url");
         if (request.inputAssets?.length) {
-          body.reference_images = await this.toApisReferenceImages(request);
+          body.image_urls = await this.toApisReferenceImages(request);
         }
       } else {
         body.duration = this.numberOption(options.duration, 5);
@@ -222,6 +238,36 @@ export class OpenAiCompatibleAdapter implements ModelProviderAdapter {
       input_assets: request.inputAssets,
       ...(request.options ?? {}),
     };
+  }
+
+  private configuredParameters(request: ProviderGenerationRequest) {
+    const capability = request.model.capability;
+    if (!capability || typeof capability !== "object") return undefined;
+    const requestParameters = (capability as Record<string, unknown>)
+      .requestParameters;
+    if (
+      !requestParameters ||
+      typeof requestParameters !== "object" ||
+      Array.isArray(requestParameters)
+    ) {
+      return undefined;
+    }
+    const key = request.type === "IMAGE" ? "image" : "video";
+    if (!Object.prototype.hasOwnProperty.call(requestParameters, key)) {
+      return undefined;
+    }
+    const parameters = (requestParameters as Record<string, unknown>)[key];
+    return Array.isArray(parameters)
+      ? (parameters as ModelRequestParameter[])
+      : [];
+  }
+
+  private buildConfiguredBody(
+    request: ProviderGenerationRequest,
+    parameters: ModelRequestParameter[],
+    referenceImages: string[],
+  ) {
+    return buildConfiguredRequestBody(request, parameters, referenceImages);
   }
 
   private async toApisReferenceImages(request: ProviderGenerationRequest) {
@@ -376,10 +422,21 @@ export class OpenAiCompatibleAdapter implements ModelProviderAdapter {
 
   private isToApis(value: string) {
     try {
-      return new URL(value).hostname.toLowerCase() === "toapis.com";
+      const hostname = new URL(value).hostname.toLowerCase();
+      return hostname === "toapis.com" || hostname.endsWith(".toapis.com");
     } catch {
       return value.toLowerCase().includes("toapis.com");
     }
+  }
+
+  private normalizeBaseUrl(value: string) {
+    return value
+      .trim()
+      .replace(/\/+$/, "")
+      .replace(/\/(?:v1\/)?(?:images|videos)\/generations(?:\/[^/]+)?$/i, "")
+      .replace(/\/(?:v1\/)?user\/balance$/i, "")
+      .replace(/\/(?:v1\/)?balance$/i, "")
+      .replace(/\/(?:v1\/)?models$/i, "");
   }
 
   private isCompletedStatus(status: unknown) {
@@ -452,13 +509,27 @@ export class OpenAiCompatibleAdapter implements ModelProviderAdapter {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      return await fetch(url, { ...init, signal: controller.signal });
+      const headers = new Headers(init.headers);
+      headers.set("user-agent", "commerce-studio/0.1");
+      headers.set("connection", "close");
+      return await fetch(url, { ...init, headers, signal: controller.signal });
     } catch (error) {
+      const networkCode =
+        error &&
+        typeof error === "object" &&
+        "cause" in error &&
+        error.cause &&
+        typeof error.cause === "object" &&
+        "code" in error.cause
+          ? String(error.cause.code)
+          : undefined;
       throw new AppError(
         "MODEL_PROVIDER_NETWORK_ERROR",
         error instanceof Error && error.name === "AbortError"
           ? "供应商请求超时"
-          : "供应商网络请求失败",
+          : networkCode
+            ? `供应商网络请求失败（${networkCode}）`
+            : "供应商网络请求失败",
         502,
       );
     } finally {
