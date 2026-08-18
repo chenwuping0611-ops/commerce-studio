@@ -1,47 +1,61 @@
-from PIL import Image, ImageDraw
-from random import choices
+import os
+from random import choices, randint
+
+from PIL import Image, ImageDraw, ImageFont
 
 
-def _install_pillow_captcha_compat():
-    """Restore the Pillow API expected by the legacy captcha package."""
-
-    if hasattr(ImageDraw.ImageDraw, "textsize"):
-        return
-
-    def textsize(self, text, font=None, *args, **kwargs):
-        left, top, right, bottom = self.textbbox(
-            (0, 0),
-            text,
-            font=font,
-            *args,
-            **kwargs,
-        )
-        width = max(1, right - left)
-        height = bottom - top
-        if height <= 0 and font is not None:
-            _, line_top, _, line_bottom = self.textbbox(
-                (0, 0),
-                "Ag",
-                font=font,
-                *args,
-                **kwargs,
-            )
-            height = line_bottom - line_top
-        return width, max(1, height)
-
-    ImageDraw.ImageDraw.textsize = textsize
+CAPTCHA_WIDTH = 160
+CAPTCHA_HEIGHT = 60
+CAPTCHA_FONT_SIZE = 36
 
 
-_install_pillow_captcha_compat()
+def _load_captcha_font():
+    """Load a readable font on both Windows and CentOS deployments."""
 
-from captcha.image import ImageCaptcha
+    candidates = [
+        os.getenv("STUDIO_CAPTCHA_FONT"),
+        "C:/Windows/Fonts/arialbd.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    ]
+    for path in candidates:
+        if path and os.path.exists(path):
+            return ImageFont.truetype(path, CAPTCHA_FONT_SIZE)
+
+    try:
+        return ImageFont.load_default(size=CAPTCHA_FONT_SIZE)
+    except TypeError:
+        return ImageFont.load_default()
 
 
 def gen_captcha(content='2345689abcdefghijklmnpqrstuvwxyzABCDEFGHIJKLMNPQRSTUVWXYZ'):
-    """ 生成验证码 """
-    image = ImageCaptcha()
-    # 获取字符串
+    """Generate a readable four-character CAPTCHA image."""
+
     captcha_text = "".join(choices(content, k=4)).lower()
-    # 生成图像
-    captcha_image = Image.open(image.generate(captcha_text))
-    return captcha_text, captcha_image
+    image = Image.new("RGB", (CAPTCHA_WIDTH, CAPTCHA_HEIGHT), (248, 250, 252))
+    draw = ImageDraw.Draw(image)
+
+    # Keep interference light and draw it before the characters for readability.
+    for _ in range(24):
+        x = randint(0, CAPTCHA_WIDTH - 1)
+        y = randint(0, CAPTCHA_HEIGHT - 1)
+        draw.ellipse((x, y, x + 1, y + 1), fill=(177, 215, 202))
+    for _ in range(2):
+        points = [
+            (randint(0, CAPTCHA_WIDTH // 3), randint(8, CAPTCHA_HEIGHT - 8)),
+            (randint(CAPTCHA_WIDTH // 2, CAPTCHA_WIDTH), randint(8, CAPTCHA_HEIGHT - 8)),
+        ]
+        draw.line(points, fill=(166, 205, 191), width=1)
+
+    font = _load_captcha_font()
+    cell_width = CAPTCHA_WIDTH // len(captcha_text)
+    text_color = (28, 126, 91)
+    for index, character in enumerate(captcha_text):
+        left, top, right, bottom = draw.textbbox((0, 0), character, font=font)
+        glyph_width = right - left
+        glyph_height = bottom - top
+        x = index * cell_width + (cell_width - glyph_width) // 2 - left
+        y = (CAPTCHA_HEIGHT - glyph_height) // 2 - top + randint(-2, 2)
+        draw.text((x, y), character, font=font, fill=text_color)
+
+    return captcha_text, image

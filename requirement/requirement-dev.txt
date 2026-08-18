@@ -14,7 +14,6 @@ PyMySQL==1.0.2
 psutil==5.9.8
 Flask-Mail==0.9.1
 sqlparse==0.4.2
-captcha==0.3
 Pillow==10.4.0
 python-dotenv==0.19.1
 webargs==8.0.1
