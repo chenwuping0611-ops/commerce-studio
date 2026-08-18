@@ -1,46 +1,46 @@
 {% extends "studio/base.html" %}
-{% block title %}Skill{% endblock %}
+{% block title %}Skill 配置{% endblock %}
 {% block content %}
 <div class="studio-iframe-form">
     <form class="layui-form studio-form" id="skillForm">
         <input type="hidden" name="id" id="skillId">
         <div class="studio-modal-section">
-            <div class="studio-modal-section-title">Skill information</div>
+            <div class="studio-modal-section-title">Skill 基础信息</div>
             <div class="studio-form-grid">
                 <div>
-                    <label class="studio-field-label">Name</label>
+                    <label class="studio-field-label">名称</label>
                     <input name="name" id="skillName" required class="layui-input">
                 </div>
                 <div>
-                    <label class="studio-field-label">Media type</label>
+                    <label class="studio-field-label">适用类型</label>
                     <select name="media_type" id="skillType">
-                        <option value="BOTH">Image and video</option>
-                        <option value="IMAGE">Image</option>
-                        <option value="VIDEO">Video</option>
+                        <option value="BOTH">图片 + 视频</option>
+                        <option value="IMAGE">图片</option>
+                        <option value="VIDEO">视频</option>
                     </select>
                 </div>
                 <div>
-                    <label class="studio-field-label">Version</label>
+                    <label class="studio-field-label">版本</label>
                     <input name="version" id="skillVersion" value="1.0.0" class="layui-input">
                 </div>
                 <div>
-                    <label class="studio-field-label">Tags</label>
-                    <input name="tags" id="skillTags" placeholder="ecommerce, advertising, premium" class="layui-input">
+                    <label class="studio-field-label">标签</label>
+                    <input name="tags" id="skillTags" placeholder="例如 电商、广告、高级感" class="layui-input">
                 </div>
                 <div class="studio-field-span-2">
-                    <label class="studio-field-label">Prompt template</label>
+                    <label class="studio-field-label">Prompt 模板</label>
                     <textarea name="prompt_template" id="skillPrompt" class="layui-textarea" rows="7"></textarea>
                 </div>
                 <div class="studio-field-span-2">
-                    <label class="studio-field-label">Negative prompt</label>
+                    <label class="studio-field-label">反向提示词</label>
                     <textarea name="negative_prompt" id="skillNegative" class="layui-textarea" rows="3"></textarea>
                 </div>
             </div>
         </div>
 
         <div class="studio-form-actions studio-iframe-actions">
-            <button class="layui-btn studio-btn-primary" lay-submit>Save Skill</button>
-            <button type="button" class="layui-btn studio-btn-quiet" id="closeSkill">Cancel</button>
+            <button class="layui-btn studio-btn-primary" lay-submit>保存 Skill</button>
+            <button type="button" class="layui-btn studio-btn-quiet" id="closeSkill">取消</button>
         </div>
         <div class="studio-form-message" id="skillMessage" role="status"></div>
     </form>
@@ -92,12 +92,12 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function loadSkill() {
         if (!skillId) return Promise.resolve();
-        setMessage("Loading Skill...");
+        setMessage("正在加载 Skill...");
         return Studio.request("/studio/api/skills").then(function (result) {
             var skill = result.data.find(function (item) {
                 return String(item.id) === String(skillId);
             });
-            if (!skill) throw new Error("Skill not found");
+            if (!skill) throw new Error("Skill 不存在");
             fillSkill(skill);
             layui.use("form", function () {
                 layui.form.render();
@@ -113,7 +113,7 @@ document.addEventListener("DOMContentLoaded", function () {
     });
     form.addEventListener("submit", function (event) {
         event.preventDefault();
-        setMessage("Saving...");
+        setMessage("正在保存...");
         var payload = {};
         new FormData(form).forEach(function (value, key) {
             payload[key] = value;
@@ -122,7 +122,7 @@ document.addEventListener("DOMContentLoaded", function () {
             method: "POST",
             body: JSON.stringify(payload)
         }).then(function () {
-            closeForm("Skill saved", "skills");
+            closeForm("Skill 已保存", "skills");
         }).catch(function (error) {
             setMessage(error.message, true);
         });

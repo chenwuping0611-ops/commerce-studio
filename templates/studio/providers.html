@@ -1,45 +1,45 @@
 {% extends "studio/base.html" %}
-{% block title %}Model Providers | Commerce Studio{% endblock %}
+{% block title %}模型供应商 | Commerce Studio{% endblock %}
 {% block content %}
 <div class="studio-page-header">
     <div>
-        <div class="studio-eyebrow">MODEL PROVIDERS</div>
-        <h1>Model Providers</h1>
-        <p>Maintain relay or official API connections separately from image and video model definitions.</p>
+        <div class="studio-eyebrow">模型供应商</div>
+        <h1>模型供应商</h1>
+        <p>维护官方 API 或中转 API 连接，并分别管理图片与视频模型定义。</p>
     </div>
     <div class="studio-toolbar-right">
-        <button class="layui-btn studio-btn-primary" id="newProvider">New provider</button>
-        <button class="layui-btn studio-btn-quiet" id="newModel">New model</button>
+        <button class="layui-btn studio-btn-primary" id="newProvider">新增供应商</button>
+        <button class="layui-btn studio-btn-quiet" id="newModel">新增模型</button>
     </div>
 </div>
 
 <section class="studio-card">
     <div class="studio-card-header">
-        <h2>Provider connections</h2>
-        <span class="studio-helper">API keys are never shown in the list</span>
+        <h2>供应商连接</h2>
+        <span class="studio-helper">列表中不会显示完整 API Key</span>
     </div>
     <div class="studio-card-body">
         <div class="studio-provider-list" id="providerList">
-            <div class="studio-empty">Loading providers</div>
+            <div class="studio-empty">正在加载供应商</div>
         </div>
     </div>
 </section>
 
 <section class="studio-card studio-section-gap">
     <div class="studio-card-header">
-        <h2>Model definitions</h2>
-        <span class="studio-helper">Only enabled fields are sent upstream</span>
+        <h2>模型定义</h2>
+        <span class="studio-helper">仅发送已启用的请求字段</span>
     </div>
     <div class="studio-table-wrap">
         <table class="studio-table">
             <thead>
             <tr>
-                <th>Model</th><th>Code</th><th>Type</th><th>Provider</th>
-                <th>Fields</th><th>Status</th><th>Actions</th>
+                <th>模型名称</th><th>模型标识</th><th>类型</th><th>供应商</th>
+                <th>字段数</th><th>状态</th><th>操作</th>
             </tr>
             </thead>
             <tbody id="modelTable">
-            <tr><td colspan="7" class="studio-empty">Loading models</td></tr>
+            <tr><td colspan="7" class="studio-empty">正在加载模型</td></tr>
             </tbody>
         </table>
     </div>
@@ -68,7 +68,7 @@ document.addEventListener("DOMContentLoaded", function () {
     function renderProviders() {
         var list = document.getElementById("providerList");
         if (!providers.length) {
-            list.innerHTML = '<div class="studio-empty">No provider configured. Add an API connection first.</div>';
+            list.innerHTML = '<div class="studio-empty">暂无供应商，请先新增 API 连接。</div>';
             return;
         }
         list.innerHTML = providers.map(function (item) {
@@ -79,39 +79,39 @@ document.addEventListener("DOMContentLoaded", function () {
                 '<div class="studio-provider-main"><div><div class="studio-provider-title"><h3>' +
                     Studio.escapeHtml(item.name) + '</h3>' +
                     '<span class="studio-pill ' + (item.enabled ? "green" : "gray") + '">' +
-                    (item.enabled ? "Enabled" : "Disabled") + '</span></div>' +
+                    (item.enabled ? "启用" : "停用") + '</span></div>' +
                     '<div class="studio-provider-url">' + Studio.escapeHtml(item.base_url) + '</div></div>' +
                 '<div class="studio-provider-actions">' +
                     '<button class="layui-btn layui-btn-xs studio-btn-quiet edit-provider" data-id="' +
-                    item.id + '">Edit</button>' +
+                    item.id + '">编辑</button>' +
                     '<button class="layui-btn layui-btn-xs studio-btn-quiet balance-provider" data-id="' +
-                    item.id + '" data-scope="user">User balance</button>' +
+                    item.id + '" data-scope="user">查询用户余额</button>' +
                     '<button class="layui-btn layui-btn-xs studio-btn-quiet balance-provider" data-id="' +
-                    item.id + '" data-scope="token">Token balance</button>' +
+                    item.id + '" data-scope="token">查询 Token 余额</button>' +
                 '</div></div>' +
-                '<div class="studio-provider-meta"><span>API key: ' +
-                    (item.api_key_configured ? "Configured" : "Not configured") +
-                    '</span><span>Enabled models: ' + activeModels.length +
-                    '</span><span class="provider-balance-result" id="providerBalance' + item.id +
+                '<div class="studio-provider-meta"><span>API Key：' +
+                    (item.api_key_configured ? "已配置" : "未配置") +
+                    '</span><span>已启用模型：' + activeModels.length +
+                    ' 个</span><span class="provider-balance-result" id="providerBalance' + item.id +
                     '"></span></div></article>';
         }).join("");
 
         list.querySelectorAll(".edit-provider").forEach(function (button) {
             button.addEventListener("click", function () {
-                openFrame("Edit provider", "/studio/forms/provider?id=" +
+                openFrame("编辑供应商", "/studio/forms/provider?id=" +
                     encodeURIComponent(button.dataset.id), ["820px", "760px"]);
             });
         });
         list.querySelectorAll(".balance-provider").forEach(function (button) {
             button.addEventListener("click", function () {
                 var output = document.getElementById("providerBalance" + button.dataset.id);
-                output.textContent = "Checking...";
+                output.textContent = "查询中...";
                 Studio.request("/studio/api/providers/" + button.dataset.id +
                     "/balance?scope=" + button.dataset.scope, {method: "POST"})
                     .then(function (result) {
                         output.textContent = button.dataset.scope === "token"
-                            ? "Token balance loaded"
-                            : "User balance loaded";
+                            ? "Token 余额已获取"
+                            : "用户余额已获取";
                         output.title = JSON.stringify(result.data.payload);
                     })
                     .catch(function (error) { output.textContent = error.message; });
@@ -122,33 +122,33 @@ document.addEventListener("DOMContentLoaded", function () {
     function renderModels() {
         var table = document.getElementById("modelTable");
         if (!models.length) {
-            table.innerHTML = '<tr><td colspan="7" class="studio-empty">No model definition yet</td></tr>';
+            table.innerHTML = '<tr><td colspan="7" class="studio-empty">暂无模型定义</td></tr>';
             return;
         }
         table.innerHTML = models.map(function (item) {
             return '<tr><td><b>' + Studio.escapeHtml(item.name) + '</b></td>' +
                 '<td class="muted">' + Studio.escapeHtml(item.model_code) + '</td>' +
-                '<td>' + (item.media_type === "VIDEO" ? "Video" : "Image") + '</td>' +
+                '<td>' + (item.media_type === "VIDEO" ? "视频" : "图片") + '</td>' +
                 '<td>' + Studio.escapeHtml(item.provider_name) + '</td>' +
                 '<td>' + (item.parameter_schema || []).length + '</td>' +
                 '<td><span class="studio-pill ' + (item.enabled ? "green" : "gray") + '">' +
-                    (item.enabled ? "Enabled" : "Disabled") + '</span></td>' +
+                    (item.enabled ? "启用" : "停用") + '</span></td>' +
                 '<td><span class="studio-actions">' +
                     '<button class="layui-btn layui-btn-xs studio-btn-quiet edit-model" data-id="' +
-                    item.id + '">Edit</button>' +
+                    item.id + '">编辑</button>' +
                     '<button class="layui-btn layui-btn-xs layui-btn-danger delete-model" data-id="' +
-                    item.id + '">Disable</button></span></td></tr>';
+                    item.id + '">停用</button></span></td></tr>';
         }).join("");
 
         table.querySelectorAll(".edit-model").forEach(function (button) {
             button.addEventListener("click", function () {
-                openFrame("Edit model", "/studio/forms/model?id=" +
+                openFrame("编辑模型", "/studio/forms/model?id=" +
                     encodeURIComponent(button.dataset.id), ["1120px", "800px"]);
             });
         });
         table.querySelectorAll(".delete-model").forEach(function (button) {
             button.addEventListener("click", function () {
-                if (!window.confirm("Disable this model?")) return;
+                if (!window.confirm("确定要停用这个模型吗？")) return;
                 Studio.request("/studio/api/models/" + button.dataset.id, {method: "DELETE"})
                     .then(loadData)
                     .catch(function (error) { Studio.toast(error.message, "error"); });
@@ -178,14 +178,14 @@ document.addEventListener("DOMContentLoaded", function () {
     });
 
     document.getElementById("newProvider").addEventListener("click", function () {
-        openFrame("New provider", "/studio/forms/provider", ["820px", "760px"]);
+        openFrame("新增供应商", "/studio/forms/provider", ["820px", "760px"]);
     });
     document.getElementById("newModel").addEventListener("click", function () {
         if (!providers.some(function (provider) { return provider.enabled; })) {
-            Studio.toast("Add an enabled provider first", "error");
+            Studio.toast("请先新增并启用一个供应商", "error");
             return;
         }
-        openFrame("New model", "/studio/forms/model", ["1120px", "800px"]);
+        openFrame("新增模型", "/studio/forms/model", ["1120px", "800px"]);
     });
 
     loadData().catch(function (error) { Studio.toast(error.message, "error"); });

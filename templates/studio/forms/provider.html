@@ -1,78 +1,78 @@
 {% extends "studio/base.html" %}
-{% block title %}Model provider{% endblock %}
+{% block title %}模型供应商{% endblock %}
 {% block content %}
 <div class="studio-iframe-form">
     <form class="layui-form studio-form" id="providerForm">
         <input type="hidden" name="id" id="providerId">
         <div class="studio-modal-section">
-            <div class="studio-modal-section-title">Connection</div>
+            <div class="studio-modal-section-title">连接信息</div>
             <div class="studio-form-grid">
                 <div>
-                    <label class="studio-field-label">Name</label>
-                    <input name="name" id="providerName" required class="layui-input" placeholder="ToAPIs relay">
+                    <label class="studio-field-label">名称</label>
+                    <input name="name" id="providerName" required class="layui-input" placeholder="例如 ToAPIs 中转">
                 </div>
                 <div>
-                    <label class="studio-field-label">Access type</label>
+                    <label class="studio-field-label">接入类型</label>
                     <select name="kind" id="providerKind">
-                        <option value="relay">Relay</option>
-                        <option value="official">Official API</option>
-                        <option value="custom">Custom</option>
+                        <option value="relay">中转服务</option>
+                        <option value="official">官方 API</option>
+                        <option value="custom">自定义</option>
                     </select>
                 </div>
                 <div class="studio-field-span-2">
-                    <label class="studio-field-label">Base URL</label>
+                    <label class="studio-field-label">基础 URL</label>
                     <input name="base_url" id="providerBaseUrl" required class="layui-input" placeholder="https://toapis.com">
                 </div>
                 <div class="studio-field-span-2">
-                    <label class="studio-field-label">API key</label>
+                    <label class="studio-field-label">API Key（密钥）</label>
                     <input name="api_key" id="providerApiKey" type="password" class="layui-input"
-                           placeholder="Leave empty to keep the existing key">
+                           placeholder="编辑时留空表示保留原有 Key">
                 </div>
                 <div>
-                    <label class="studio-field-label">Auth header</label>
+                    <label class="studio-field-label">认证 Header</label>
                     <input name="auth_header" id="providerAuthHeader" class="layui-input" placeholder="Authorization">
                 </div>
                 <div>
-                    <label class="studio-field-label">Auth prefix</label>
+                    <label class="studio-field-label">认证前缀</label>
                     <input name="auth_prefix" id="providerAuthPrefix" class="layui-input" placeholder="Bearer">
                 </div>
                 <div>
-                    <label class="studio-field-label">Timeout (seconds)</label>
+                    <label class="studio-field-label">请求超时（秒）</label>
                     <input name="timeout" id="providerTimeout" type="number" min="30" value="120" class="layui-input">
                 </div>
             </div>
         </div>
 
         <div class="studio-modal-section">
-            <div class="studio-modal-section-title">Endpoints</div>
+            <div class="studio-modal-section-title">接口地址</div>
             <div class="studio-form-grid">
                 <div>
-                    <label class="studio-field-label">User balance path</label>
+                    <label class="studio-field-label">用户余额地址</label>
                     <input name="balance_path" id="providerBalancePath" class="layui-input" placeholder="/v1/user/balance">
                 </div>
                 <div>
-                    <label class="studio-field-label">Token balance path</label>
+                    <label class="studio-field-label">Token 余额地址</label>
                     <input name="token_balance_path" id="providerTokenBalancePath" class="layui-input" placeholder="/v1/balance">
                 </div>
                 <div>
-                    <label class="studio-field-label">Default generation path</label>
+                    <label class="studio-field-label">默认提交地址</label>
                     <input name="generation_path" id="providerGenerationPath" class="layui-input" placeholder="/v1/images/generations">
                 </div>
                 <div>
-                    <label class="studio-field-label">Default result path</label>
+                    <label class="studio-field-label">默认查询地址</label>
                     <input name="result_path" id="providerResultPath" class="layui-input"
                            placeholder="/v1/images/generations/{task_id}">
                 </div>
                 <div class="studio-field-span-2">
-                    <label class="studio-field-label">Description</label>
+                    <label class="studio-field-label">说明</label>
                     <textarea name="description" id="providerDescription" class="layui-textarea" rows="2"></textarea>
                 </div>
             </div>
         </div>
 
         <div class="studio-form-actions studio-iframe-actions">
-            <button class="layui-btn studio-btn-primary" lay-submit>Save provider</button>
-            <button type="button" class="layui-btn studio-btn-quiet" id="closeProvider">Cancel</button>
+            <button class="layui-btn studio-btn-primary" lay-submit>保存供应商</button>
+            <button type="button" class="layui-btn studio-btn-quiet" id="closeProvider">取消</button>
         </div>
         <div class="studio-form-message" id="providerMessage" role="status"></div>
     </form>
@@ -130,12 +130,12 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function loadProvider() {
         if (!providerId) return Promise.resolve();
-        setMessage("Loading provider...");
+        setMessage("正在加载供应商...");
         return Studio.request("/studio/api/providers").then(function (result) {
             var provider = result.data.find(function (item) {
                 return String(item.id) === String(providerId);
             });
-            if (!provider) throw new Error("Provider not found");
+            if (!provider) throw new Error("供应商不存在");
             fillProvider(provider);
             layui.use("form", function () {
                 layui.form.render();
@@ -152,7 +152,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     form.addEventListener("submit", function (event) {
         event.preventDefault();
-        setMessage("Saving...");
+        setMessage("正在保存...");
         var payload = {};
         new FormData(form).forEach(function (value, key) {
             payload[key] = value;
@@ -161,7 +161,7 @@ document.addEventListener("DOMContentLoaded", function () {
             method: "POST",
             body: JSON.stringify(payload)
         }).then(function () {
-            closeForm("Provider saved", "providers");
+            closeForm("供应商已保存", "providers");
         }).catch(function (error) {
             setMessage(error.message, true);
         });

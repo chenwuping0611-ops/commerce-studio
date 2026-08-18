@@ -1,23 +1,23 @@
 {% extends "studio/base.html" %}
-{% block title %}Product Center | Commerce Studio{% endblock %}
+{% block title %}产品中心 | Commerce Studio{% endblock %}
 {% block content %}
 <div class="studio-page-header">
     <div>
-        <div class="studio-eyebrow">PRODUCT CENTER</div>
-        <h1>Product Center</h1>
-        <p>Create product data first, then maintain Product Profile, product memory and reusable reference assets.</p>
+        <div class="studio-eyebrow">产品中心</div>
+        <h1>产品中心</h1>
+        <p>先建立产品资料，再维护 Product Profile、产品记忆与可引用素材。</p>
     </div>
-    <button class="layui-btn studio-btn-primary" id="newProduct">New product</button>
+    <button class="layui-btn studio-btn-primary" id="newProduct">新建产品</button>
 </div>
 
 <section class="studio-card">
     <div class="studio-card-header">
-        <h2>Product data</h2>
-        <span class="studio-helper" id="productCount">0 products</span>
+        <h2>产品资料</h2>
+        <span class="studio-helper" id="productCount">0 个产品</span>
     </div>
     <div class="studio-card-body">
         <div class="studio-product-list" id="productList">
-            <div class="studio-empty">Loading products</div>
+            <div class="studio-empty">正在加载产品</div>
         </div>
     </div>
 </section>
@@ -41,62 +41,70 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
+    function assetTypeText(type) {
+        return {
+            IMAGE: "图片",
+            VIDEO: "视频",
+            BOTH: "图片 + 视频"
+        }[type] || type || "素材";
+    }
+
     function renderAssets(item) {
         var assets = (item.assets || []).map(function (asset) {
             return '<div class="studio-asset-row">' +
-                '<span class="studio-asset-type">' + Studio.escapeHtml(asset.asset_type) + '</span>' +
+                '<span class="studio-asset-type">' + Studio.escapeHtml(assetTypeText(asset.asset_type)) + '</span>' +
                 '<a target="_blank" rel="noopener" href="' + Studio.escapeHtml(asset.url) + '">' +
                     Studio.escapeHtml(asset.name) + '</a>' +
-                '<button class="studio-icon-button delete-asset" title="Disable asset" ' +
+                '<button class="studio-icon-button delete-asset" title="停用素材" ' +
                     'data-product-id="' + item.id + '" data-id="' + asset.id + '">×</button>' +
                 '</div>';
         }).join("");
-        return assets || '<div class="studio-helper">No standalone assets</div>';
+        return assets || '<div class="studio-helper">暂无独立素材</div>';
     }
 
     function renderProducts() {
-        document.getElementById("productCount").textContent = productData.length + " products";
+        document.getElementById("productCount").textContent = productData.length + " 个产品";
         var list = document.getElementById("productList");
         if (!productData.length) {
-            list.innerHTML = '<div class="studio-empty">No products yet. Create the first product.</div>';
+            list.innerHTML = '<div class="studio-empty">暂无产品，请先新建产品。</div>';
             return;
         }
         list.innerHTML = productData.map(function (item) {
-            var summary = item.product_profile || item.description || "No product description";
+            var summary = item.product_profile || item.description || "暂无产品描述";
             var assetCount = (item.asset_urls || []).length + (item.assets || []).length;
             return '<article class="studio-product-card">' +
                 '<div class="studio-product-title"><div><h3>' + Studio.escapeHtml(item.name) + '</h3>' +
                 '<div class="studio-product-code">' + Studio.escapeHtml(item.code) + '</div></div>' +
-                '<span class="studio-pill green">Enabled</span></div>' +
+                '<span class="studio-pill green">启用</span></div>' +
                 '<div class="studio-product-summary">' + Studio.escapeHtml(summary) + '</div>' +
                 '<div class="studio-product-meta"><span>' +
-                    Studio.escapeHtml(item.brand || "No brand") + '</span><span>Reference assets ' +
-                    assetCount + '</span></div>' +
+                    Studio.escapeHtml(item.brand || "未设置品牌") + '</span><span>可引用素材 ' +
+                    assetCount + ' 个</span></div>' +
                 '<div class="studio-product-assets">' + renderAssets(item) + '</div>' +
-                '<div class="studio-product-footer"><span>Updated ' +
+                '<div class="studio-product-footer"><span>更新时间：' +
                     Studio.escapeHtml(item.updated_at) + '</span>' +
                 '<span class="studio-actions"><button class="layui-btn layui-btn-xs studio-btn-quiet edit-product" ' +
-                    'data-id="' + item.id + '">Edit</button>' +
+                    'data-id="' + item.id + '">编辑</button>' +
                 '<button class="layui-btn layui-btn-xs studio-btn-quiet add-asset" data-id="' +
-                    item.id + '">Add asset</button></span></div>' +
+                    item.id + '">添加素材</button></span></div>' +
                 '</article>';
         }).join("");
 
         list.querySelectorAll(".edit-product").forEach(function (button) {
             button.addEventListener("click", function () {
-                openFrame("Edit product", "/studio/forms/product?id=" +
+                openFrame("编辑产品", "/studio/forms/product?id=" +
                     encodeURIComponent(button.dataset.id), ["820px", "760px"]);
             });
         });
         list.querySelectorAll(".add-asset").forEach(function (button) {
             button.addEventListener("click", function () {
-                openFrame("Add reference asset", "/studio/forms/asset?product_id=" +
+                openFrame("添加引用素材", "/studio/forms/asset?product_id=" +
                     encodeURIComponent(button.dataset.id), ["560px", "520px"]);
             });
         });
         list.querySelectorAll(".delete-asset").forEach(function (button) {
             button.addEventListener("click", function () {
-                if (!window.confirm("Disable this asset?")) return;
+                if (!window.confirm("确定要停用这条素材吗？")) return;
                 Studio.request("/studio/api/products/" + button.dataset.productId +
                     "/assets/" + button.dataset.id, {method: "DELETE"})
                     .then(loadProducts)
@@ -120,7 +128,7 @@ document.addEventListener("DOMContentLoaded", function () {
     });
 
     document.getElementById("newProduct").addEventListener("click", function () {
-        openFrame("New product", "/studio/forms/product", ["820px", "760px"]);
+        openFrame("新建产品", "/studio/forms/product", ["820px", "760px"]);
     });
 
     loadProducts().catch(function (error) { Studio.toast(error.message, "error"); });

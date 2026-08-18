@@ -1,35 +1,35 @@
 {% extends "studio/base.html" %}
-{% block title %}Reference asset{% endblock %}
+{% block title %}引用素材{% endblock %}
 {% block content %}
 <div class="studio-iframe-form">
     <form class="layui-form studio-form" id="assetForm">
         <input type="hidden" name="product_id" id="assetProductId">
         <div class="studio-modal-section">
-            <div class="studio-modal-section-title">Reference asset</div>
+            <div class="studio-modal-section-title">引用素材</div>
             <div class="layui-form-item">
-                <label class="layui-form-label">Asset name</label>
+                <label class="layui-form-label">素材名称</label>
                 <div class="layui-input-block">
-                    <input name="name" class="layui-input" placeholder="Front reference image">
+                    <input name="name" class="layui-input" placeholder="例如 正面参考图">
                 </div>
             </div>
             <div class="layui-form-item">
-                <label class="layui-form-label">Asset type</label>
+                <label class="layui-form-label">素材类型</label>
                 <div class="layui-input-block">
                     <select name="asset_type">
-                        <option value="IMAGE">Image</option>
-                        <option value="VIDEO">Video</option>
-                        <option value="BOTH">Image and video</option>
+                        <option value="IMAGE">图片</option>
+                        <option value="VIDEO">视频</option>
+                        <option value="BOTH">图片和视频</option>
                     </select>
                 </div>
             </div>
             <div class="layui-form-item">
-                <label class="layui-form-label">Asset URL</label>
+                <label class="layui-form-label">素材 URL</label>
                 <div class="layui-input-block">
                     <input name="url" required class="layui-input" placeholder="https://...">
                 </div>
             </div>
             <div class="layui-form-item">
-                <label class="layui-form-label">Role</label>
+                <label class="layui-form-label">引用角色</label>
                 <div class="layui-input-block">
                     <input name="role" value="reference" class="layui-input" placeholder="reference">
                 </div>
@@ -37,8 +37,8 @@
         </div>
 
         <div class="studio-form-actions studio-iframe-actions">
-            <button class="layui-btn studio-btn-primary" lay-submit>Add asset</button>
-            <button type="button" class="layui-btn studio-btn-quiet" id="closeAsset">Cancel</button>
+            <button class="layui-btn studio-btn-primary" lay-submit>添加素材</button>
+            <button type="button" class="layui-btn studio-btn-quiet" id="closeAsset">取消</button>
         </div>
         <div class="studio-form-message" id="assetMessage" role="status"></div>
     </form>
@@ -83,10 +83,10 @@ document.addEventListener("DOMContentLoaded", function () {
     form.addEventListener("submit", function (event) {
         event.preventDefault();
         if (!productId) {
-            setMessage("Product is required", true);
+            setMessage("必须指定产品", true);
             return;
         }
-        setMessage("Saving...");
+        setMessage("正在保存...");
         var payload = {};
         new FormData(form).forEach(function (value, key) {
             payload[key] = value;
@@ -95,7 +95,7 @@ document.addEventListener("DOMContentLoaded", function () {
             method: "POST",
             body: JSON.stringify(payload)
         }).then(function () {
-            closeForm("Asset added", "products");
+            closeForm("素材已添加", "products");
         }).catch(function (error) {
             setMessage(error.message, true);
         });

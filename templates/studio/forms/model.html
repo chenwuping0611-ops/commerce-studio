@@ -1,65 +1,64 @@
 {% extends "studio/base.html" %}
-{% block title %}Model definition{% endblock %}
+{% block title %}模型定义{% endblock %}
 {% block content %}
 <div class="studio-iframe-form studio-model-iframe-form">
     <form class="layui-form studio-form" id="modelForm">
         <input type="hidden" name="id" id="modelId">
         <div class="studio-modal-section">
-            <div class="studio-modal-section-title">Model information</div>
+            <div class="studio-modal-section-title">模型基础信息</div>
             <div class="studio-form-grid">
                 <div>
-                    <label class="studio-field-label">Provider</label>
+                    <label class="studio-field-label">供应商</label>
                     <select name="provider_id" id="modelProvider" required></select>
                 </div>
                 <div>
-                    <label class="studio-field-label">Media type</label>
+                    <label class="studio-field-label">媒体类型</label>
                     <select name="media_type" id="modelMediaType">
-                        <option value="IMAGE">Image</option>
-                        <option value="VIDEO">Video</option>
+                        <option value="IMAGE">图片</option>
+                        <option value="VIDEO">视频</option>
                     </select>
                 </div>
                 <div>
-                    <label class="studio-field-label">Model name</label>
-                    <input name="name" id="modelName" required class="layui-input" placeholder="GPT Image 2">
+                    <label class="studio-field-label">模型名称</label>
+                    <input name="name" id="modelName" required class="layui-input" placeholder="例如 GPT Image 2">
                 </div>
                 <div>
-                    <label class="studio-field-label">Model code</label>
+                    <label class="studio-field-label">模型标识</label>
                     <input name="model_code" id="modelCode" required class="layui-input" placeholder="gpt-image-2">
                 </div>
                 <div>
-                    <label class="studio-field-label">Generation path</label>
+                    <label class="studio-field-label">提交地址</label>
                     <input name="generation_path" id="modelGenerationPath" class="layui-input"
-                           placeholder="Use provider default when empty">
+                           placeholder="留空时使用供应商默认地址">
                 </div>
                 <div>
-                    <label class="studio-field-label">Result path</label>
+                    <label class="studio-field-label">查询地址</label>
                     <input name="result_path" id="modelResultPath" class="layui-input"
-                           placeholder="Supports {task_id}">
+                           placeholder="支持使用 {task_id} 占位符">
                 </div>
                 <div class="studio-field-span-2">
-                    <label class="studio-field-label">Description</label>
+                    <label class="studio-field-label">模型说明</label>
                     <textarea name="description" id="modelDescription" class="layui-textarea" rows="2"></textarea>
                 </div>
             </div>
         </div>
 
         <div class="studio-modal-section">
-            <div class="studio-modal-section-title">Request field schema</div>
+            <div class="studio-modal-section-title">请求字段定义</div>
             <div class="studio-note studio-note-small">
-                Each row maps one body key. Empty default values are omitted from the request. Use runtime_key to bind
-                fields from the image or video creation page.
+                每一行对应请求 body 中的一个字段。默认值为空时不会发送；runtime_key 用于绑定图片或视频创作页面的输入值。
             </div>
             <div class="studio-param-head">
-                <span>Body field</span><span>Label</span><span>Runtime key</span><span>Default</span>
-                <span>Type</span><span>Enabled</span><span></span>
+                <span>字段名</span><span>显示名称</span><span>运行时字段</span><span>默认值</span>
+                <span>类型</span><span>启用</span><span></span>
             </div>
             <div class="studio-param-list" id="modelParams"></div>
-            <button type="button" class="layui-btn layui-btn-xs studio-btn-quiet" id="addParam">Add field</button>
+            <button type="button" class="layui-btn layui-btn-xs studio-btn-quiet" id="addParam">添加字段</button>
         </div>
 
         <div class="studio-form-actions studio-iframe-actions">
-            <button class="layui-btn studio-btn-primary" lay-submit>Save model</button>
-            <button type="button" class="layui-btn studio-btn-quiet" id="closeModel">Cancel</button>
+            <button class="layui-btn studio-btn-primary" lay-submit>保存模型</button>
+            <button type="button" class="layui-btn studio-btn-quiet" id="closeModel">取消</button>
         </div>
         <div class="studio-form-message" id="modelMessage" role="status"></div>
     </form>
@@ -78,23 +77,23 @@ document.addEventListener("DOMContentLoaded", function () {
     var params = [];
 
     var imageDefaults = [
-        {field: "model", label: "Model code", runtime_key: "", value: "gpt-image-2", value_type: "string", enabled: true},
-        {field: "prompt", label: "Prompt", runtime_key: "prompt", value: "", value_type: "string", enabled: true},
-        {field: "n", label: "Count", runtime_key: "count", value: "1", value_type: "number", enabled: true},
-        {field: "size", label: "Aspect ratio", runtime_key: "aspect_ratio", value: "1:1", value_type: "string", enabled: true},
-        {field: "resolution", label: "Resolution", runtime_key: "resolution", value: "1k", value_type: "string", enabled: true},
-        {field: "image_urls", label: "Reference images", runtime_key: "reference_images", value: "", value_type: "json", enabled: true},
-        {field: "response_format", label: "Response format", runtime_key: "", value: "url", value_type: "string", enabled: true}
+        {field: "model", label: "模型标识", runtime_key: "", value: "gpt-image-2", value_type: "string", enabled: true},
+        {field: "prompt", label: "提示词", runtime_key: "prompt", value: "", value_type: "string", enabled: true},
+        {field: "n", label: "生成数量", runtime_key: "count", value: "1", value_type: "number", enabled: true},
+        {field: "size", label: "画面比例", runtime_key: "aspect_ratio", value: "1:1", value_type: "string", enabled: true},
+        {field: "resolution", label: "分辨率", runtime_key: "resolution", value: "1k", value_type: "string", enabled: true},
+        {field: "image_urls", label: "参考图片", runtime_key: "reference_images", value: "", value_type: "json", enabled: true},
+        {field: "response_format", label: "返回格式", runtime_key: "", value: "url", value_type: "string", enabled: true}
     ];
     var videoDefaults = [
-        {field: "model", label: "Model code", runtime_key: "", value: "seedance-2", value_type: "string", enabled: true},
-        {field: "prompt", label: "Prompt", runtime_key: "prompt", value: "", value_type: "string", enabled: true},
-        {field: "duration", label: "Duration", runtime_key: "duration", value: "5", value_type: "number", enabled: true},
-        {field: "aspect_ratio", label: "Aspect ratio", runtime_key: "aspect_ratio", value: "16:9", value_type: "string", enabled: true},
-        {field: "resolution", label: "Resolution", runtime_key: "resolution", value: "720p", value_type: "string", enabled: true},
-        {field: "image_with_roles", label: "Reference images", runtime_key: "reference_images_with_roles", value: "", value_type: "json", enabled: true},
-        {field: "video_with_roles", label: "Reference videos", runtime_key: "reference_videos_with_roles", value: "", value_type: "json", enabled: true},
-        {field: "generate_audio", label: "Generate audio", runtime_key: "generate_audio", value: "true", value_type: "boolean", enabled: true}
+        {field: "model", label: "模型标识", runtime_key: "", value: "seedance-2", value_type: "string", enabled: true},
+        {field: "prompt", label: "提示词", runtime_key: "prompt", value: "", value_type: "string", enabled: true},
+        {field: "duration", label: "视频时长", runtime_key: "duration", value: "5", value_type: "number", enabled: true},
+        {field: "aspect_ratio", label: "画面比例", runtime_key: "aspect_ratio", value: "16:9", value_type: "string", enabled: true},
+        {field: "resolution", label: "分辨率", runtime_key: "resolution", value: "720p", value_type: "string", enabled: true},
+        {field: "image_with_roles", label: "参考图片", runtime_key: "reference_images_with_roles", value: "", value_type: "json", enabled: true},
+        {field: "video_with_roles", label: "参考视频", runtime_key: "reference_videos_with_roles", value: "", value_type: "json", enabled: true},
+        {field: "generate_audio", label: "生成音频", runtime_key: "generate_audio", value: "true", value_type: "boolean", enabled: true}
     ];
 
     function setMessage(text, isError) {
@@ -132,13 +131,13 @@ document.addEventListener("DOMContentLoaded", function () {
             var value = item.value == null ? "" : item.value;
             if (typeof value !== "string") value = JSON.stringify(value);
             return '<div class="studio-param-row">' +
-                '<input class="layui-input param-field" data-index="' + index + '" value="' + Studio.escapeHtml(item.field || "") + '" placeholder="field">' +
-                '<input class="layui-input param-label" data-index="' + index + '" value="' + Studio.escapeHtml(item.label || "") + '" placeholder="label">' +
+                '<input class="layui-input param-field" data-index="' + index + '" value="' + Studio.escapeHtml(item.field || "") + '" placeholder="请求字段名">' +
+                '<input class="layui-input param-label" data-index="' + index + '" value="' + Studio.escapeHtml(item.label || "") + '" placeholder="显示名称">' +
                 '<input class="layui-input param-runtime" data-index="' + index + '" value="' + Studio.escapeHtml(item.runtime_key || "") + '" placeholder="runtime_key">' +
-                '<input class="layui-input param-value" data-index="' + index + '" value="' + Studio.escapeHtml(value) + '" placeholder="default">' +
+                '<input class="layui-input param-value" data-index="' + index + '" value="' + Studio.escapeHtml(value) + '" placeholder="默认值">' +
                 '<select class="param-type" data-index="' + index + '">' +
-                    '<option value="string">string</option><option value="number">number</option>' +
-                    '<option value="boolean">boolean</option><option value="json">json</option>' +
+                    '<option value="string">字符串</option><option value="number">数字</option>' +
+                    '<option value="boolean">布尔值</option><option value="json">JSON</option>' +
                 '</select>' +
                 '<input type="checkbox" class="param-enabled" data-index="' + index + '"' +
                     (item.enabled !== false ? " checked" : "") + '>' +
@@ -204,7 +203,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function loadData() {
-        setMessage("Loading...");
+        setMessage("正在加载...");
         return Studio.request("/studio/api/providers").then(function (result) {
             providers = result.data;
             models = [];
@@ -252,7 +251,7 @@ document.addEventListener("DOMContentLoaded", function () {
     });
     form.addEventListener("submit", function (event) {
         event.preventDefault();
-        setMessage("Saving...");
+        setMessage("正在保存...");
         var payload = {};
         new FormData(form).forEach(function (value, key) {
             payload[key] = value;
@@ -262,7 +261,7 @@ document.addEventListener("DOMContentLoaded", function () {
             method: "POST",
             body: JSON.stringify(payload)
         }).then(function () {
-            closeForm("Model saved", "providers");
+            closeForm("模型已保存", "providers");
         }).catch(function (error) {
             setMessage(error.message, true);
         });
