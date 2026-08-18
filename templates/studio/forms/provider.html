@@ -1,0 +1,178 @@
+{% extends "studio/base.html" %}
+{% block title %}Model provider{% endblock %}
+{% block content %}
+<div class="studio-iframe-form">
+    <form class="layui-form studio-form" id="providerForm">
+        <input type="hidden" name="id" id="providerId">
+        <div class="studio-modal-section">
+            <div class="studio-modal-section-title">Connection</div>
+            <div class="studio-form-grid">
+                <div>
+                    <label class="studio-field-label">Name</label>
+                    <input name="name" id="providerName" required class="layui-input" placeholder="ToAPIs relay">
+                </div>
+                <div>
+                    <label class="studio-field-label">Access type</label>
+                    <select name="kind" id="providerKind">
+                        <option value="relay">Relay</option>
+                        <option value="official">Official API</option>
+                        <option value="custom">Custom</option>
+                    </select>
+                </div>
+                <div class="studio-field-span-2">
+                    <label class="studio-field-label">Base URL</label>
+                    <input name="base_url" id="providerBaseUrl" required class="layui-input" placeholder="https://toapis.com">
+                </div>
+                <div class="studio-field-span-2">
+                    <label class="studio-field-label">API key</label>
+                    <input name="api_key" id="providerApiKey" type="password" class="layui-input"
+                           placeholder="Leave empty to keep the existing key">
+                </div>
+                <div>
+                    <label class="studio-field-label">Auth header</label>
+                    <input name="auth_header" id="providerAuthHeader" class="layui-input" placeholder="Authorization">
+                </div>
+                <div>
+                    <label class="studio-field-label">Auth prefix</label>
+                    <input name="auth_prefix" id="providerAuthPrefix" class="layui-input" placeholder="Bearer">
+                </div>
+                <div>
+                    <label class="studio-field-label">Timeout (seconds)</label>
+                    <input name="timeout" id="providerTimeout" type="number" min="30" value="120" class="layui-input">
+                </div>
+            </div>
+        </div>
+
+        <div class="studio-modal-section">
+            <div class="studio-modal-section-title">Endpoints</div>
+            <div class="studio-form-grid">
+                <div>
+                    <label class="studio-field-label">User balance path</label>
+                    <input name="balance_path" id="providerBalancePath" class="layui-input" placeholder="/v1/user/balance">
+                </div>
+                <div>
+                    <label class="studio-field-label">Token balance path</label>
+                    <input name="token_balance_path" id="providerTokenBalancePath" class="layui-input" placeholder="/v1/balance">
+                </div>
+                <div>
+                    <label class="studio-field-label">Default generation path</label>
+                    <input name="generation_path" id="providerGenerationPath" class="layui-input" placeholder="/v1/images/generations">
+                </div>
+                <div>
+                    <label class="studio-field-label">Default result path</label>
+                    <input name="result_path" id="providerResultPath" class="layui-input"
+                           placeholder="/v1/images/generations/{task_id}">
+                </div>
+                <div class="studio-field-span-2">
+                    <label class="studio-field-label">Description</label>
+                    <textarea name="description" id="providerDescription" class="layui-textarea" rows="2"></textarea>
+                </div>
+            </div>
+        </div>
+
+        <div class="studio-form-actions studio-iframe-actions">
+            <button class="layui-btn studio-btn-primary" lay-submit>Save provider</button>
+            <button type="button" class="layui-btn studio-btn-quiet" id="closeProvider">Cancel</button>
+        </div>
+        <div class="studio-form-message" id="providerMessage" role="status"></div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    var query = new URLSearchParams(window.location.search);
+    var providerId = query.get("id") || "";
+    var form = document.getElementById("providerForm");
+    var message = document.getElementById("providerMessage");
+
+    function setMessage(text, isError) {
+        message.textContent = text || "";
+        message.className = "studio-form-message" + (isError ? " is-error" : "");
+    }
+
+    function closeForm(text, resource) {
+        if (window.parent && window.parent !== window && window.parent.layer) {
+            window.parent.postMessage({
+                source: "commerce-studio-form",
+                resource: resource
+            }, window.location.origin);
+            var index = window.parent.layer.getFrameIndex(window.name);
+            window.parent.layer.msg(text, {icon: 1, time: 650}, function () {
+                window.parent.layer.close(index);
+            });
+            return;
+        }
+        Studio.toast(text);
+    }
+
+    function setField(id, value) {
+        var field = document.getElementById(id);
+        if (field) field.value = value == null ? "" : value;
+    }
+
+    function fillProvider(provider) {
+        setField("providerId", provider.id || "");
+        setField("providerName", provider.name || "");
+        setField("providerKind", provider.kind || "relay");
+        setField("providerBaseUrl", provider.base_url || "");
+        setField("providerApiKey", "");
+        setField("providerAuthHeader", provider.auth_header || "Authorization");
+        setField("providerAuthPrefix", provider.auth_prefix || "Bearer");
+        setField("providerBalancePath", provider.balance_path || "/v1/user/balance");
+        setField("providerTokenBalancePath", provider.token_balance_path || "/v1/balance");
+        setField("providerGenerationPath", provider.generation_path || "/v1/images/generations");
+        setField("providerResultPath", provider.result_path || "/v1/images/generations/{task_id}");
+        setField("providerTimeout", provider.timeout || 120);
+        setField("providerDescription", provider.description || "");
+    }
+
+    function loadProvider() {
+        if (!providerId) return Promise.resolve();
+        setMessage("Loading provider...");
+        return Studio.request("/studio/api/providers").then(function (result) {
+            var provider = result.data.find(function (item) {
+                return String(item.id) === String(providerId);
+            });
+            if (!provider) throw new Error("Provider not found");
+            fillProvider(provider);
+            layui.use("form", function () {
+                layui.form.render();
+            });
+            setMessage("");
+        });
+    }
+
+    document.getElementById("closeProvider").addEventListener("click", function () {
+        if (window.parent && window.parent !== window && window.parent.layer) {
+            window.parent.layer.close(window.parent.layer.getFrameIndex(window.name));
+        }
+    });
+
+    form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        setMessage("Saving...");
+        var payload = {};
+        new FormData(form).forEach(function (value, key) {
+            payload[key] = value;
+        });
+        Studio.request("/studio/api/providers", {
+            method: "POST",
+            body: JSON.stringify(payload)
+        }).then(function () {
+            closeForm("Provider saved", "providers");
+        }).catch(function (error) {
+            setMessage(error.message, true);
+        });
+    });
+
+    layui.use("form", function () {
+        layui.form.render();
+    });
+    loadProvider().catch(function (error) {
+        setMessage(error.message, true);
+    });
+});
+</script>
+{% endblock %}

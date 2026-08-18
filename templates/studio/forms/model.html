@@ -1,0 +1,279 @@
+{% extends "studio/base.html" %}
+{% block title %}Model definition{% endblock %}
+{% block content %}
+<div class="studio-iframe-form studio-model-iframe-form">
+    <form class="layui-form studio-form" id="modelForm">
+        <input type="hidden" name="id" id="modelId">
+        <div class="studio-modal-section">
+            <div class="studio-modal-section-title">Model information</div>
+            <div class="studio-form-grid">
+                <div>
+                    <label class="studio-field-label">Provider</label>
+                    <select name="provider_id" id="modelProvider" required></select>
+                </div>
+                <div>
+                    <label class="studio-field-label">Media type</label>
+                    <select name="media_type" id="modelMediaType">
+                        <option value="IMAGE">Image</option>
+                        <option value="VIDEO">Video</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="studio-field-label">Model name</label>
+                    <input name="name" id="modelName" required class="layui-input" placeholder="GPT Image 2">
+                </div>
+                <div>
+                    <label class="studio-field-label">Model code</label>
+                    <input name="model_code" id="modelCode" required class="layui-input" placeholder="gpt-image-2">
+                </div>
+                <div>
+                    <label class="studio-field-label">Generation path</label>
+                    <input name="generation_path" id="modelGenerationPath" class="layui-input"
+                           placeholder="Use provider default when empty">
+                </div>
+                <div>
+                    <label class="studio-field-label">Result path</label>
+                    <input name="result_path" id="modelResultPath" class="layui-input"
+                           placeholder="Supports {task_id}">
+                </div>
+                <div class="studio-field-span-2">
+                    <label class="studio-field-label">Description</label>
+                    <textarea name="description" id="modelDescription" class="layui-textarea" rows="2"></textarea>
+                </div>
+            </div>
+        </div>
+
+        <div class="studio-modal-section">
+            <div class="studio-modal-section-title">Request field schema</div>
+            <div class="studio-note studio-note-small">
+                Each row maps one body key. Empty default values are omitted from the request. Use runtime_key to bind
+                fields from the image or video creation page.
+            </div>
+            <div class="studio-param-head">
+                <span>Body field</span><span>Label</span><span>Runtime key</span><span>Default</span>
+                <span>Type</span><span>Enabled</span><span></span>
+            </div>
+            <div class="studio-param-list" id="modelParams"></div>
+            <button type="button" class="layui-btn layui-btn-xs studio-btn-quiet" id="addParam">Add field</button>
+        </div>
+
+        <div class="studio-form-actions studio-iframe-actions">
+            <button class="layui-btn studio-btn-primary" lay-submit>Save model</button>
+            <button type="button" class="layui-btn studio-btn-quiet" id="closeModel">Cancel</button>
+        </div>
+        <div class="studio-form-message" id="modelMessage" role="status"></div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    var query = new URLSearchParams(window.location.search);
+    var modelId = query.get("id") || "";
+    var form = document.getElementById("modelForm");
+    var message = document.getElementById("modelMessage");
+    var providers = [];
+    var models = [];
+    var params = [];
+
+    var imageDefaults = [
+        {field: "model", label: "Model code", runtime_key: "", value: "gpt-image-2", value_type: "string", enabled: true},
+        {field: "prompt", label: "Prompt", runtime_key: "prompt", value: "", value_type: "string", enabled: true},
+        {field: "n", label: "Count", runtime_key: "count", value: "1", value_type: "number", enabled: true},
+        {field: "size", label: "Aspect ratio", runtime_key: "aspect_ratio", value: "1:1", value_type: "string", enabled: true},
+        {field: "resolution", label: "Resolution", runtime_key: "resolution", value: "1k", value_type: "string", enabled: true},
+        {field: "image_urls", label: "Reference images", runtime_key: "reference_images", value: "", value_type: "json", enabled: true},
+        {field: "response_format", label: "Response format", runtime_key: "", value: "url", value_type: "string", enabled: true}
+    ];
+    var videoDefaults = [
+        {field: "model", label: "Model code", runtime_key: "", value: "seedance-2", value_type: "string", enabled: true},
+        {field: "prompt", label: "Prompt", runtime_key: "prompt", value: "", value_type: "string", enabled: true},
+        {field: "duration", label: "Duration", runtime_key: "duration", value: "5", value_type: "number", enabled: true},
+        {field: "aspect_ratio", label: "Aspect ratio", runtime_key: "aspect_ratio", value: "16:9", value_type: "string", enabled: true},
+        {field: "resolution", label: "Resolution", runtime_key: "resolution", value: "720p", value_type: "string", enabled: true},
+        {field: "image_with_roles", label: "Reference images", runtime_key: "reference_images_with_roles", value: "", value_type: "json", enabled: true},
+        {field: "video_with_roles", label: "Reference videos", runtime_key: "reference_videos_with_roles", value: "", value_type: "json", enabled: true},
+        {field: "generate_audio", label: "Generate audio", runtime_key: "generate_audio", value: "true", value_type: "boolean", enabled: true}
+    ];
+
+    function setMessage(text, isError) {
+        message.textContent = text || "";
+        message.className = "studio-form-message" + (isError ? " is-error" : "");
+    }
+
+    function closeForm(text, resource) {
+        if (window.parent && window.parent !== window && window.parent.layer) {
+            window.parent.postMessage({
+                source: "commerce-studio-form",
+                resource: resource
+            }, window.location.origin);
+            var index = window.parent.layer.getFrameIndex(window.name);
+            window.parent.layer.msg(text, {icon: 1, time: 650}, function () {
+                window.parent.layer.close(index);
+            });
+            return;
+        }
+        Studio.toast(text);
+    }
+
+    function cloneDefaults(mediaType) {
+        return JSON.parse(JSON.stringify(mediaType === "VIDEO" ? videoDefaults : imageDefaults));
+    }
+
+    function setField(id, value) {
+        var field = document.getElementById(id);
+        if (field) field.value = value == null ? "" : value;
+    }
+
+    function renderParams() {
+        var node = document.getElementById("modelParams");
+        node.innerHTML = params.map(function (item, index) {
+            var value = item.value == null ? "" : item.value;
+            if (typeof value !== "string") value = JSON.stringify(value);
+            return '<div class="studio-param-row">' +
+                '<input class="layui-input param-field" data-index="' + index + '" value="' + Studio.escapeHtml(item.field || "") + '" placeholder="field">' +
+                '<input class="layui-input param-label" data-index="' + index + '" value="' + Studio.escapeHtml(item.label || "") + '" placeholder="label">' +
+                '<input class="layui-input param-runtime" data-index="' + index + '" value="' + Studio.escapeHtml(item.runtime_key || "") + '" placeholder="runtime_key">' +
+                '<input class="layui-input param-value" data-index="' + index + '" value="' + Studio.escapeHtml(value) + '" placeholder="default">' +
+                '<select class="param-type" data-index="' + index + '">' +
+                    '<option value="string">string</option><option value="number">number</option>' +
+                    '<option value="boolean">boolean</option><option value="json">json</option>' +
+                '</select>' +
+                '<input type="checkbox" class="param-enabled" data-index="' + index + '"' +
+                    (item.enabled !== false ? " checked" : "") + '>' +
+                '<button type="button" class="layui-btn layui-btn-xs layui-btn-danger remove-param" data-index="' + index + '">×</button>' +
+                '</div>';
+        }).join("");
+
+        node.querySelectorAll(".param-type").forEach(function (select, index) {
+            select.value = params[index].value_type || "string";
+        });
+        node.querySelectorAll(".remove-param").forEach(function (button) {
+            button.addEventListener("click", function () {
+                params.splice(Number(button.dataset.index), 1);
+                renderParams();
+            });
+        });
+        layui.use("form", function () {
+            layui.form.render("select");
+        });
+    }
+
+    function collectParams() {
+        document.querySelectorAll("#modelParams .studio-param-row").forEach(function (row, index) {
+            params[index].field = row.querySelector(".param-field").value.trim();
+            params[index].label = row.querySelector(".param-label").value.trim();
+            params[index].runtime_key = row.querySelector(".param-runtime").value.trim();
+            params[index].value = row.querySelector(".param-value").value;
+            params[index].value_type = row.querySelector(".param-type").value;
+            params[index].enabled = row.querySelector(".param-enabled").checked;
+        });
+        return params;
+    }
+
+    function fillModel(model) {
+        setField("modelId", model.id || "");
+        setField("modelProvider", model.provider_id || "");
+        setField("modelMediaType", model.media_type || "IMAGE");
+        setField("modelName", model.name || "");
+        setField("modelCode", model.model_code || "");
+        setField("modelGenerationPath", model.generation_path || "");
+        setField("modelResultPath", model.result_path || "");
+        setField("modelDescription", model.description || "");
+        params = model.parameter_schema && model.parameter_schema.length
+            ? JSON.parse(JSON.stringify(model.parameter_schema))
+            : cloneDefaults(model.media_type || "IMAGE");
+        renderParams();
+    }
+
+    function renderProviders() {
+        var select = document.getElementById("modelProvider");
+        var currentModel = modelId ? models.find(function (item) {
+            return String(item.id) === String(modelId);
+        }) : null;
+        var currentProviderId = currentModel ? currentModel.provider_id : "";
+        select.innerHTML = providers.filter(function (provider) {
+            return provider.enabled || String(provider.id) === String(currentProviderId);
+        }).map(function (provider) {
+            return '<option value="' + provider.id + '">' + Studio.escapeHtml(provider.name) + '</option>';
+        }).join("");
+        layui.use("form", function () {
+            layui.form.render("select");
+        });
+    }
+
+    function loadData() {
+        setMessage("Loading...");
+        return Studio.request("/studio/api/providers").then(function (result) {
+            providers = result.data;
+            models = [];
+            providers.forEach(function (provider) {
+                (provider.models || []).forEach(function (model) {
+                    models.push(model);
+                });
+            });
+            renderProviders();
+            var current = modelId ? models.find(function (item) {
+                return String(item.id) === String(modelId);
+            }) : null;
+            if (current) {
+                fillModel(current);
+            } else {
+                setField("modelProvider", providers[0] && providers[0].id || "");
+                params = cloneDefaults(document.getElementById("modelMediaType").value);
+                renderParams();
+            }
+            setMessage("");
+        });
+    }
+
+    document.getElementById("modelMediaType").addEventListener("change", function () {
+        if (!modelId) {
+            params = cloneDefaults(this.value);
+            renderParams();
+        }
+    });
+    document.getElementById("addParam").addEventListener("click", function () {
+        params.push({
+            field: "",
+            label: "",
+            runtime_key: "",
+            value: "",
+            value_type: "string",
+            enabled: true
+        });
+        renderParams();
+    });
+    document.getElementById("closeModel").addEventListener("click", function () {
+        if (window.parent && window.parent !== window && window.parent.layer) {
+            window.parent.layer.close(window.parent.layer.getFrameIndex(window.name));
+        }
+    });
+    form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        setMessage("Saving...");
+        var payload = {};
+        new FormData(form).forEach(function (value, key) {
+            payload[key] = value;
+        });
+        payload.parameter_schema = collectParams();
+        Studio.request("/studio/api/models", {
+            method: "POST",
+            body: JSON.stringify(payload)
+        }).then(function () {
+            closeForm("Model saved", "providers");
+        }).catch(function (error) {
+            setMessage(error.message, true);
+        });
+    });
+
+    layui.use("form", function () {
+        layui.form.render();
+    });
+    loadData().catch(function (error) {
+        setMessage(error.message, true);
+    });
+});
+</script>
+{% endblock %}

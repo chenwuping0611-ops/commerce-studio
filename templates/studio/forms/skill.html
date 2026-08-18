@@ -1,0 +1,139 @@
+{% extends "studio/base.html" %}
+{% block title %}Skill{% endblock %}
+{% block content %}
+<div class="studio-iframe-form">
+    <form class="layui-form studio-form" id="skillForm">
+        <input type="hidden" name="id" id="skillId">
+        <div class="studio-modal-section">
+            <div class="studio-modal-section-title">Skill information</div>
+            <div class="studio-form-grid">
+                <div>
+                    <label class="studio-field-label">Name</label>
+                    <input name="name" id="skillName" required class="layui-input">
+                </div>
+                <div>
+                    <label class="studio-field-label">Media type</label>
+                    <select name="media_type" id="skillType">
+                        <option value="BOTH">Image and video</option>
+                        <option value="IMAGE">Image</option>
+                        <option value="VIDEO">Video</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="studio-field-label">Version</label>
+                    <input name="version" id="skillVersion" value="1.0.0" class="layui-input">
+                </div>
+                <div>
+                    <label class="studio-field-label">Tags</label>
+                    <input name="tags" id="skillTags" placeholder="ecommerce, advertising, premium" class="layui-input">
+                </div>
+                <div class="studio-field-span-2">
+                    <label class="studio-field-label">Prompt template</label>
+                    <textarea name="prompt_template" id="skillPrompt" class="layui-textarea" rows="7"></textarea>
+                </div>
+                <div class="studio-field-span-2">
+                    <label class="studio-field-label">Negative prompt</label>
+                    <textarea name="negative_prompt" id="skillNegative" class="layui-textarea" rows="3"></textarea>
+                </div>
+            </div>
+        </div>
+
+        <div class="studio-form-actions studio-iframe-actions">
+            <button class="layui-btn studio-btn-primary" lay-submit>Save Skill</button>
+            <button type="button" class="layui-btn studio-btn-quiet" id="closeSkill">Cancel</button>
+        </div>
+        <div class="studio-form-message" id="skillMessage" role="status"></div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    var query = new URLSearchParams(window.location.search);
+    var skillId = query.get("id") || "";
+    var form = document.getElementById("skillForm");
+    var message = document.getElementById("skillMessage");
+
+    function setMessage(text, isError) {
+        message.textContent = text || "";
+        message.className = "studio-form-message" + (isError ? " is-error" : "");
+    }
+
+    function closeForm(text, resource) {
+        if (window.parent && window.parent !== window && window.parent.layer) {
+            window.parent.postMessage({
+                source: "commerce-studio-form",
+                resource: resource
+            }, window.location.origin);
+            var index = window.parent.layer.getFrameIndex(window.name);
+            window.parent.layer.msg(text, {icon: 1, time: 650}, function () {
+                window.parent.layer.close(index);
+            });
+            return;
+        }
+        Studio.toast(text);
+    }
+
+    function setField(id, value) {
+        var field = document.getElementById(id);
+        if (field) field.value = value == null ? "" : value;
+    }
+
+    function fillSkill(skill) {
+        setField("skillId", skill.id || "");
+        setField("skillName", skill.name || "");
+        setField("skillType", skill.media_type || "BOTH");
+        setField("skillVersion", skill.version || "1.0.0");
+        setField("skillTags", skill.tags || "");
+        setField("skillPrompt", skill.prompt_template || "");
+        setField("skillNegative", skill.negative_prompt || "");
+    }
+
+    function loadSkill() {
+        if (!skillId) return Promise.resolve();
+        setMessage("Loading Skill...");
+        return Studio.request("/studio/api/skills").then(function (result) {
+            var skill = result.data.find(function (item) {
+                return String(item.id) === String(skillId);
+            });
+            if (!skill) throw new Error("Skill not found");
+            fillSkill(skill);
+            layui.use("form", function () {
+                layui.form.render();
+            });
+            setMessage("");
+        });
+    }
+
+    document.getElementById("closeSkill").addEventListener("click", function () {
+        if (window.parent && window.parent !== window && window.parent.layer) {
+            window.parent.layer.close(window.parent.layer.getFrameIndex(window.name));
+        }
+    });
+    form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        setMessage("Saving...");
+        var payload = {};
+        new FormData(form).forEach(function (value, key) {
+            payload[key] = value;
+        });
+        Studio.request("/studio/api/skills", {
+            method: "POST",
+            body: JSON.stringify(payload)
+        }).then(function () {
+            closeForm("Skill saved", "skills");
+        }).catch(function (error) {
+            setMessage(error.message, true);
+        });
+    });
+
+    layui.use("form", function () {
+        layui.form.render();
+    });
+    loadSkill().catch(function (error) {
+        setMessage(error.message, true);
+    });
+});
+</script>
+{% endblock %}

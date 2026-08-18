@@ -760,6 +760,43 @@ body.studio-page {
     padding: 22px;
 }
 
+.studio-iframe-form {
+    min-height: 100vh;
+    padding: 20px;
+    background: #ffffff;
+}
+
+.studio-iframe-form .studio-form {
+    padding: 0;
+}
+
+.studio-iframe-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-top: 4px;
+}
+
+.studio-iframe-actions .layui-btn {
+    margin-left: 0;
+}
+
+.studio-form-message {
+    min-height: 20px;
+    margin-top: 10px;
+    color: var(--studio-muted);
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.studio-form-message.is-error {
+    color: #d92d20;
+}
+
+.studio-model-iframe-form {
+    min-width: 980px;
+}
+
 .studio-modal-section {
     margin-bottom: 20px;
 }
@@ -850,6 +887,10 @@ body.studio-page {
     .studio-form .layui-input-block,
     .studio-modal .layui-input-block {
         margin-left: 96px;
+    }
+
+    .studio-model-iframe-form {
+        min-width: 0;
     }
 
     .studio-form-grid,

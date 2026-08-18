@@ -41,9 +41,14 @@ def main():
         "/studio/image",
         "/studio/video",
         "/studio/products",
+        "/studio/forms/product",
+        "/studio/forms/asset?product_id=1",
         "/studio/skills",
+        "/studio/forms/skill",
         "/studio/history",
         "/studio/providers",
+        "/studio/forms/provider",
+        "/studio/forms/model",
     ):
         assert client.get(path).status_code == 200, path
 

@@ -202,10 +202,28 @@ def products():
     return render_template("studio/products.html")
 
 
+@studio_bp.get("/forms/product")
+@authorize("studio:products")
+def product_form():
+    return render_template("studio/forms/product.html")
+
+
+@studio_bp.get("/forms/asset")
+@authorize("studio:products")
+def asset_form():
+    return render_template("studio/forms/asset.html")
+
+
 @studio_bp.get("/skills")
 @authorize("studio:skills")
 def skills():
     return render_template("studio/skills.html")
+
+
+@studio_bp.get("/forms/skill")
+@authorize("studio:skills")
+def skill_form():
+    return render_template("studio/forms/skill.html")
 
 
 @studio_bp.get("/history")
@@ -218,6 +236,18 @@ def history():
 @authorize("studio:providers")
 def providers():
     return render_template("studio/providers.html")
+
+
+@studio_bp.get("/forms/provider")
+@authorize("studio:providers")
+def provider_form():
+    return render_template("studio/forms/provider.html")
+
+
+@studio_bp.get("/forms/model")
+@authorize("studio:providers")
+def model_form():
+    return render_template("studio/forms/model.html")
 
 
 @studio_bp.get("/api/dashboard")
