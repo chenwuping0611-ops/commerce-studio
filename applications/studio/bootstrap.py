@@ -15,17 +15,17 @@ STUDIO_MENUS = [
     ("产品中心", "studio:products", "/studio/products", "layui-icon layui-icon-app", 4, "1"),
     ("Skill 配置", "studio:skills", "/studio/skills", "layui-icon layui-icon-component", 5, "1"),
     ("生成历史", "studio:history", "/studio/history", "layui-icon layui-icon-log", 6, "1"),
-    ("模型供应商", "studio:providers", "/studio/providers", "layui-icon layui-icon-set", 7, "1"),
 ]
 
 
 CORE_MENUS = [
-    ("系统管理", "admin:system:root", "", "layui-icon layui-icon-set-fill", 90, "0"),
+    ("系统管理", "admin:system:root", "", "layui-icon layui-icon-set-fill", 2, "0"),
     ("用户管理", "admin:user:main", "/admin/user/", "layui-icon layui-icon-username", 1, "1"),
     ("角色管理", "admin:role:main", "/admin/role", "layui-icon layui-icon-group", 2, "1"),
     ("权限管理", "admin:power:main", "/admin/power/", "layui-icon layui-icon-auz", 3, "1"),
     ("部门管理", "admin:dept:main", "/dept", "layui-icon layui-icon-tree", 4, "1"),
     ("操作日志", "admin:log:main", "/admin/log", "layui-icon layui-icon-read", 5, "1"),
+    ("模型供应商", "studio:providers", "/studio/providers", "layui-icon layui-icon-set", 6, "1"),
 ]
 
 
@@ -108,6 +108,24 @@ def _ensure_admin():
     return role
 
 
+def _disable_power_tree(power):
+    """Hide a legacy menu and all of its descendants without deleting data."""
+
+    power.enable = 0
+    for child in Power.query.filter_by(parent_id=power.id).all():
+        _disable_power_tree(child)
+
+
+def disable_legacy_menus():
+    """Remove unused Pear starter roots from the visible menu tree."""
+
+    legacy_names = {"系统管理", "文件管理", "定时任务"}
+    roots = Power.query.filter(Power.parent_id == 0, Power.enable == 1).all()
+    for root in roots:
+        if not root.code and root.name in legacy_names:
+            _disable_power_tree(root)
+
+
 def seed_menu():
     role = _ensure_admin()
     system_root = _ensure_power(*CORE_MENUS[0], parent_id=0)
@@ -131,6 +149,7 @@ def seed_menu():
     for menu in STUDIO_MENUS[1:]:
         _ensure_power(*menu, parent_id=studio_root.id)
 
+    disable_legacy_menus()
     db.session.flush()
     for power in Power.query.filter(Power.enable == 1).all():
         if power not in role.power:

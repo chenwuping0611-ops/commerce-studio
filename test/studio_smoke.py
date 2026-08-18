@@ -23,6 +23,19 @@ def main():
     assert response.json["success"] is True, response.json
 
     assert client.get("/admin/").status_code == 200
+    menu_response = client.get("/rights/menu")
+    assert menu_response.status_code == 200
+    menu_roots = menu_response.json
+    assert [item["code"] for item in menu_roots] == [
+        "studio:root",
+        "admin:system:root",
+    ]
+    system_root = next(item for item in menu_roots if item["code"] == "admin:system:root")
+    assert any(
+        item["code"] == "studio:providers"
+        for item in system_root.get("children", [])
+    )
+
     for path in (
         "/studio/",
         "/studio/image",

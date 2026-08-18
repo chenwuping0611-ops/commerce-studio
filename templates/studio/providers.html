@@ -210,33 +210,76 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
+    function cloneDialog(id) {
+        var source = document.getElementById(id);
+        var content = source.cloneNode(true);
+        content.id = id + "Layer";
+        content.style.display = "block";
+        return content;
+    }
+
+    function setField(root, id, value) {
+        var field = root.querySelector("#" + id);
+        if (field) field.value = value == null ? "" : value;
+    }
+
+    function formPayload(form) {
+        var payload = {};
+        new FormData(form).forEach(function (value, key) { payload[key] = value; });
+        return payload;
+    }
+
     function openProvider(item) {
         item = item || {};
-        document.getElementById("providerId").value = item.id || "";
-        document.getElementById("providerName").value = item.name || "";
-        document.getElementById("providerKind").value = item.kind || "relay";
-        document.getElementById("providerBaseUrl").value = item.base_url || "";
-        document.getElementById("providerApiKey").value = "";
-        document.getElementById("providerAuthHeader").value = item.auth_header || "Authorization";
-        document.getElementById("providerAuthPrefix").value = item.auth_prefix || "Bearer";
-        document.getElementById("providerBalancePath").value = item.balance_path || "/v1/user/balance";
-        document.getElementById("providerTokenBalancePath").value = item.token_balance_path || "/v1/balance";
-        document.getElementById("providerGenerationPath").value = item.generation_path || "/v1/images/generations";
-        document.getElementById("providerResultPath").value = item.result_path || "/v1/images/generations/{task_id}";
-        document.getElementById("providerTimeout").value = item.timeout || 120;
-        document.getElementById("providerDescription").value = item.description || "";
+        var content = cloneDialog("providerDialog");
+        setField(content, "providerId", item.id || "");
+        setField(content, "providerName", item.name || "");
+        setField(content, "providerKind", item.kind || "relay");
+        setField(content, "providerBaseUrl", item.base_url || "");
+        setField(content, "providerApiKey", "");
+        setField(content, "providerAuthHeader", item.auth_header || "Authorization");
+        setField(content, "providerAuthPrefix", item.auth_prefix || "Bearer");
+        setField(content, "providerBalancePath", item.balance_path || "/v1/user/balance");
+        setField(content, "providerTokenBalancePath", item.token_balance_path || "/v1/balance");
+        setField(content, "providerGenerationPath", item.generation_path || "/v1/images/generations");
+        setField(content, "providerResultPath", item.result_path || "/v1/images/generations/{task_id}");
+        setField(content, "providerTimeout", item.timeout || 120);
+        setField(content, "providerDescription", item.description || "");
+
         layui.use(["layer", "form"], function () {
             providerLayer = layui.layer.open({
-                type: 1, title: item.id ? "编辑供应商" : "新增供应商", area: ["820px", "760px"],
-                content: document.getElementById("providerDialog"),
-                success: function () { document.getElementById("providerDialog").style.display = "block"; layui.form.render(); },
-                end: function () { document.getElementById("providerDialog").style.display = "none"; }
+                type: 1,
+                title: item.id ? "编辑供应商" : "新增供应商",
+                area: ["820px", "760px"],
+                content: content,
+                success: function () {
+                    layui.form.render();
+                    content.querySelector("#closeProvider").addEventListener("click", function () {
+                        layui.layer.close(providerLayer);
+                    });
+                    content.querySelector("#providerForm").addEventListener("submit", function (event) {
+                        event.preventDefault();
+                        Studio.request("/studio/api/providers", {
+                            method: "POST",
+                            body: JSON.stringify(formPayload(event.target))
+                        }).then(function () {
+                            layui.layer.close(providerLayer);
+                            Studio.toast("供应商已保存");
+                            return loadData();
+                        }).catch(function (error) {
+                            Studio.toast(error.message, "error");
+                        });
+                    });
+                },
+                end: function () {
+                    providerLayer = null;
+                }
             });
         });
     }
 
-    function renderParamRows() {
-        var node = document.getElementById("modelParams");
+    function renderParamRows(root) {
+        var node = root.querySelector("#modelParams");
         node.innerHTML = params.map(function (item, index) {
             return '<div class="studio-param-row">' +
                 '<input class="layui-input param-field" data-index="' + index + '" value="' + Studio.escapeHtml(item.field || "") + '" placeholder="field">' +
@@ -254,7 +297,7 @@ document.addEventListener("DOMContentLoaded", function () {
         node.querySelectorAll(".remove-param").forEach(function (button) {
             button.addEventListener("click", function () {
                 params.splice(Number(button.dataset.index), 1);
-                renderParamRows();
+                renderParamRows(root);
             });
         });
         layui.use("form", function () { layui.form.render(); });
@@ -262,41 +305,84 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function openModel(item) {
         item = item || {};
-        document.getElementById("modelId").value = item.id || "";
-        document.getElementById("modelProvider").innerHTML = providers.filter(function (provider) {
+        var content = cloneDialog("modelDialog");
+        var providerSelect = content.querySelector("#modelProvider");
+        providerSelect.innerHTML = providers.filter(function (provider) {
             return provider.enabled;
         }).map(function (provider) {
             return '<option value="' + provider.id + '">' + Studio.escapeHtml(provider.name) + '</option>';
         }).join("");
-        document.getElementById("modelProvider").value = item.provider_id || (providers[0] && providers[0].id) || "";
-        document.getElementById("modelMediaType").value = item.media_type || "IMAGE";
-        document.getElementById("modelName").value = item.name || "";
-        document.getElementById("modelCode").value = item.model_code || "";
-        document.getElementById("modelGenerationPath").value = item.generation_path || "";
-        document.getElementById("modelResultPath").value = item.result_path || "";
-        document.getElementById("modelDescription").value = item.description || "";
-        params = item.parameter_schema && item.parameter_schema.length ? JSON.parse(JSON.stringify(item.parameter_schema)) : defaultParams(document.getElementById("modelMediaType").value);
-        renderParamRows();
+        setField(content, "modelId", item.id || "");
+        providerSelect.value = item.provider_id || (providers[0] && providers[0].id) || "";
+        setField(content, "modelMediaType", item.media_type || "IMAGE");
+        setField(content, "modelName", item.name || "");
+        setField(content, "modelCode", item.model_code || "");
+        setField(content, "modelGenerationPath", item.generation_path || "");
+        setField(content, "modelResultPath", item.result_path || "");
+        setField(content, "modelDescription", item.description || "");
+        params = item.parameter_schema && item.parameter_schema.length
+            ? JSON.parse(JSON.stringify(item.parameter_schema))
+            : defaultParams(content.querySelector("#modelMediaType").value);
+        renderParamRows(content);
         layui.use(["layer", "form"], function () {
             modelLayer = layui.layer.open({
-                type: 1, title: item.id ? "编辑模型" : "新增模型", area: ["1120px", "800px"],
-                content: document.getElementById("modelDialog"),
-                success: function () { document.getElementById("modelDialog").style.display = "block"; layui.form.render(); },
-                end: function () { document.getElementById("modelDialog").style.display = "none"; }
+                type: 1,
+                title: item.id ? "编辑模型" : "新增模型",
+                area: ["1120px", "800px"],
+                content: content,
+                success: function () {
+                    layui.form.render();
+                    content.querySelector("#modelMediaType").addEventListener("change", function () {
+                        if (!content.querySelector("#modelId").value) {
+                            params = defaultParams(this.value);
+                            renderParamRows(content);
+                        }
+                    });
+                    content.querySelector("#addParam").addEventListener("click", function () {
+                        params.push({
+                            field: "",
+                            label: "",
+                            runtime_key: "",
+                            value: "",
+                            value_type: "string",
+                            enabled: true
+                        });
+                        renderParamRows(content);
+                    });
+                    content.querySelector("#closeModel").addEventListener("click", function () {
+                        layui.layer.close(modelLayer);
+                    });
+                    content.querySelector("#modelForm").addEventListener("submit", function (event) {
+                        event.preventDefault();
+                        content.querySelectorAll("#modelParams .studio-param-row").forEach(function (row, index) {
+                            params[index].field = row.querySelector(".param-field").value.trim();
+                            params[index].label = row.querySelector(".param-label").value.trim();
+                            params[index].runtime_key = row.querySelector(".param-runtime").value.trim();
+                            params[index].value = row.querySelector(".param-value").value;
+                            params[index].value_type = row.querySelector(".param-type").value;
+                            params[index].enabled = row.querySelector(".param-enabled").checked;
+                        });
+                        var payload = formPayload(event.target);
+                        payload.parameter_schema = params;
+                        Studio.request("/studio/api/models", {
+                            method: "POST",
+                            body: JSON.stringify(payload)
+                        }).then(function () {
+                            layui.layer.close(modelLayer);
+                            Studio.toast("模型已保存");
+                            return loadData();
+                        }).catch(function (error) {
+                            Studio.toast(error.message, "error");
+                        });
+                    });
+                },
+                end: function () {
+                    modelLayer = null;
+                }
             });
         });
     }
 
-    document.getElementById("modelMediaType").addEventListener("change", function () {
-        if (!document.getElementById("modelId").value) {
-            params = defaultParams(this.value);
-            renderParamRows();
-        }
-    });
-    document.getElementById("addParam").addEventListener("click", function () {
-        params.push({field: "", label: "", runtime_key: "", value: "", value_type: "string", enabled: true});
-        renderParamRows();
-    });
     document.getElementById("newProvider").addEventListener("click", function () { openProvider(); });
     document.getElementById("newModel").addEventListener("click", function () {
         if (!providers.filter(function (provider) { return provider.enabled; }).length) {
@@ -304,37 +390,6 @@ document.addEventListener("DOMContentLoaded", function () {
             return;
         }
         openModel();
-    });
-    document.getElementById("closeProvider").addEventListener("click", function () { if (providerLayer) layui.layer.close(providerLayer); });
-    document.getElementById("closeModel").addEventListener("click", function () { if (modelLayer) layui.layer.close(modelLayer); });
-    document.getElementById("providerForm").addEventListener("submit", function (event) {
-        event.preventDefault();
-        var payload = {};
-        new FormData(event.target).forEach(function (value, key) { payload[key] = value; });
-        Studio.request("/studio/api/providers", {method: "POST", body: JSON.stringify(payload)}).then(function () {
-            if (providerLayer) layui.layer.close(providerLayer);
-            Studio.toast("供应商已保存");
-            loadData();
-        }).catch(function (error) { Studio.toast(error.message, "error"); });
-    });
-    document.getElementById("modelForm").addEventListener("submit", function (event) {
-        event.preventDefault();
-        document.querySelectorAll("#modelParams .studio-param-row").forEach(function (row, index) {
-            params[index].field = row.querySelector(".param-field").value.trim();
-            params[index].label = row.querySelector(".param-label").value.trim();
-            params[index].runtime_key = row.querySelector(".param-runtime").value.trim();
-            params[index].value = row.querySelector(".param-value").value;
-            params[index].value_type = row.querySelector(".param-type").value;
-            params[index].enabled = row.querySelector(".param-enabled").checked;
-        });
-        var payload = {};
-        new FormData(event.target).forEach(function (value, key) { payload[key] = value; });
-        payload.parameter_schema = params;
-        Studio.request("/studio/api/models", {method: "POST", body: JSON.stringify(payload)}).then(function () {
-            if (modelLayer) layui.layer.close(modelLayer);
-            Studio.toast("模型已保存");
-            loadData();
-        }).catch(function (error) { Studio.toast(error.message, "error"); });
     });
     loadData().catch(function (error) { Studio.toast(error.message, "error"); });
 });
