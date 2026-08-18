@@ -7,6 +7,11 @@ def main():
     client = app.test_client()
 
     assert client.get("/passport/login").status_code == 200
+    captcha_response = client.get("/passport/getCaptcha")
+    assert captcha_response.status_code == 200
+    assert captcha_response.content_type == "image/png"
+    assert captcha_response.data.startswith(b"\x89PNG")
+
     with client.session_transaction() as session:
         session["code"] = "test"
 
