@@ -4,7 +4,7 @@ import os
 from applications.extensions import db
 from applications.models import Power, Role, StudioModel, StudioProvider, User
 
-from .request_builder import default_parameters
+from .request_builder import default_parameters_for_model
 
 
 STUDIO_MENUS = [
@@ -196,6 +196,20 @@ def seed_provider():
             "generation_path": "/v1/videos/generations",
             "result_path": "/v1/videos/generations/{task_id}",
         },
+        {
+            "name": "Nano Banana 2",
+            "model_code": "gemini-3.1-flash-image-preview",
+            "media_type": "IMAGE",
+            "generation_path": "/v1/images/generations",
+            "result_path": "/v1/images/generations/{task_id}",
+        },
+        {
+            "name": "GPT-5.5 视觉分析",
+            "model_code": "gpt-5.5",
+            "media_type": "CHAT",
+            "generation_path": "/v1/chat/completions",
+            "result_path": None,
+        },
     ]
     for item in defaults:
         model = StudioModel.query.filter_by(
@@ -211,14 +225,60 @@ def seed_provider():
                 generation_path=item["generation_path"],
                 result_path=item["result_path"],
                 parameter_schema=json.dumps(
-                    default_parameters(item["media_type"]),
+                    default_parameters_for_model(
+                        item["model_code"],
+                        item["media_type"],
+                    ),
                     ensure_ascii=False,
                 ),
                 enabled=1,
                 description="ToAPIs 默认参数模板，可在模型编辑中调整",
             )
             db.session.add(model)
+        else:
+            _backfill_model_constraints(model)
     db.session.commit()
+
+
+def _backfill_model_constraints(model):
+    """Add safe UI constraints without overwriting custom model settings."""
+
+    try:
+        parameters = json.loads(model.parameter_schema or "[]")
+    except (TypeError, ValueError):
+        return
+    if not isinstance(parameters, list):
+        return
+
+    changed = False
+    for parameter in parameters:
+        if not isinstance(parameter, dict):
+            continue
+        field = parameter.get("field")
+        if field in ("size", "aspect_ratio") and not parameter.get("options"):
+            parameter["options"] = (
+                ["1:1", "4:3", "16:9", "9:16"]
+                if model.media_type == "VIDEO"
+                else ["1:1", "4:3", "16:9", "9:16"]
+            )
+            changed = True
+        elif field == "resolution" and not parameter.get("options"):
+            parameter["options"] = (
+                ["480p", "720p", "1080p"]
+                if model.media_type == "VIDEO"
+                else ["1k", "2k", "4k"]
+            )
+            changed = True
+        elif field in ("n", "count") and not any(
+            parameter.get(key) is not None for key in ("min", "max", "step")
+        ):
+            parameter["min"] = 1
+            parameter["max"] = 8
+            parameter["step"] = 1
+            changed = True
+
+    if changed:
+        model.parameter_schema = json.dumps(parameters, ensure_ascii=False)
 
 
 def initialize_studio():

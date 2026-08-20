@@ -1,9 +1,7 @@
-import os
-from flask import Blueprint, request, render_template, jsonify, current_app
+from flask import Blueprint, request, render_template, jsonify
 
 from applications.common.utils.http import fail_api, success_api, table_api
 from applications.common.utils.rights import authorize
-from applications.extensions import db
 from applications.models import Photo
 from applications.common.utils import upload as upload_curd
 
@@ -47,8 +45,7 @@ def upload_api():
             "msg": "上传成功",
             "code": 0,
             "success": True,
-            "data":
-                {"src": file_url}
+            "data": file_url
         }
         return jsonify(res)
     return fail_api()
@@ -71,13 +68,10 @@ def delete():
 @authorize("admin:file:delete", log=True)
 def batch_remove():
     ids = request.form.getlist('ids[]')
-    photo_name = Photo.query.filter(Photo.id.in_(ids)).all()
-    upload_url = current_app.config.get("UPLOADED_PHOTOS_DEST")
-    for p in photo_name:
-        os.remove(upload_url + '/' + p.name)
-    photo = Photo.query.filter(Photo.id.in_(ids)).delete(synchronize_session=False)
-    db.session.commit()
-    if photo:
+    removed = 0
+    for photo in Photo.query.filter(Photo.id.in_(ids)).all():
+        removed += bool(upload_curd.delete_photo_by_id(photo.id))
+    if removed:
         return success_api(msg="删除成功")
     else:
         return fail_api(msg="删除失败")

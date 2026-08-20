@@ -7,111 +7,125 @@
         <h1>视频创作</h1>
         <p>视频模型独立配置时长、比例、分辨率、音频和参考素材字段。</p>
     </div>
-    <a class="layui-btn studio-btn-quiet" href="/studio/history?media_type=VIDEO">视频历史</a>
+    <div class="studio-toolbar-right">
+        <span id="videoProviderBalance" class="studio-balance-inline">当前供应商余额：未查询</span>
+        <span id="videoTaskStatus" class="studio-pill gray">等待任务</span>
+        <button type="button" class="layui-btn studio-btn-primary" id="newVideoButton">新建视频</button>
+        <a class="layui-btn studio-btn-quiet" href="/studio/history?media_type=VIDEO">视频历史</a>
+    </div>
 </div>
 
-<div class="studio-workspace">
-    <section class="studio-card studio-form-card">
-        <div class="studio-card-header">
-            <h2>创建视频任务</h2>
-            <span class="studio-pill">异步生成</span>
-        </div>
-        <form class="layui-form studio-form" id="videoForm">
-            <div class="layui-form-item">
-                <label class="layui-form-label">模型</label>
-                <div class="layui-input-block">
-                    <select name="model_id" id="videoModel" lay-verify="required"></select>
-                </div>
-            </div>
-            <div class="layui-form-item">
-                <label class="layui-form-label">产品</label>
-                <div class="layui-input-block">
-                    <select name="product_id" id="videoProduct"><option value="">不关联产品</option></select>
-                </div>
-            </div>
-            <div class="layui-form-item">
-                <label class="layui-form-label">Skill</label>
-                <div class="layui-input-block">
-                    <select id="videoSkill"><option value="">不使用 Skill</option></select>
-                </div>
-            </div>
-            <div class="layui-form-item">
-                <label class="layui-form-label">创意描述</label>
-                <div class="layui-input-block">
-                    <textarea name="prompt" id="videoPrompt" required class="layui-textarea" rows="5" placeholder="例如：生成一个高级汽车广告视频，镜头从车灯推进到侧面，突出速度感"></textarea>
-                </div>
-            </div>
-            <div class="layui-form-item">
-                <label class="layui-form-label">反向提示词</label>
-                <div class="layui-input-block">
-                    <textarea name="negative_prompt" id="videoNegative" class="layui-textarea" rows="2" placeholder="可选：不希望出现的元素"></textarea>
-                </div>
-            </div>
-            <div class="studio-form-grid">
+<div class="studio-composer-overlay" id="videoComposerOverlay" aria-hidden="true">
+    <div class="studio-composer-backdrop" data-composer-close="1"></div>
+    <div class="studio-composer-dialog" role="dialog" aria-modal="true" aria-labelledby="videoComposerTitle">
+        <section class="studio-card studio-form-card studio-video-composer">
+            <div class="studio-card-header">
                 <div>
-                    <label class="studio-field-label" for="videoDuration">时长（秒）</label>
-                    <input name="duration" id="videoDuration" value="5" type="number" min="1" max="60" class="layui-input">
+                    <h2 id="videoComposerTitle">创建视频任务</h2>
+                    <div class="studio-card-subtitle">异步生成，输出资产保留 7 天</div>
                 </div>
-                <div>
-                    <label class="studio-field-label" for="videoAspect">画面比例</label>
-                    <input name="aspect_ratio" id="videoAspect" value="16:9" class="layui-input" placeholder="例如 16:9">
-                </div>
-                <div>
-                    <label class="studio-field-label" for="videoResolution">分辨率</label>
-                    <input name="resolution" id="videoResolution" value="720p" class="layui-input" placeholder="例如 720p">
+                <div class="studio-toolbar-right">
+                    <span class="studio-pill">异步生成</span>
+                    <button type="button" class="studio-composer-close" id="videoComposerClose" aria-label="关闭创建视频">×</button>
                 </div>
             </div>
-            <div class="layui-form-item">
-                <label class="layui-form-label">参考图片</label>
-                <div class="layui-input-block">
-                    <textarea name="reference_images" class="layui-textarea" rows="2" placeholder="每行一个 URL；产品图片会自动按角色携带"></textarea>
-                </div>
-            </div>
-            <div class="layui-form-item">
-                <label class="layui-form-label">参考视频</label>
-                <div class="layui-input-block">
-                    <textarea name="reference_videos" class="layui-textarea" rows="2" placeholder="每行一个视频 URL"></textarea>
-                </div>
-            </div>
-            <div class="layui-form-item studio-switch-row">
-                <label class="layui-form-label">生成音频</label>
-                <div class="layui-input-block">
-                    <input name="generate_audio" id="videoAudio" type="checkbox" checked lay-skin="switch" lay-text="开启|关闭">
-                </div>
-            </div>
-            <div class="studio-advanced-panel">
-                <div class="studio-panel-heading">
-                    <div>
-                        <strong>当前模型参数</strong>
-                        <span>模型配置中未绑定到基础表单的字段会显示在这里</span>
+            <form class="layui-form studio-form" id="videoForm">
+                <div class="layui-form-item">
+                    <label class="layui-form-label">模型</label>
+                    <div class="layui-input-block">
+                        <select name="model_id" id="videoModel" lay-filter="video-model" lay-verify="required"></select>
                     </div>
                 </div>
-                <div id="videoModelFields" class="studio-dynamic-fields">
-                    <div class="studio-empty studio-empty-compact">请选择模型</div>
+                <div class="layui-form-item">
+                    <label class="layui-form-label">产品</label>
+                    <div class="layui-input-block">
+                        <select name="product_id" id="videoProduct"><option value="">不关联产品</option></select>
+                    </div>
                 </div>
-            </div>
-            <div class="layui-form-item">
-                <label class="layui-form-label">扩展 JSON</label>
-                <div class="layui-input-block">
-                    <textarea name="extra_fields" class="layui-textarea" rows="2" placeholder='可选，例如 {"return_last_frame":true}'></textarea>
+                <div class="layui-form-item">
+                    <label class="layui-form-label">Skill</label>
+                    <div class="layui-input-block">
+                        <select id="videoSkill"><option value="">不使用 Skill</option></select>
+                    </div>
                 </div>
-            </div>
-            <div class="studio-note">
-                Seedance 等模型的真实字段以模型配置为准；空字段不会发送给上游。
-            </div>
-            <div class="layui-form-item studio-form-actions">
-                <div class="layui-input-block">
-                    <button class="layui-btn studio-btn-primary" lay-submit>生成视频</button>
-                    <button type="reset" class="layui-btn studio-btn-quiet">清空</button>
+                <div class="layui-form-item">
+                    <label class="layui-form-label">创意描述</label>
+                    <div class="layui-input-block">
+                        <textarea name="prompt" id="videoPrompt" required class="layui-textarea" rows="5" placeholder="例如：生成一个高级汽车广告视频，镜头从车灯推进到侧面，突出速度感"></textarea>
+                    </div>
                 </div>
-            </div>
-        </form>
-    </section>
+                <div class="studio-form-grid">
+                    <div>
+                        <label class="studio-field-label" for="videoDuration">时长（秒）</label>
+                        <input name="duration" id="videoDuration" value="5" type="number" min="1" max="60" class="layui-input">
+                    </div>
+                    <div>
+                        <label class="studio-field-label" for="videoAspect">画面比例</label>
+                        <input name="aspect_ratio" id="videoAspect" value="16:9" class="layui-input" placeholder="例如 16:9">
+                    </div>
+                    <div>
+                        <label class="studio-field-label" for="videoResolution">分辨率</label>
+                        <input name="resolution" id="videoResolution" value="720p" class="layui-input" placeholder="例如 720p">
+                    </div>
+                </div>
+                <div class="layui-form-item">
+                    <label class="layui-form-label">参考图片</label>
+                    <div class="layui-input-block">
+                        <textarea name="reference_images" id="videoReferenceImageUrls" class="layui-textarea" rows="3" placeholder="上传后会自动填入 go-fastdfs 公网 URL；也可以每行粘贴一个外部 URL"></textarea>
+                        <label class="studio-upload studio-upload-inline" for="videoReferenceImageFiles">
+                            <div><strong>上传参考图片</strong><br><span>用户参考图片保留 7 天</span></div>
+                            <input id="videoReferenceImageFiles" type="file" multiple accept="image/*" hidden>
+                        </label>
+                        <div id="videoReferenceImageStatus" class="studio-upload-status studio-helper"></div>
+                    </div>
+                </div>
+                <div class="layui-form-item">
+                    <label class="layui-form-label">参考视频</label>
+                    <div class="layui-input-block">
+                        <textarea name="reference_videos" id="videoReferenceVideoUrls" class="layui-textarea" rows="3" placeholder="上传后会自动填入 go-fastdfs 公网 URL；也可以每行粘贴一个外部 URL"></textarea>
+                        <label class="studio-upload studio-upload-inline" for="videoReferenceVideoFiles">
+                            <div><strong>上传参考视频</strong><br><span>用户参考视频保留 7 天</span></div>
+                            <input id="videoReferenceVideoFiles" type="file" multiple accept="video/*" hidden>
+                        </label>
+                        <div id="videoReferenceVideoStatus" class="studio-upload-status studio-helper"></div>
+                    </div>
+                </div>
+                <div class="layui-form-item studio-switch-row">
+                    <label class="layui-form-label">生成音频</label>
+                    <div class="layui-input-block">
+                        <input name="generate_audio" id="videoAudio" type="checkbox" checked lay-skin="switch" lay-text="开启|关闭">
+                    </div>
+                </div>
+                <div class="studio-advanced-panel">
+                    <div class="studio-panel-heading">
+                        <div>
+                            <strong>当前模型参数</strong>
+                            <span>模型配置中未绑定到基础表单的字段会显示在这里</span>
+                        </div>
+                    </div>
+                    <div id="videoModelFields" class="studio-dynamic-fields">
+                        <div class="studio-empty studio-empty-compact">请选择模型</div>
+                    </div>
+                </div>
+                <div class="studio-note">
+                    时长、画面比例、分辨率和其他请求字段以“模型供应商 &gt; 编辑模型”中的定义为准；配置了可选值时会自动变为下拉选择，空字段不会发送给上游。Skill 只读取为提示词，不上传原始文件。
+                </div>
+                <div class="layui-form-item studio-form-actions">
+                    <div class="layui-input-block">
+                        <button class="layui-btn studio-btn-primary" lay-submit>生成视频</button>
+                        <button type="reset" class="layui-btn studio-btn-quiet" id="videoReset">清空</button>
+                    </div>
+                </div>
+            </form>
+        </section>
+    </div>
+</div>
 
+<div class="studio-workspace studio-video-workspace">
     <section class="studio-card studio-preview">
         <div class="studio-card-header">
             <h2>生成预览</h2>
-            <span id="videoTaskStatus" class="studio-pill gray">等待任务</span>
+            <span class="studio-helper">最新任务会自动刷新</span>
         </div>
         <div class="studio-preview-body">
             <div class="studio-preview-placeholder" id="videoPreviewPlaceholder">
@@ -135,7 +149,73 @@ document.addEventListener("DOMContentLoaded", function () {
     var status = document.getElementById("videoTaskStatus");
     var modelData = [];
     var skillData = [];
+    var referenceImageAssets = [];
+    var referenceVideoAssets = [];
     var pollTimer = null;
+    var lastModelValue = null;
+    var composerOverlay = document.getElementById("videoComposerOverlay");
+
+    function openComposer() {
+        composerOverlay.classList.add("is-open");
+        composerOverlay.setAttribute("aria-hidden", "false");
+        document.body.classList.add("studio-composer-open");
+        window.setTimeout(function () {
+            layui.use("form", function () {
+                layui.form.render("select");
+            });
+            modelSelect.focus();
+        }, 0);
+    }
+
+    function closeComposer() {
+        composerOverlay.classList.remove("is-open");
+        composerOverlay.setAttribute("aria-hidden", "true");
+        document.body.classList.remove("studio-composer-open");
+    }
+
+    function refreshProviderBalance(providerId) {
+        var output = document.getElementById("videoProviderBalance");
+        if (!providerId) {
+            output.textContent = "当前供应商余额：未选择";
+            return Promise.resolve();
+        }
+        output.textContent = "当前供应商余额：查询中...";
+        return Studio.request("/studio/api/providers/" + providerId +
+            "/balance?scope=user", {method: "POST"}).then(function (result) {
+                output.textContent = "当前供应商余额：" +
+                    Studio.formatBalance(result.data.balance);
+            }).catch(function () {
+                output.textContent = "当前供应商余额：查询失败";
+            });
+    }
+
+    function findParameter(model, keys) {
+        return (model && model.parameter_schema || []).find(function (item) {
+            return keys.indexOf(item.field) !== -1 ||
+                keys.indexOf(item.runtime_key) !== -1;
+        });
+    }
+
+    function renderModelConstraints() {
+        var model = modelData.find(function (item) {
+            return item.id === Number(modelSelect.value);
+        });
+        Studio.renderConstrainedControl(
+            "videoDuration",
+            findParameter(model, ["duration"]),
+            "5"
+        );
+        Studio.renderConstrainedControl(
+            "videoAspect",
+            findParameter(model, ["aspect_ratio", "size"]),
+            "16:9"
+        );
+        Studio.renderConstrainedControl(
+            "videoResolution",
+            findParameter(model, ["resolution"]),
+            "720p"
+        );
+    }
 
     function loadOptions() {
         return Studio.request("/studio/api/options?media_type=VIDEO").then(function (result) {
@@ -143,10 +223,18 @@ document.addEventListener("DOMContentLoaded", function () {
             skillData = result.data.skills.filter(function (item) {
                 return item.media_type === "BOTH" || item.media_type === "VIDEO";
             });
-            modelSelect.innerHTML = modelData.map(function (item) {
+            modelSelect.innerHTML = modelData.length ? modelData.map(function (item) {
                 return '<option value="' + item.id + '">' +
                     Studio.escapeHtml(item.name) + ' · ' + Studio.escapeHtml(item.provider_name) + '</option>';
-            }).join("");
+            }).join("") : '<option value="">暂无可用视频模型</option>';
+            if (modelData.length) {
+                var preferred = modelData.find(function (item) {
+                    return String(item.model_code).toLowerCase() === "seedance-2";
+                }) || modelData[0];
+                modelSelect.value = String(preferred.id);
+            } else {
+                modelSelect.value = "";
+            }
             productSelect.innerHTML = '<option value="">不关联产品</option>' + result.data.products.map(function (item) {
                 return '<option value="' + item.id + '">' +
                     Studio.escapeHtml(item.name) + ' · ' + Studio.escapeHtml(item.code) + '</option>';
@@ -154,7 +242,15 @@ document.addEventListener("DOMContentLoaded", function () {
             skillSelect.innerHTML = '<option value="">不使用 Skill</option>' + skillData.map(function (item) {
                 return '<option value="' + item.id + '">' + Studio.escapeHtml(item.name) + '</option>';
             }).join("");
+            layui.use("form", function () {
+                layui.form.render("select");
+            });
             renderModelFields();
+            renderModelConstraints();
+            var selected = modelData.find(function (item) {
+                return item.id === Number(modelSelect.value);
+            });
+            refreshProviderBalance(selected && selected.provider_id);
         });
     }
 
@@ -178,17 +274,28 @@ document.addEventListener("DOMContentLoaded", function () {
     function renderOutput(item) {
         var preview = document.getElementById("videoPreview");
         var placeholder = document.getElementById("videoPreviewPlaceholder");
-        if (!item.output_url) {
+        var outputs = (item.output_assets || []).filter(function (asset) {
+            return asset.status === "ACTIVE" && asset.public_url;
+        });
+        if (!outputs.length && item.output_url) {
+            outputs = [{public_url: item.output_url}];
+        }
+        if (!outputs.length) {
             placeholder.style.display = "grid";
+            placeholder.innerHTML = item.output_expired
+                ? "<div><strong>生成资产已过期</strong><span>视频已按 7 天保留策略清理，可在任务记录中查看编号。</span></div>"
+                : "<div><strong>尚未生成视频</strong><span>视频任务可能需要几分钟，请在历史中查看状态</span></div>";
             preview.style.display = "none";
             return;
         }
         placeholder.style.display = "none";
         preview.style.display = "block";
-        preview.innerHTML =
-            '<video class="studio-output-media" controls src="' + Studio.escapeHtml(item.output_url) + '"></video>' +
-            '<div class="studio-output-meta"><span>任务编号：<b>' + item.task_code + '</b></span>' +
-            '<a target="_blank" rel="noopener" href="' + Studio.escapeHtml(item.output_url) + '">打开视频</a></div>';
+        preview.innerHTML = outputs.map(function (asset) {
+            return '<video class="studio-output-media" controls src="' +
+                Studio.escapeHtml(asset.public_url) + '"></video>';
+        }).join("") +
+            '<div class="studio-output-meta"><span>任务编号：<b>' + Studio.escapeHtml(item.task_code) + '</b></span>' +
+            '<span>输出 ' + outputs.length + ' 个，保留 7 天</span></div>';
     }
 
     function poll(taskCode) {
@@ -200,7 +307,10 @@ document.addEventListener("DOMContentLoaded", function () {
             if (item.status === "SUBMITTED" || item.status === "PROCESSING") {
                 pollTimer = setTimeout(function () { poll(taskCode); }, 10000);
             } else if (item.status === "FAILED") {
+                refreshProviderBalance(item.provider_id);
                 Studio.toast(item.error_message || "生成失败", "error");
+            } else {
+                refreshProviderBalance(item.provider_id);
             }
             loadHistory();
         }).catch(function (error) {
@@ -210,23 +320,113 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function loadHistory() {
         return Studio.request("/studio/api/history?media_type=VIDEO").then(function (result) {
-            var list = result.data.filter(function (item) { return item.output_url; }).slice(0, 6);
+            var list = result.data.filter(function (item) {
+                return item.output_url || item.output_expired;
+            }).slice(0, 6);
             document.getElementById("videoHistory").innerHTML = list.length ? list.map(function (item) {
-                return '<a class="studio-history-item" target="_blank" rel="noopener" href="' +
-                    Studio.escapeHtml(item.output_url) + '">' +
-                    '<div class="studio-history-thumb"><video src="' + Studio.escapeHtml(item.output_url) + '" muted></video></div>' +
+                var expired = item.output_expired && !item.output_url;
+                var wrapper = expired ? "div" : "a";
+                var href = expired ? "" : ' target="_blank" rel="noopener" href="' +
+                    Studio.escapeHtml(item.output_url) + '"';
+                return '<' + wrapper + ' class="studio-history-item"' + href + '>' +
+                    '<div class="studio-history-thumb">' + (expired
+                        ? '<span>资产已过期</span>'
+                        : '<video src="' + Studio.escapeHtml(item.output_url) + '" muted></video>') + '</div>' +
                     '<div class="studio-history-info"><div class="studio-history-code">' + item.task_code + '</div>' +
-                    '<div class="studio-history-time">' + Studio.escapeHtml(item.created_at) + '</div></div></a>';
+                    '<div class="studio-history-time">' + Studio.escapeHtml(item.created_at) +
+                    (expired ? " · 保留 7 天" : "") + '</div></div></' + wrapper + '>';
             }).join("") : '<div class="studio-empty studio-empty-compact">暂无视频输出</div>';
         });
     }
 
-    modelSelect.addEventListener("change", renderModelFields);
+    function updateReferenceStatus(nodeId, assets, label) {
+        document.getElementById(nodeId).textContent = assets.length
+            ? "已上传 " + assets.length + " " + label + "：" +
+                assets.map(function (asset) {
+                    return asset.public_url || asset.original_filename;
+                }).join("、") +
+                "；公网 URL 已写入上方输入框"
+            : "尚未上传" + label + "；也可以直接填写外部 URL。";
+    }
+
+    function appendReferenceUrls(textareaId, assets) {
+        var textarea = document.getElementById(textareaId);
+        if (!textarea) return;
+        var urls = textarea.value.split(/\r?\n/).map(function (item) {
+            return item.trim();
+        }).filter(Boolean);
+        (assets || []).forEach(function (asset) {
+            var url = String(asset.public_url || "").trim();
+            if (url && urls.indexOf(url) === -1) urls.push(url);
+        });
+        textarea.value = urls.join("\n");
+    }
+
+    document.getElementById("newVideoButton").addEventListener("click", openComposer);
+    document.getElementById("videoComposerClose").addEventListener("click", closeComposer);
+    composerOverlay.addEventListener("click", function (event) {
+        if (event.target.dataset.composerClose) closeComposer();
+    });
+    document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape" && composerOverlay.classList.contains("is-open")) {
+            closeComposer();
+        }
+    });
+
+    document.getElementById("videoReferenceImageFiles").addEventListener("change", function (event) {
+        var files = event.target.files;
+        if (!files.length) return;
+        document.getElementById("videoReferenceImageStatus").textContent = "正在上传参考图片...";
+        Studio.uploadAssets(files, "IMAGE", "GENERATION_REFERENCE").then(function (assets) {
+            referenceImageAssets = referenceImageAssets.concat(assets);
+            appendReferenceUrls("videoReferenceImageUrls", assets);
+            updateReferenceStatus("videoReferenceImageStatus", referenceImageAssets, "张参考图片");
+        }).catch(function (error) {
+            document.getElementById("videoReferenceImageStatus").textContent = error.message;
+            Studio.toast(error.message, "error");
+        }).finally(function () {
+            event.target.value = "";
+        });
+    });
+
+    document.getElementById("videoReferenceVideoFiles").addEventListener("change", function (event) {
+        var files = event.target.files;
+        if (!files.length) return;
+        document.getElementById("videoReferenceVideoStatus").textContent = "正在上传参考视频...";
+        Studio.uploadAssets(files, "VIDEO", "GENERATION_REFERENCE").then(function (assets) {
+            referenceVideoAssets = referenceVideoAssets.concat(assets);
+            appendReferenceUrls("videoReferenceVideoUrls", assets);
+            updateReferenceStatus("videoReferenceVideoStatus", referenceVideoAssets, "个参考视频");
+        }).catch(function (error) {
+            document.getElementById("videoReferenceVideoStatus").textContent = error.message;
+            Studio.toast(error.message, "error");
+        }).finally(function () {
+            event.target.value = "";
+        });
+    });
+
+    function handleModelChange() {
+        if (lastModelValue === modelSelect.value) return;
+        lastModelValue = modelSelect.value;
+        renderModelFields();
+        renderModelConstraints();
+        var model = modelData.find(function (item) {
+            return item.id === Number(modelSelect.value);
+        });
+        refreshProviderBalance(model && model.provider_id);
+    }
+
+    modelSelect.addEventListener("change", handleModelChange);
+    layui.use("form", function () {
+        layui.form.on("select(video-model)", function (data) {
+            modelSelect.value = data.value;
+            handleModelChange();
+        });
+    });
     skillSelect.addEventListener("change", function () {
         var skill = skillData.find(function (item) { return item.id === Number(skillSelect.value); });
         if (!skill) return;
         document.getElementById("videoPrompt").value = skill.prompt_template || "";
-        document.getElementById("videoNegative").value = skill.negative_prompt || "";
     });
 
     form.addEventListener("submit", function (event) {
@@ -239,26 +439,19 @@ document.addEventListener("DOMContentLoaded", function () {
             Studio.toast(error.message, "error");
             return;
         }
-        if (data.get("extra_fields")) {
-            try {
-                extra = Object.assign(extra, JSON.parse(data.get("extra_fields")));
-            } catch (error) {
-                Studio.toast("扩展字段必须是合法 JSON", "error");
-                return;
-            }
-        }
         var payload = {
             media_type: "VIDEO",
             model_id: data.get("model_id"),
             product_id: data.get("product_id"),
             prompt: data.get("prompt"),
-            negative_prompt: data.get("negative_prompt"),
             duration: data.get("duration"),
             aspect_ratio: data.get("aspect_ratio"),
             resolution: data.get("resolution"),
             generate_audio: data.get("generate_audio") === "on",
             reference_images: data.get("reference_images"),
             reference_videos: data.get("reference_videos"),
+            reference_asset_ids: referenceImageAssets.map(function (asset) { return asset.id; }),
+            reference_video_asset_ids: referenceVideoAssets.map(function (asset) { return asset.id; }),
             extra_fields: extra
         };
         status.className = "studio-pill";
@@ -266,13 +459,29 @@ document.addEventListener("DOMContentLoaded", function () {
         Studio.request("/studio/api/generate", {method: "POST", body: JSON.stringify(payload)}).then(function (result) {
             var item = result.data;
             setStatus(item);
+            refreshProviderBalance(item.provider_id);
             poll(item.task_code);
+            closeComposer();
             Studio.toast("视频任务已提交");
         }).catch(function (error) {
             status.className = "studio-pill red";
             status.textContent = "提交失败";
             Studio.toast(error.message, "error");
         });
+    });
+
+    document.getElementById("videoReset").addEventListener("click", function () {
+        referenceImageAssets = [];
+        referenceVideoAssets = [];
+        document.getElementById("videoReferenceImageUrls").value = "";
+        document.getElementById("videoReferenceVideoUrls").value = "";
+        updateReferenceStatus("videoReferenceImageStatus", referenceImageAssets, "张参考图片");
+        updateReferenceStatus("videoReferenceVideoStatus", referenceVideoAssets, "个参考视频");
+        window.setTimeout(function () {
+            renderModelFields();
+            renderModelConstraints();
+            layui.use("form", function () { layui.form.render("select"); });
+        }, 0);
     });
 
     loadOptions().then(loadHistory).catch(function (error) {

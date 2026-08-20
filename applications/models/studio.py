@@ -118,6 +118,7 @@ class StudioProductAsset(db.Model):
     role = db.Column(db.String(40), default="reference")
     sort = db.Column(db.Integer, default=0)
     enabled = db.Column(db.Integer, default=1)
+    storage_asset_id = db.Column(db.Integer, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.datetime.now)
 
     product = db.relationship("StudioProduct", back_populates="assets")
@@ -139,6 +140,7 @@ class StudioSkill(db.Model):
     file_name = db.Column(db.String(255), nullable=True)
     file_type = db.Column(db.String(30), nullable=True)
     content = db.Column(db.Text, nullable=True)
+    storage_asset_id = db.Column(db.Integer, nullable=True)
     enabled = db.Column(db.Integer, default=1)
     created_by = db.Column(db.Integer, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.datetime.now)
@@ -189,3 +191,74 @@ class StudioGenerationTask(db.Model):
 
     product = db.relationship("StudioProduct", back_populates="tasks")
     model = db.relationship("StudioModel", back_populates="tasks")
+    comments = db.relationship(
+        "StudioGenerationComment",
+        back_populates="task",
+        cascade="all, delete-orphan",
+        lazy="select",
+    )
+
+
+class StudioGenerationComment(db.Model):
+    """Persistent AI analysis or operator comment attached to a generation task."""
+
+    __tablename__ = "studio_generation_comment"
+
+    id = db.Column(db.Integer, primary_key=True)
+    generation_task_id = db.Column(
+        db.Integer,
+        db.ForeignKey("studio_generation_task.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id = db.Column(db.Integer, nullable=True)
+    model_id = db.Column(
+        db.Integer,
+        db.ForeignKey("studio_model.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    comment_type = db.Column(db.String(30), nullable=False, default="AI_ANALYSIS")
+    status = db.Column(db.String(20), nullable=False, default="PENDING")
+    content = db.Column(db.Text, nullable=True)
+    request_body = db.Column(db.Text, nullable=True)
+    response_payload = db.Column(db.Text, nullable=True)
+    # JSON object containing model-proposed product field updates. These are
+    # suggestions only; the product is changed only through an explicit apply
+    # action from the operator.
+    suggested_updates = db.Column(db.Text, nullable=True)
+    applied_update_fields = db.Column(db.Text, nullable=True)
+    applied_at = db.Column(db.DateTime, nullable=True)
+    applied_by = db.Column(db.Integer, nullable=True)
+    error_message = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.datetime.now)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.datetime.now,
+        onupdate=datetime.datetime.now,
+    )
+
+    task = db.relationship("StudioGenerationTask", back_populates="comments")
+    model = db.relationship("StudioModel")
+
+
+class StudioAsset(db.Model):
+    """Stored file metadata and retention state."""
+
+    __tablename__ = "studio_asset"
+
+    id = db.Column(db.Integer, primary_key=True)
+    asset_type = db.Column(db.String(20), nullable=False, default="FILE")
+    purpose = db.Column(db.String(40), nullable=False, default="FILE")
+    retention_policy = db.Column(db.String(20), nullable=False, default="PERMANENT")
+    storage_path = db.Column(db.String(1000), nullable=False)
+    public_url = db.Column(db.String(1200), nullable=False)
+    original_filename = db.Column(db.String(255), nullable=True)
+    content_type = db.Column(db.String(160), nullable=True)
+    file_size = db.Column(db.BigInteger, nullable=True)
+    checksum = db.Column(db.String(128), nullable=True)
+    generation_task_id = db.Column(db.Integer, nullable=True)
+    created_by = db.Column(db.Integer, nullable=True)
+    status = db.Column(db.String(20), nullable=False, default="ACTIVE")
+    error_message = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.datetime.now)
+    expires_at = db.Column(db.DateTime, nullable=True)
+    deleted_at = db.Column(db.DateTime, nullable=True)

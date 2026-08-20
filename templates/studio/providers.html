@@ -5,7 +5,7 @@
     <div>
         <div class="studio-eyebrow">模型供应商</div>
         <h1>模型供应商</h1>
-        <p>维护官方 API 或中转 API 连接，并分别管理图片与视频模型定义。</p>
+        <p>维护官方 API 或中转 API 连接，并分别管理图片、视频和语言模型定义。</p>
     </div>
     <div class="studio-toolbar-right">
         <button class="layui-btn studio-btn-primary" id="newProvider">新增供应商</button>
@@ -52,17 +52,51 @@ document.addEventListener("DOMContentLoaded", function () {
     var providers = [];
     var models = [];
 
+    function fitArea(area) {
+        area = area || ["820px", "760px"];
+        var requestedWidth = parseInt(area[0], 10) || 820;
+        var requestedHeight = parseInt(area[1], 10) || 760;
+        var viewportWidth = Math.max(document.documentElement.clientWidth || window.innerWidth, 320);
+        var viewportHeight = Math.max(document.documentElement.clientHeight || window.innerHeight, 260);
+        return [
+            Math.min(requestedWidth, Math.max(280, viewportWidth - 24)) + "px",
+            Math.min(requestedHeight, Math.max(240, viewportHeight - 24)) + "px"
+        ];
+    }
+
     function openFrame(title, url, area) {
         layui.use("layer", function () {
             layui.layer.open({
                 type: 2,
                 title: title,
                 shade: 0.1,
-                area: area,
+                area: fitArea(area),
                 content: url,
-                maxmin: true
+                maxmin: true,
+                resize: true
             });
         });
+    }
+
+    function refreshBalance(providerId, scope) {
+        var output = document.getElementById(
+            "provider" + (scope === "token" ? "Token" : "User") + "Balance" + providerId
+        );
+        if (!output) return Promise.resolve();
+        output.textContent = "查询中...";
+        output.className = "provider-balance-value is-loading";
+        return Studio.request("/studio/api/providers/" + providerId +
+            "/balance?scope=" + scope, {method: "POST"})
+            .then(function (result) {
+                output.textContent = Studio.formatBalance(result.data.balance, scope);
+                output.className = "provider-balance-value";
+                output.title = JSON.stringify(result.data.balance || {});
+            })
+            .catch(function (error) {
+                output.textContent = "查询失败";
+                output.className = "provider-balance-value is-error";
+                output.title = error.message;
+            });
     }
 
     function renderProviders() {
@@ -92,8 +126,11 @@ document.addEventListener("DOMContentLoaded", function () {
                 '<div class="studio-provider-meta"><span>API Key：' +
                     (item.api_key_configured ? "已配置" : "未配置") +
                     '</span><span>已启用模型：' + activeModels.length +
-                    ' 个</span><span class="provider-balance-result" id="providerBalance' + item.id +
-                    '"></span></div></article>';
+                    ' 个</span><span class="provider-balance-item">用户余额：<span class="provider-balance-value" id="providerUserBalance' +
+                    item.id + '">' + (item.api_key_configured ? "未查询" : "未配置 Key") +
+                    '</span></span><span class="provider-balance-item">Token 余额：<span class="provider-balance-value" id="providerTokenBalance' +
+                    item.id + '">' + (item.api_key_configured ? "未查询" : "未配置 Key") +
+                    '</span></span></div></article>';
         }).join("");
 
         list.querySelectorAll(".edit-provider").forEach(function (button) {
@@ -104,17 +141,7 @@ document.addEventListener("DOMContentLoaded", function () {
         });
         list.querySelectorAll(".balance-provider").forEach(function (button) {
             button.addEventListener("click", function () {
-                var output = document.getElementById("providerBalance" + button.dataset.id);
-                output.textContent = "查询中...";
-                Studio.request("/studio/api/providers/" + button.dataset.id +
-                    "/balance?scope=" + button.dataset.scope, {method: "POST"})
-                    .then(function (result) {
-                        output.textContent = button.dataset.scope === "token"
-                            ? "Token 余额已获取"
-                            : "用户余额已获取";
-                        output.title = JSON.stringify(result.data.payload);
-                    })
-                    .catch(function (error) { output.textContent = error.message; });
+                refreshBalance(button.dataset.id, button.dataset.scope);
             });
         });
     }
@@ -125,10 +152,15 @@ document.addEventListener("DOMContentLoaded", function () {
             table.innerHTML = '<tr><td colspan="7" class="studio-empty">暂无模型定义</td></tr>';
             return;
         }
+        function mediaTypeLabel(mediaType) {
+            return mediaType === "VIDEO"
+                ? "视频"
+                : (mediaType === "CHAT" ? "语言模型" : "图片");
+        }
         table.innerHTML = models.map(function (item) {
             return '<tr><td><b>' + Studio.escapeHtml(item.name) + '</b></td>' +
                 '<td class="muted">' + Studio.escapeHtml(item.model_code) + '</td>' +
-                '<td>' + (item.media_type === "VIDEO" ? "视频" : "图片") + '</td>' +
+                '<td>' + mediaTypeLabel(item.media_type) + '</td>' +
                 '<td>' + Studio.escapeHtml(item.provider_name) + '</td>' +
                 '<td>' + (item.parameter_schema || []).length + '</td>' +
                 '<td><span class="studio-pill ' + (item.enabled ? "green" : "gray") + '">' +
@@ -167,6 +199,12 @@ document.addEventListener("DOMContentLoaded", function () {
             });
             renderProviders();
             renderModels();
+            providers.filter(function (provider) {
+                return provider.enabled && provider.api_key_configured;
+            }).forEach(function (provider) {
+                refreshBalance(provider.id, "user");
+                refreshBalance(provider.id, "token");
+            });
         });
     }
 

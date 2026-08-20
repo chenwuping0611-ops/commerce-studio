@@ -23,7 +23,9 @@ def _mysql_engine_options():
         "pool_pre_ping": True,
         "pool_recycle": 1800,
         "pool_size": int(os.getenv("MYSQL_POOL_SIZE") or 5),
-        "max_overflow": int(os.getenv("MYSQL_MAX_OVERFLOW") or 2),
+        "max_overflow": int(os.getenv("MYSQL_MAX_OVERFLOW") or 10),
+        "pool_timeout": int(os.getenv("MYSQL_POOL_TIMEOUT") or 20),
+        "pool_use_lifo": True,
         "connect_args": {
             "connect_timeout": int(os.getenv("MYSQL_CONNECT_TIMEOUT") or 10),
         },
@@ -69,8 +71,27 @@ class BaseConfig:
     )
     STUDIO_REQUEST_TIMEOUT = int(os.getenv("STUDIO_REQUEST_TIMEOUT") or 120)
     STUDIO_POLL_INTERVAL = int(os.getenv("STUDIO_POLL_INTERVAL") or 10)
-    STUDIO_MAX_IMAGE_REFERENCES = int(os.getenv("STUDIO_MAX_IMAGE_REFERENCES") or 10)
+    STUDIO_MAX_IMAGE_REFERENCES = int(os.getenv("STUDIO_MAX_IMAGE_REFERENCES") or 14)
     STUDIO_MAX_VIDEO_REFERENCES = int(os.getenv("STUDIO_MAX_VIDEO_REFERENCES") or 10)
+    STUDIO_ASSET_TTL_DAYS = int(os.getenv("STUDIO_ASSET_TTL_DAYS") or 7)
+    STUDIO_ASSET_CLEANUP_INTERVAL = int(
+        os.getenv("STUDIO_ASSET_CLEANUP_INTERVAL") or 3600
+    )
+
+    GOFASTDFS_INTERNAL_URL = os.getenv("GOFASTDFS_INTERNAL_URL") or ""
+    GOFASTDFS_PUBLIC_URL = os.getenv("GOFASTDFS_PUBLIC_URL") or ""
+    GOFASTDFS_GROUP = os.getenv("GOFASTDFS_GROUP") or "group1"
+    GOFASTDFS_TIMEOUT = int(os.getenv("GOFASTDFS_TIMEOUT") or 120)
+    GOFASTDFS_MAX_FILE_SIZE = int(
+        os.getenv("GOFASTDFS_MAX_FILE_SIZE") or 536870912
+    )
+    GOFASTDFS_VERIFY_SSL = os.getenv("GOFASTDFS_VERIFY_SSL", "true")
+    GOFASTDFS_UPLOAD_ENDPOINT = os.getenv(
+        "GOFASTDFS_UPLOAD_ENDPOINT", "/{group}/upload"
+    )
+    GOFASTDFS_DELETE_ENDPOINT = os.getenv(
+        "GOFASTDFS_DELETE_ENDPOINT", "/{group}/delete"
+    )
 
     LOG_LEVEL = logging.WARN
     MAIL_SERVER = os.getenv("MAIL_SERVER") or "smtp.qq.com"
@@ -90,7 +111,7 @@ class TestingConfig(BaseConfig):
 
 
 class DevelopmentConfig(BaseConfig):
-    SQLALCHEMY_TRACK_MODIFICATIONS = True
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ECHO = False
 
 

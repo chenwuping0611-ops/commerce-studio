@@ -10,14 +10,17 @@
                 <div>
                     <label class="studio-field-label">产品编码</label>
                     <input name="code" id="productCode" required class="layui-input" placeholder="例如 SKU-CAR-001">
+                    <div class="studio-field-help">产品的唯一业务标识或 SKU，用于精准关联生成任务。</div>
                 </div>
                 <div>
                     <label class="studio-field-label">产品名称</label>
                     <input name="name" id="productName" required class="layui-input" placeholder="例如 智能电动汽车">
+                    <div class="studio-field-help">面向运营人员展示的产品名称，与产品编码属于同一条产品资料。</div>
                 </div>
                 <div>
                     <label class="studio-field-label">品牌</label>
                     <input name="brand" id="productBrand" class="layui-input">
+                    <div class="studio-field-help">填写品牌归属，生成提示词会将它作为品牌信息带入。</div>
                 </div>
                 <div class="studio-field-span-2">
                     <label class="studio-field-label">产品描述</label>
@@ -34,11 +37,13 @@
                     <label class="studio-field-label">Product Profile（产品档案）</label>
                     <textarea name="product_profile" id="productProfile" class="layui-textarea" rows="3"
                               placeholder="填写稳定的产品身份：外形、颜色、结构和品牌识别特征"></textarea>
+                    <div class="studio-field-help">描述长期稳定、不可随意变化的外观和结构，是防止生成跑偏的核心资料。</div>
                 </div>
                 <div class="studio-field-span-2">
                     <label class="studio-field-label">产品记忆</label>
                     <textarea name="product_memory" id="productMemory" class="layui-textarea" rows="3"
                               placeholder="填写需要在后续生成中持续携带的事实、偏好和上下文"></textarea>
+                    <div class="studio-field-help">记录卖点、使用场景、目标人群等长期上下文；每次选择产品时会参与 Prompt 拼接。</div>
                 </div>
                 <div>
                     <label class="studio-field-label">生成规则</label>
@@ -55,9 +60,12 @@
 
         <div class="studio-modal-section">
             <div class="studio-modal-section-title">默认引用素材</div>
-            <label class="studio-field-label">素材 URL</label>
+            <label class="studio-field-label">默认素材 URL（可选）</label>
             <textarea name="asset_urls" id="productAssets" class="layui-textarea" rows="3"
                       placeholder="每行填写一个图片或视频 URL"></textarea>
+            <div class="studio-field-help">
+                这里用于兼容外部已有 URL，不会自动上传。通过产品中心的“添加素材”上传后，文件会先进入 go-fastdfs，保存产品素材时自动写入对应 URL 并永久保留。
+            </div>
         </div>
 
         <div class="studio-form-actions studio-iframe-actions">

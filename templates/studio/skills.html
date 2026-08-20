@@ -32,7 +32,7 @@
         <div class="studio-card-body">
             <div class="studio-note">
                 Skill 可在图片或视频创作页面中选择。JSON 文件支持读取 name、media_type、version、tags、
-                prompt_template 和 negative_prompt 字段。
+                prompt_template 字段。
             </div>
         </div>
     </section>
@@ -69,7 +69,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 type: 2,
                 title: title,
                 shade: 0.1,
-                area: area,
+                area: Studio.fitLayerArea(area),
                 content: url,
                 maxmin: true
             });
@@ -90,6 +90,11 @@ document.addEventListener("DOMContentLoaded", function () {
                     '<td>' + Studio.escapeHtml(item.version) + '</td><td class="muted">' +
                     Studio.escapeHtml(item.file_name || "手动创建") + '</td>' +
                     '<td><span class="studio-actions">' +
+                    (item.download_url
+                        ? '<a class="layui-btn layui-btn-xs studio-btn-quiet" target="_blank" rel="noopener" download="' +
+                            Studio.escapeHtml(item.file_name || item.code || "skill") + '" href="' +
+                            Studio.escapeHtml(item.download_url) + '">下载</a>'
+                        : '<button class="layui-btn layui-btn-xs studio-btn-quiet" disabled>无文件</button>') +
                     '<button class="layui-btn layui-btn-xs studio-btn-quiet edit-skill" data-id="' +
                     item.id + '">编辑</button>' +
                     '<button class="layui-btn layui-btn-xs layui-btn-danger delete-skill" data-id="' +
@@ -99,7 +104,7 @@ document.addEventListener("DOMContentLoaded", function () {
             table.querySelectorAll(".edit-skill").forEach(function (button) {
                 button.addEventListener("click", function () {
                     openFrame("编辑 Skill", "/studio/forms/skill?id=" +
-                        encodeURIComponent(button.dataset.id), ["760px", "680px"]);
+                        encodeURIComponent(button.dataset.id), ["760px", "760px"]);
                 });
             });
             table.querySelectorAll(".delete-skill").forEach(function (button) {
@@ -146,7 +151,7 @@ document.addEventListener("DOMContentLoaded", function () {
     });
 
     document.getElementById("newSkill").addEventListener("click", function () {
-        openFrame("新建 Skill", "/studio/forms/skill", ["760px", "680px"]);
+        openFrame("新建 Skill", "/studio/forms/skill", ["760px", "760px"]);
     });
     fileInput.addEventListener("change", function (event) {
         uploadFiles(event.target.files);

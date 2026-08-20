@@ -9,4 +9,5 @@ class Photo(db.Model):
     href = db.Column(db.String(255))
     mime = db.Column(db.CHAR(50), nullable=False)
     size = db.Column(db.CHAR(30), nullable=False)
+    storage_path = db.Column(db.String(1000), nullable=True)
     create_time = db.Column(db.DateTime, default=datetime.datetime.now)

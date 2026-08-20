@@ -1,8 +1,6 @@
-import os
-from flask import current_app
 from sqlalchemy import desc
 from applications.extensions import db
-from applications.extensions.init_upload import photos
+from applications.common.storage import FileService
 from applications.models import Photo
 from applications.schemas import PhotoOutSchema
 from applications.common.curd import model_to_dicts
@@ -16,21 +14,32 @@ def get_photo(page, limit):
 
 
 def upload_one(photo, mime):
-    filename = photos.save(photo)
-    file_url = '/_uploads/photos/'+filename
-    # file_url = photos.url(filename)
-    upload_url = current_app.config.get("UPLOADED_PHOTOS_DEST")
-    size = os.path.getsize(upload_url + '/' + filename)
-    photo = Photo(name=filename, href=file_url, mime=mime, size=size)
-    db.session.add(photo)
+    stored = FileService.upload_file(
+        photo,
+        asset_type="IMAGE",
+        purpose="LEGACY_IMAGE",
+        retention_policy=FileService.PERMANENT,
+        category="images/uploads",
+        record=False,
+    )
+    photo_record = Photo(
+        name=stored.original_filename,
+        href=stored.public_url,
+        mime=mime or stored.content_type,
+        size=str(stored.file_size or 0),
+        storage_path=stored.storage_path,
+    )
+    db.session.add(photo_record)
     db.session.commit()
-    return file_url
+    return {"src": stored.public_url}
 
 
 def delete_photo_by_id(_id):
-    photo_name = Photo.query.filter_by(id=_id).first().name
+    photo_record = Photo.query.filter_by(id=_id).first()
+    if not photo_record:
+        return 0
+    if photo_record.storage_path:
+        FileService.delete_storage(photo_record.storage_path)
     photo = Photo.query.filter_by(id=_id).delete()
     db.session.commit()
-    upload_url = current_app.config.get("UPLOADED_PHOTOS_DEST")
-    os.remove(upload_url + '/' + photo_name)
     return photo

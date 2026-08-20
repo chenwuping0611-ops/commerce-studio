@@ -1,40 +1,77 @@
 {% extends "studio/base.html" %}
 {% block title %}产品中心 | Commerce Studio{% endblock %}
 {% block content %}
-<div class="studio-page-header">
+<div class="studio-page-header studio-products-header">
     <div>
-        <div class="studio-eyebrow">产品中心</div>
+        <div class="studio-eyebrow">产品工作台</div>
         <h1>产品中心</h1>
-        <p>先建立产品资料，再维护 Product Profile、产品记忆与可引用素材。</p>
+        <p>每个产品独立维护基础资料、产品档案、产品记忆和可引用素材，图片与视频创作会按当前产品携带这些信息。</p>
     </div>
-    <button class="layui-btn studio-btn-primary" id="newProduct">新建产品</button>
+    <div class="studio-toolbar-right">
+        <span class="studio-helper" id="productHeaderHint">请选择一个产品开始维护</span>
+        <button type="button" class="layui-btn studio-btn-quiet" id="refreshProducts">刷新</button>
+    </div>
 </div>
 
-<section class="studio-card">
-    <div class="studio-card-header">
-        <h2>产品资料</h2>
-        <span class="studio-helper" id="productCount">0 个产品</span>
-    </div>
-    <div class="studio-card-body">
-        <div class="studio-product-list" id="productList">
-            <div class="studio-empty">正在加载产品</div>
+<div class="studio-products-workspace">
+    <aside class="studio-product-sidebar" aria-label="产品列表">
+        <div class="studio-product-sidebar-top">
+            <button type="button" class="layui-btn studio-btn-primary studio-product-create" id="newProduct">
+                <i class="layui-icon layui-icon-add-1"></i>
+                新建产品
+            </button>
         </div>
-    </div>
-</section>
+        <div class="studio-product-sidebar-heading">
+            <strong>已集成产品</strong>
+            <span id="productCount">0 个产品</span>
+        </div>
+        <div class="studio-product-nav" id="productNav">
+            <div class="studio-product-nav-empty">正在加载产品</div>
+        </div>
+        <div class="studio-product-sidebar-note">
+            <strong>产品记忆会被持续引用</strong>
+            <span>产品档案、Product Profile、产品记忆和素材会在创作时自动带入请求。</span>
+        </div>
+    </aside>
+
+    <main class="studio-product-main" id="productDetail">
+        <div class="studio-product-detail-empty">
+            <div class="studio-product-empty-icon"><i class="layui-icon layui-icon-app"></i></div>
+            <h2>选择一个产品</h2>
+            <p>左侧选择产品后，这里会展示它的基础资料、产品记忆和素材库。</p>
+        </div>
+    </main>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 document.addEventListener("DOMContentLoaded", function () {
     var productData = [];
+    var selectedProductId = null;
+    var collapsedProducts = {};
+
+    var assetGroups = [
+        {role: "cover", label: "主图", helper: "产品封面与主视觉基准", icon: "layui-icon-picture"},
+        {role: "front", label: "正面", helper: "锁定正面结构与比例", icon: "layui-icon-picture"},
+        {role: "back", label: "背面", helper: "背面结构与接口位置", icon: "layui-icon-picture"},
+        {role: "left", label: "左侧", helper: "左侧轮廓与细节", icon: "layui-icon-picture"},
+        {role: "right", label: "右侧", helper: "右侧轮廓与细节", icon: "layui-icon-picture"},
+        {role: "top", label: "顶部", helper: "顶部按钮与接口", icon: "layui-icon-picture"},
+        {role: "bottom", label: "底部", helper: "底部结构与铭牌", icon: "layui-icon-picture"},
+        {role: "detail", label: "细节图", helper: "材质、接口、纹理和局部特写", icon: "layui-icon-picture"},
+        {role: "scene", label: "场景图", helper: "使用场景与环境参考", icon: "layui-icon-picture"},
+        {role: "360", label: "360 视频", helper: "产品旋转或真实使用视频", icon: "layui-icon-video"},
+        {role: "reference", label: "其他素材", helper: "兼容旧素材与外部参考 URL", icon: "layui-icon-link"}
+    ];
 
     function openFrame(title, url, area) {
         layui.use("layer", function () {
             layui.layer.open({
                 type: 2,
                 title: title,
-                shade: 0.1,
-                area: area,
+                shade: 0.12,
+                area: Studio.fitLayerArea(area),
                 content: url,
                 maxmin: true
             });
@@ -49,76 +86,445 @@ document.addEventListener("DOMContentLoaded", function () {
         }[type] || type || "素材";
     }
 
-    function renderAssets(item) {
-        var assets = (item.assets || []).map(function (asset) {
-            return '<div class="studio-asset-row">' +
-                '<span class="studio-asset-type">' + Studio.escapeHtml(assetTypeText(asset.asset_type)) + '</span>' +
-                '<a target="_blank" rel="noopener" href="' + Studio.escapeHtml(asset.url) + '">' +
-                    Studio.escapeHtml(asset.name) + '</a>' +
-                '<button class="studio-icon-button delete-asset" title="停用素材" ' +
-                    'data-product-id="' + item.id + '" data-id="' + asset.id + '">×</button>' +
-                '</div>';
-        }).join("");
-        return assets || '<div class="studio-helper">暂无独立素材</div>';
+    function findProduct(id) {
+        return productData.find(function (item) {
+            return String(item.id) === String(id);
+        });
     }
 
-    function renderProducts() {
+    function assetRole(role, name) {
+        var value = String(role || "").toLowerCase();
+        if (assetGroups.some(function (group) { return group.role === value; })) {
+            return value;
+        }
+        var text = String(name || "");
+        if (/正面|前面|前视/.test(text)) return "front";
+        if (/背面|后面|后视/.test(text)) return "back";
+        if (/左侧|左面|左视/.test(text)) return "left";
+        if (/右侧|右面|右视/.test(text)) return "right";
+        if (/顶部|顶面|上视/.test(text)) return "top";
+        if (/底部|底面|下视/.test(text)) return "bottom";
+        if (/细节|特写|局部/.test(text)) return "detail";
+        if (/场景|使用环境/.test(text)) return "scene";
+        if (/360|旋转/.test(text)) return "360";
+        if (/主图|封面|主视觉/.test(text)) return "cover";
+        return "reference";
+    }
+
+    function groupedAssets(product) {
+        var groups = {};
+        assetGroups.forEach(function (group) { groups[group.role] = []; });
+        (product.assets || []).forEach(function (asset) {
+            groups[assetRole(asset.role, asset.name)].push(asset);
+        });
+        (product.asset_urls || []).forEach(function (url, index) {
+            groups.reference.push({
+                id: "external-" + index,
+                name: "外部素材 " + (index + 1),
+                url: url,
+                asset_type: "IMAGE",
+                role: "reference",
+                external: true
+            });
+        });
+        return groups;
+    }
+
+    function mediaPreview(asset) {
+        if (!asset.url) {
+            return '<div class="studio-product-asset-placeholder"><i class="layui-icon layui-icon-picture"></i><span>文件不可用</span></div>';
+        }
+        if (asset.asset_type === "VIDEO") {
+            return '<video class="studio-product-asset-media" src="' +
+                Studio.escapeHtml(asset.url) + '" muted preload="metadata"></video>';
+        }
+        return '<img class="studio-product-asset-media" src="' +
+            Studio.escapeHtml(asset.url) + '" alt="' + Studio.escapeHtml(asset.name || "产品素材") + '">';
+    }
+
+    function assetTile(product, asset) {
+        var deleteButton = asset.external
+            ? ""
+            : '<button type="button" class="studio-product-asset-delete" data-action="delete-asset" ' +
+                'data-product-id="' + product.id + '" data-asset-id="' + asset.id + '" title="移除素材">' +
+                '<i class="layui-icon layui-icon-delete"></i></button>';
+        return '<article class="studio-product-asset-tile">' +
+            '<a class="studio-product-asset-preview" href="' + Studio.escapeHtml(asset.url || "#") +
+            '" target="_blank" rel="noopener">' + mediaPreview(asset) + '</a>' +
+            '<div class="studio-product-asset-info">' +
+            '<div class="studio-product-asset-name" title="' + Studio.escapeHtml(asset.name || "") + '">' +
+            Studio.escapeHtml(asset.name || "未命名素材") + '</div>' +
+            '<div class="studio-product-asset-meta">' + Studio.escapeHtml(assetTypeText(asset.asset_type)) +
+            (asset.external ? " · 外部 URL" : "") + '</div></div>' +
+            deleteButton +
+            '</article>';
+    }
+
+    function isFixedAssetRole(role) {
+        return ["cover", "front", "back", "left", "right", "top", "bottom", "360"]
+            .indexOf(String(role || "").toLowerCase()) !== -1;
+    }
+
+    function uploadProductFiles(productId, role, assetType, files) {
+        var selectedFiles = Array.prototype.slice.call(files || []);
+        if (!selectedFiles.length) return Promise.resolve();
+
+        var isVideo = String(role || "").toLowerCase() === "360";
+        selectedFiles = selectedFiles.filter(function (file) {
+            var type = String(file.type || "").toLowerCase();
+            return isVideo ? type.indexOf("video/") === 0 : type.indexOf("image/") === 0;
+        });
+        if (!selectedFiles.length) {
+            Studio.toast(isVideo ? "360 槽位只支持视频文件" : "该槽位只支持图片文件", "error");
+            return Promise.resolve();
+        }
+        if (isFixedAssetRole(role)) selectedFiles = selectedFiles.slice(0, 1);
+
+        var group = document.getElementById("product-assets-" + role);
+        var statusNode = group && group.querySelector("[data-drop-status]");
+        if (statusNode) {
+            statusNode.textContent = "正在上传 " + selectedFiles.length + " 个文件...";
+        }
+
+        return Studio.uploadAssets(
+            selectedFiles,
+            isVideo ? "VIDEO" : (assetType || "IMAGE"),
+            "PRODUCT_PENDING"
+        ).then(function (assets) {
+            return assets.reduce(function (chain, stored) {
+                return chain.then(function () {
+                    return Studio.request(
+                        "/studio/api/products/" + encodeURIComponent(productId) + "/assets",
+                        {
+                            method: "POST",
+                            body: JSON.stringify({
+                                name: stored.original_filename || role + "-reference",
+                                role: role,
+                                asset_type: isVideo ? "VIDEO" : (stored.asset_type || "IMAGE"),
+                                url: stored.public_url,
+                                storage_asset_id: stored.id,
+                                replace_existing: isFixedAssetRole(role)
+                            })
+                        }
+                    );
+                });
+            }, Promise.resolve());
+        }).then(function () {
+            return loadProducts();
+        }).then(function () {
+            Studio.toast("产品素材已上传");
+        }).catch(function (error) {
+            if (statusNode) statusNode.textContent = error.message;
+            Studio.toast(error.message, "error");
+        });
+    }
+
+    function pickProductFiles(target) {
+        var role = target.dataset.role || "reference";
+        var input = document.createElement("input");
+        input.type = "file";
+        input.accept = role === "360" ? "video/*" : "image/*";
+        input.multiple = !isFixedAssetRole(role);
+        input.addEventListener("change", function () {
+            uploadProductFiles(
+                target.dataset.productId,
+                role,
+                target.dataset.assetType || (role === "360" ? "VIDEO" : "IMAGE"),
+                input.files
+            );
+        });
+        input.click();
+    }
+
+    function renderAssetGroup(product, group) {
+        var groups = groupedAssets(product);
+        var assets = groups[group.role] || [];
+        var uploadType = group.role === "360" ? "VIDEO" : "IMAGE";
+        return '<section class="studio-product-asset-group" id="product-assets-' + group.role + '"' +
+            ' data-dropzone="1" data-product-id="' + product.id + '" data-role="' + group.role +
+            '" data-asset-type="' + uploadType + '">' +
+            '<header class="studio-product-asset-group-head">' +
+            '<div class="studio-product-asset-group-title">' +
+            '<span class="studio-product-asset-group-icon"><i class="layui-icon ' + group.icon + '"></i></span>' +
+            '<div><h4>' + Studio.escapeHtml(group.label) + '</h4>' +
+            '<span>' + Studio.escapeHtml(group.helper) + '</span></div>' +
+            '<b>' + assets.length + '</b></div>' +
+            '<button type="button" class="layui-btn layui-btn-xs studio-btn-quiet" data-action="pick-asset" ' +
+            'data-product-id="' + product.id + '" data-role="' + group.role + '" data-asset-type="' + uploadType + '">' +
+            '<i class="layui-icon layui-icon-upload"></i> 上传</button>' +
+            '</header>' +
+            '<div class="studio-product-drop-status" data-drop-status></div>' +
+            '<div class="studio-product-asset-grid">' +
+            (assets.length
+                ? assets.map(function (asset) { return assetTile(product, asset); }).join("")
+                : '<div class="studio-product-asset-empty"><i class="layui-icon ' + group.icon + '"></i>' +
+                    '<span>还没有' + Studio.escapeHtml(group.label) + '素材</span>' +
+                    '<button type="button" class="studio-link-button" data-action="pick-asset" ' +
+                    'data-product-id="' + product.id + '" data-role="' + group.role + '" data-asset-type="' +
+                    uploadType + '">选择文件或拖动到这里</button></div>') +
+            '</div></section>';
+    }
+
+    function detailField(label, value, extraClass) {
+        return '<div class="studio-product-detail-field ' + (extraClass || "") + '">' +
+            '<span>' + label + '</span><strong>' + Studio.escapeHtml(value || "暂无") + '</strong></div>';
+    }
+
+    function renderProductDetail(product) {
+        var groups = groupedAssets(product);
+        var totalAssets = Object.keys(groups).reduce(function (total, key) {
+            return total + groups[key].length;
+        }, 0);
+        var imageCount = (product.assets || []).filter(function (asset) {
+            return asset.asset_type === "IMAGE" || asset.asset_type === "BOTH";
+        }).length;
+        var videoCount = (product.assets || []).filter(function (asset) {
+            return asset.asset_type === "VIDEO" || asset.asset_type === "BOTH";
+        }).length;
+
+        document.getElementById("productHeaderHint").textContent =
+            product.name + " · 产品资料与素材维护";
+
+        document.getElementById("productDetail").innerHTML =
+            '<div class="studio-product-detail-header">' +
+            '<div class="studio-product-detail-heading">' +
+            '<div class="studio-product-detail-avatar"><i class="layui-icon layui-icon-app"></i></div>' +
+            '<div><div class="studio-eyebrow">当前产品</div><h2>' + Studio.escapeHtml(product.name) + '</h2>' +
+            '<div class="studio-product-detail-code">' + Studio.escapeHtml(product.code) +
+            (product.brand ? " · " + Studio.escapeHtml(product.brand) : "") + '</div></div></div>' +
+            '<div class="studio-product-detail-actions">' +
+            '<span class="studio-pill green">启用</span>' +
+            '<button type="button" class="layui-btn studio-btn-quiet" data-action="edit-product" data-id="' +
+            product.id + '"><i class="layui-icon layui-icon-edit"></i> 编辑资料</button>' +
+            '<button type="button" class="layui-btn studio-btn-primary" data-action="pick-asset" data-product-id="' +
+            product.id + '" data-role="reference" data-asset-type="IMAGE"><i class="layui-icon layui-icon-upload"></i> 添加素材</button>' +
+            '</div></div>' +
+
+            '<nav class="studio-product-section-nav" aria-label="产品信息导航">' +
+            '<button type="button" data-action="jump" data-target="product-overview">产品概览</button>' +
+            '<button type="button" data-action="jump" data-target="product-archive">产品档案</button>' +
+            '<button type="button" data-action="jump" data-target="product-memory">产品记忆</button>' +
+            '<button type="button" data-action="jump" data-target="product-assets">图片与视频素材</button>' +
+            '</nav>' +
+
+            '<section class="studio-product-section" id="product-overview">' +
+            '<div class="studio-product-section-head"><div><span class="studio-eyebrow">工作台首页</span>' +
+            '<h3>产品概览</h3><p>这里是当前产品的基础资料，创作页面会通过产品编码关联到这条记录。</p></div>' +
+            '<span class="studio-product-section-count">' + totalAssets + ' 个素材</span></div>' +
+            '<div class="studio-product-overview-grid">' +
+            detailField("产品名称", product.name) +
+            detailField("产品编码", product.code) +
+            detailField("品牌", product.brand) +
+            detailField("状态", product.enabled ? "启用" : "停用") +
+            '</div>' +
+            '<div class="studio-product-description">' +
+            '<span>基础资料</span><p>' + Studio.escapeHtml(product.description || "还没有填写产品资料。") + '</p></div>' +
+            '<div class="studio-product-stat-row">' +
+            '<div><b>' + imageCount + '</b><span>图片素材</span></div>' +
+            '<div><b>' + videoCount + '</b><span>视频素材</span></div>' +
+            '<div><b>' + ((product.product_profile || "").length ? "已维护" : "待维护") +
+            '</b><span>Product Profile</span></div>' +
+            '<div><b>' + ((product.product_memory || "").length ? "已维护" : "待维护") +
+            '</b><span>产品记忆</span></div></div></section>' +
+
+            '<section class="studio-product-section" id="product-archive">' +
+            '<div class="studio-product-section-head"><div><span class="studio-eyebrow">产品档案</span>' +
+            '<h3>产品档案与 Product Profile</h3><p>记录产品不会随创意变化的外形、结构、材质、颜色和识别特征。</p></div>' +
+            '<button type="button" class="layui-btn layui-btn-xs studio-btn-quiet" data-action="edit-product" data-id="' +
+            product.id + '"><i class="layui-icon layui-icon-edit"></i> 编辑档案</button></div>' +
+            '<div class="studio-product-memory-grid">' +
+            '<article class="studio-product-text-panel"><h4>产品描述</h4><p>' +
+            Studio.escapeHtml(product.description || "还没有填写产品描述。") + '</p></article>' +
+            '<article class="studio-product-text-panel is-emphasis"><h4>Product Profile</h4><p>' +
+            Studio.escapeHtml(product.product_profile || "还没有填写 Product Profile。") + '</p></article>' +
+            '</div></section>' +
+
+            '<section class="studio-product-section" id="product-memory">' +
+            '<div class="studio-product-section-head"><div><span class="studio-eyebrow">图片创作</span>' +
+            '<h3>产品记忆</h3><p>图片创作时，用户创意会优先放在前面，以下产品信息会接在后面一起形成最终 Prompt。</p></div>' +
+            '<button type="button" class="layui-btn layui-btn-xs studio-btn-quiet" data-action="edit-product" data-id="' +
+            product.id + '"><i class="layui-icon layui-icon-edit"></i> 编辑记忆</button></div>' +
+            '<div class="studio-product-memory-grid">' +
+            '<article class="studio-product-text-panel"><h4>产品记忆</h4><p>' +
+            Studio.escapeHtml(product.product_memory || "还没有填写产品记忆。") + '</p></article>' +
+            '<article class="studio-product-text-panel"><h4>生成规则</h4><p>' +
+            Studio.escapeHtml(product.generation_rules || "还没有填写生成规则。") + '</p></article>' +
+            '<article class="studio-product-text-panel is-warning"><h4>禁止修改规则</h4><p>' +
+            Studio.escapeHtml(product.forbidden_rules || "还没有填写禁止修改规则。") + '</p></article>' +
+            '</div></section>' +
+
+            '<section class="studio-product-section studio-product-assets-section" id="product-assets">' +
+            '<div class="studio-product-section-head"><div><span class="studio-eyebrow">产品素材库</span>' +
+            '<h3>图片与视频素材</h3><p>按主图、前后左右上下六个方位维护产品参考图，也可以补充细节、场景和 360 视频。</p></div>' +
+            '<div class="studio-product-section-count">图片 ' + imageCount + ' · 视频 ' + videoCount + '</div></div>' +
+            '<div class="studio-product-asset-note"><i class="layui-icon layui-icon-tips"></i>' +
+            '<span>六方位素材用于锁定产品结构、比例、按钮和接口位置；产品中心素材永久保留，除非手动移除或删除产品。</span></div>' +
+            '<div class="studio-product-six-view-grid">' +
+            assetGroups.slice(0, 7).map(function (group) {
+                return renderAssetGroup(product, group);
+            }).join("") +
+            '</div>' +
+            '<div class="studio-product-general-title"><div><h4>其他产品素材</h4><span>细节图、场景图、360 视频和外部参考 URL</span></div>' +
+            '<button type="button" class="layui-btn layui-btn-xs studio-btn-quiet" data-action="pick-asset" data-product-id="' +
+            product.id + '" data-role="reference" data-asset-type="IMAGE"><i class="layui-icon layui-icon-upload"></i> 添加其他素材</button></div>' +
+            '<div class="studio-product-general-grid">' +
+            assetGroups.slice(7).map(function (group) {
+                return renderAssetGroup(product, group);
+            }).join("") +
+            '</div></section>';
+    }
+
+    function renderProductNav() {
+        var nav = document.getElementById("productNav");
         document.getElementById("productCount").textContent = productData.length + " 个产品";
-        var list = document.getElementById("productList");
         if (!productData.length) {
-            list.innerHTML = '<div class="studio-empty">暂无产品，请先新建产品。</div>';
+            nav.innerHTML = '<div class="studio-product-nav-empty"><i class="layui-icon layui-icon-app"></i>' +
+                '<span>暂无产品，请先新建产品</span></div>';
+            document.getElementById("productDetail").innerHTML =
+                '<div class="studio-product-detail-empty"><div class="studio-product-empty-icon">' +
+                '<i class="layui-icon layui-icon-add-1"></i></div><h2>先创建一个产品</h2>' +
+                '<p>例如：手持冲击扳手、耐泡剂、对讲机。每个产品都会拥有独立的产品档案和素材库。</p>' +
+                '<button type="button" class="layui-btn studio-btn-primary" data-action="create-product">新建产品</button></div>';
             return;
         }
-        list.innerHTML = productData.map(function (item) {
-            var summary = item.product_profile || item.description || "暂无产品描述";
-            var assetCount = (item.asset_urls || []).length + (item.assets || []).length;
-            return '<article class="studio-product-card">' +
-                '<div class="studio-product-title"><div><h3>' + Studio.escapeHtml(item.name) + '</h3>' +
-                '<div class="studio-product-code">' + Studio.escapeHtml(item.code) + '</div></div>' +
-                '<span class="studio-pill green">启用</span></div>' +
-                '<div class="studio-product-summary">' + Studio.escapeHtml(summary) + '</div>' +
-                '<div class="studio-product-meta"><span>' +
-                    Studio.escapeHtml(item.brand || "未设置品牌") + '</span><span>可引用素材 ' +
-                    assetCount + ' 个</span></div>' +
-                '<div class="studio-product-assets">' + renderAssets(item) + '</div>' +
-                '<div class="studio-product-footer"><span>更新时间：' +
-                    Studio.escapeHtml(item.updated_at) + '</span>' +
-                '<span class="studio-actions"><button class="layui-btn layui-btn-xs studio-btn-quiet edit-product" ' +
-                    'data-id="' + item.id + '">编辑</button>' +
-                '<button class="layui-btn layui-btn-xs studio-btn-quiet add-asset" data-id="' +
-                    item.id + '">添加素材</button></span></div>' +
-                '</article>';
+        nav.innerHTML = productData.map(function (product) {
+            var selected = String(product.id) === String(selectedProductId);
+            var collapsed = collapsedProducts[product.id] === true;
+            var assetCount = (product.assets || []).length + (product.asset_urls || []).length;
+            return '<div class="studio-product-nav-item ' + (selected ? "is-selected " : "") +
+                (collapsed ? "is-collapsed" : "") + '">' +
+                '<div class="studio-product-nav-row">' +
+                '<button type="button" class="studio-product-nav-select" data-action="select-product" data-id="' +
+                product.id + '">' +
+                '<span class="studio-product-nav-icon"><i class="layui-icon layui-icon-app"></i></span>' +
+                '<span class="studio-product-nav-copy"><strong>' + Studio.escapeHtml(product.name) +
+                '</strong><small>' + Studio.escapeHtml(product.code) + '</small></span>' +
+                '<em>' + assetCount + '</em></button>' +
+                '<button type="button" class="studio-product-nav-toggle" data-action="toggle-product" data-id="' +
+                product.id + '" aria-expanded="' + (!collapsed) + '" title="' + (collapsed ? "展开产品" : "收起产品") + '">' +
+                '<i class="layui-icon ' + (collapsed ? "layui-icon-down" : "layui-icon-up") + '"></i></button></div>' +
+                '<div class="studio-product-subnav">' +
+                '<button type="button" data-action="jump-product" data-id="' + product.id + '" data-target="product-overview">工作台首页<span>基础资料</span></button>' +
+                '<button type="button" data-action="jump-product" data-id="' + product.id + '" data-target="product-archive">产品档案<span>Product Profile</span></button>' +
+                '<button type="button" data-action="jump-product" data-id="' + product.id + '" data-target="product-memory">图片创作<span>产品记忆</span></button>' +
+                '<button type="button" data-action="jump-product" data-id="' + product.id + '" data-target="product-assets">产品图片<span>六方位与细节</span></button>' +
+                '</div></div>';
         }).join("");
+    }
 
-        list.querySelectorAll(".edit-product").forEach(function (button) {
-            button.addEventListener("click", function () {
-                openFrame("编辑产品", "/studio/forms/product?id=" +
-                    encodeURIComponent(button.dataset.id), ["820px", "760px"]);
-            });
-        });
-        list.querySelectorAll(".add-asset").forEach(function (button) {
-            button.addEventListener("click", function () {
-                openFrame("添加引用素材", "/studio/forms/asset?product_id=" +
-                    encodeURIComponent(button.dataset.id), ["560px", "520px"]);
-            });
-        });
-        list.querySelectorAll(".delete-asset").forEach(function (button) {
-            button.addEventListener("click", function () {
-                if (!window.confirm("确定要停用这条素材吗？")) return;
-                Studio.request("/studio/api/products/" + button.dataset.productId +
-                    "/assets/" + button.dataset.id, {method: "DELETE"})
-                    .then(loadProducts)
-                    .catch(function (error) { Studio.toast(error.message, "error"); });
-            });
-        });
+    function render() {
+        renderProductNav();
+        var product = findProduct(selectedProductId);
+        if (product) renderProductDetail(product);
     }
 
     function loadProducts() {
         return Studio.request("/studio/api/products").then(function (result) {
-            productData = result.data;
-            renderProducts();
+            productData = result.data || [];
+            if (!findProduct(selectedProductId)) {
+                selectedProductId = productData.length ? productData[0].id : null;
+            }
+            if (selectedProductId) collapsedProducts[selectedProductId] = false;
+            render();
         });
     }
+
+    function openProductForm(id) {
+        openFrame(id ? "编辑产品" : "新建产品",
+            "/studio/forms/product" + (id ? "?id=" + encodeURIComponent(id) : ""),
+            ["920px", "820px"]);
+    }
+
+    function openAssetForm(productId, role, assetType) {
+        var params = new URLSearchParams({
+            product_id: productId,
+            role: role || "reference",
+            asset_type: assetType || "IMAGE"
+        });
+        openFrame("添加产品素材", "/studio/forms/asset?" + params.toString(), ["640px", "700px"]);
+    }
+
+    function scrollToSection(target) {
+        var node = document.getElementById(target);
+        if (node) node.scrollIntoView({behavior: "smooth", block: "start"});
+    }
+
+    document.getElementById("newProduct").addEventListener("click", function () {
+        openProductForm("");
+    });
+    document.getElementById("refreshProducts").addEventListener("click", function () {
+        loadProducts().catch(function (error) { Studio.toast(error.message, "error"); });
+    });
+
+    document.getElementById("productNav").addEventListener("click", function (event) {
+        var target = event.target.closest("[data-action]");
+        if (!target) return;
+        var action = target.dataset.action;
+        if (action === "select-product") {
+            selectedProductId = target.dataset.id;
+            collapsedProducts[selectedProductId] = false;
+            render();
+        } else if (action === "toggle-product") {
+            var id = target.dataset.id;
+            collapsedProducts[id] = collapsedProducts[id] !== true;
+            renderProductNav();
+        } else if (action === "jump-product") {
+            selectedProductId = target.dataset.id;
+            collapsedProducts[selectedProductId] = false;
+            render();
+            window.setTimeout(function () { scrollToSection(target.dataset.target); }, 0);
+        }
+    });
+
+    document.getElementById("productDetail").addEventListener("click", function (event) {
+        var target = event.target.closest("[data-action]");
+        if (!target) return;
+        var action = target.dataset.action;
+        if (action === "create-product") {
+            openProductForm("");
+        } else if (action === "edit-product") {
+            openProductForm(target.dataset.id);
+        } else if (action === "pick-asset") {
+            pickProductFiles(target);
+        } else if (action === "add-asset") {
+            openAssetForm(target.dataset.productId, target.dataset.role, target.dataset.assetType);
+        } else if (action === "jump") {
+            scrollToSection(target.dataset.target);
+        } else if (action === "delete-asset") {
+            if (!window.confirm("确定要移除这个产品素材吗？文件会同步从 go-fastdfs 清理。")) return;
+            Studio.request("/studio/api/products/" + target.dataset.productId +
+                "/assets/" + target.dataset.assetId, {method: "DELETE"})
+                .then(loadProducts)
+                .catch(function (error) { Studio.toast(error.message, "error"); });
+        }
+    });
+
+    document.getElementById("productDetail").addEventListener("dragover", function (event) {
+        var zone = event.target.closest("[data-dropzone]");
+        if (!zone) return;
+        event.preventDefault();
+        zone.classList.add("is-dragging");
+        if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    });
+
+    document.getElementById("productDetail").addEventListener("dragleave", function (event) {
+        var zone = event.target.closest("[data-dropzone]");
+        if (!zone || zone.contains(event.relatedTarget)) return;
+        zone.classList.remove("is-dragging");
+    });
+
+    document.getElementById("productDetail").addEventListener("drop", function (event) {
+        var zone = event.target.closest("[data-dropzone]");
+        if (!zone) return;
+        event.preventDefault();
+        zone.classList.remove("is-dragging");
+        uploadProductFiles(
+            zone.dataset.productId,
+            zone.dataset.role,
+            zone.dataset.assetType,
+            event.dataTransfer && event.dataTransfer.files
+        );
+    });
 
     window.addEventListener("message", function (event) {
         if (event.origin !== window.location.origin || !event.data ||
@@ -127,11 +533,11 @@ document.addEventListener("DOMContentLoaded", function () {
         loadProducts().catch(function (error) { Studio.toast(error.message, "error"); });
     });
 
-    document.getElementById("newProduct").addEventListener("click", function () {
-        openFrame("新建产品", "/studio/forms/product", ["820px", "760px"]);
+    loadProducts().catch(function (error) {
+        document.getElementById("productNav").innerHTML =
+            '<div class="studio-product-nav-empty is-error">' + Studio.escapeHtml(error.message) + '</div>';
+        Studio.toast(error.message, "error");
     });
-
-    loadProducts().catch(function (error) { Studio.toast(error.message, "error"); });
 });
 </script>
 {% endblock %}

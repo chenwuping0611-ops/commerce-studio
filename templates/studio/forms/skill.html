@@ -32,8 +32,12 @@
                     <textarea name="prompt_template" id="skillPrompt" class="layui-textarea" rows="7"></textarea>
                 </div>
                 <div class="studio-field-span-2">
-                    <label class="studio-field-label">反向提示词</label>
-                    <textarea name="negative_prompt" id="skillNegative" class="layui-textarea" rows="3"></textarea>
+                    <label class="studio-field-label">文件内容</label>
+                    <textarea name="content" id="skillContent" class="layui-textarea" rows="9"
+                              placeholder="导入的 Skill 文件内容会显示在这里；保存后会同步更新 go-fastdfs 永久文件"></textarea>
+                    <div class="studio-field-help">
+                        图片创作和视频创作只读取这里的文字作为提示词，不会把原始 Skill 文件发送给模型。修改后保存会生成新的永久文件版本。
+                    </div>
                 </div>
             </div>
         </div>
@@ -87,7 +91,7 @@ document.addEventListener("DOMContentLoaded", function () {
         setField("skillVersion", skill.version || "1.0.0");
         setField("skillTags", skill.tags || "");
         setField("skillPrompt", skill.prompt_template || "");
-        setField("skillNegative", skill.negative_prompt || "");
+        setField("skillContent", skill.content || "");
     }
 
     function loadSkill() {

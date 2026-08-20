@@ -14,6 +14,7 @@
 - 模型定义：图片 / 视频分开，支持自定义提交地址、查询地址和任意请求字段
 - 生成历史：7 位任务编号查询、状态、进度和输出资产
 - ToAPIs：图片与视频任务提交、任务查询、用户余额和 Token 余额
+- go-fastdfs：产品素材、Skill、参考文件和生成结果的统一文件存储
 
 Infinite Canvas 不在当前实现范围内。
 
@@ -62,7 +63,7 @@ MYSQL_PASSWORD=your-password
 启动本地服务：
 
 ```powershell
-.\.venv\Scripts\python.exe -m flask run --host 127.0.0.1 --port 5000
+.\.venv\Scripts\python.exe -m flask run --host 0.0.0.0 --port 5000
 ```
 
 访问：
@@ -90,6 +91,21 @@ admin / 123456
 5. 使用生成历史中的 7 位编号查看状态和输出。
 
 模型字段由数据库配置驱动。`field` 是上游 body key，`runtime_key` 将字段绑定到创作页输入；空字段不会发送。
+
+## go-fastdfs 配置
+
+所有新图片、视频和 Skill 文件都通过 `FileService` 写入 go-fastdfs。
+本地 `.flaskenv` 保留公网地址，服务器部署时必须先确认 fileserver 的实际监听端口，
+再设置内部地址：
+
+```text
+GOFASTDFS_INTERNAL_URL=http://127.0.0.1:<actual-port>
+GOFASTDFS_PUBLIC_URL=https://ray.garafana.com/gofastdfs
+GOFASTDFS_GROUP=group1
+```
+
+产品中心素材和 Skill 文件永久保留；用户参考文件以及 API 生成图片、视频保留 7 天。
+清理任务由 Flask-APScheduler 定时执行，删除失败会保留为可重试状态。
 
 ## 目录边界
 

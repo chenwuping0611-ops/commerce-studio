@@ -1,116 +1,162 @@
 {% extends "studio/base.html" %}
 {% block title %}图片创作 | Commerce Studio{% endblock %}
 {% block content %}
-<div class="studio-page-header">
+<div class="studio-page-header studio-image-header">
     <div>
         <div class="studio-eyebrow">图片生成</div>
         <h1>图片创作</h1>
-        <p>选择产品和模型，产品记忆与引用素材会自动进入生成请求。</p>
+        <p>图片模型负责生成；提交前固定使用 ToAPIs 的 gpt-5.5 语言/视觉模型整理创意。关联产品时，产品资料、Product Profile 和产品记忆会接在创意描述之后一起发送。</p>
     </div>
-    <a class="layui-btn studio-btn-quiet" href="/studio/history?media_type=IMAGE">图片历史</a>
+    <div class="studio-toolbar-right">
+        <span id="imageProviderBalance" class="studio-balance-inline">当前供应商余额：未查询</span>
+        <span id="imageTaskStatus" class="studio-pill gray">等待任务</span>
+        <button type="button" class="layui-btn studio-btn-primary" id="newImageButton">新建图片</button>
+        <a class="layui-btn studio-btn-quiet" href="/studio/history?media_type=IMAGE">完整历史</a>
+    </div>
 </div>
 
-<div class="studio-workspace">
-    <section class="studio-card studio-form-card">
-        <div class="studio-card-header">
-            <h2>创建图片任务</h2>
-            <span class="studio-pill">异步生成</span>
-        </div>
-        <form class="layui-form studio-form" id="imageForm">
-            <div class="layui-form-item">
-                <label class="layui-form-label">模型</label>
-                <div class="layui-input-block">
-                    <select name="model_id" id="imageModel" lay-verify="required"></select>
-                </div>
-            </div>
-            <div class="layui-form-item">
-                <label class="layui-form-label">产品</label>
-                <div class="layui-input-block">
-                    <select name="product_id" id="imageProduct">
-                        <option value="">不关联产品</option>
-                    </select>
-                </div>
-            </div>
-            <div class="layui-form-item">
-                <label class="layui-form-label">Skill</label>
-                <div class="layui-input-block">
-                    <select id="imageSkill"><option value="">不使用 Skill</option></select>
-                </div>
-            </div>
-            <div class="layui-form-item">
-                <label class="layui-form-label">创意描述</label>
-                <div class="layui-input-block">
-                    <textarea name="prompt" id="imagePrompt" required class="layui-textarea" rows="5" placeholder="例如：生成一张高级汽车广告主视觉，突出车身线条和金属质感"></textarea>
-                </div>
-            </div>
-            <div class="layui-form-item">
-                <label class="layui-form-label">反向提示词</label>
-                <div class="layui-input-block">
-                    <textarea name="negative_prompt" id="imageNegative" class="layui-textarea" rows="2" placeholder="可选：不希望出现的元素"></textarea>
-                </div>
-            </div>
-            <div class="studio-form-grid">
+<div class="studio-composer-overlay" id="imageComposerOverlay" aria-hidden="true">
+    <div class="studio-composer-backdrop" data-composer-close="1"></div>
+    <div class="studio-composer-dialog" role="dialog" aria-modal="true" aria-labelledby="imageComposerTitle">
+        <section class="studio-card studio-image-composer">
+            <div class="studio-card-header">
                 <div>
-                    <label class="studio-field-label" for="imageCount">生成数量</label>
-                    <input name="count" id="imageCount" type="number" min="1" max="8" value="1" class="layui-input">
+                    <h2 id="imageComposerTitle">创建图片</h2>
+                    <div class="studio-card-subtitle">单 Prompt 生成接口</div>
                 </div>
-                <div>
-                    <label class="studio-field-label" for="imageAspect">画面比例</label>
-                    <input name="aspect_ratio" id="imageAspect" value="1:1" class="layui-input" placeholder="例如 1:1">
-                </div>
-                <div>
-                    <label class="studio-field-label" for="imageResolution">分辨率</label>
-                    <input name="resolution" id="imageResolution" value="1k" class="layui-input" placeholder="例如 1k">
+                <div class="studio-toolbar-right">
+                    <span class="studio-helper">填写参数后提交任务</span>
+                    <button type="button" class="studio-composer-close" id="imageComposerClose" aria-label="关闭创建图片">×</button>
                 </div>
             </div>
-            <div class="layui-form-item">
-                <label class="layui-form-label">额外参考图</label>
-                <div class="layui-input-block">
-                    <textarea name="reference_images" class="layui-textarea" rows="3" placeholder="每行一个 URL；产品素材会自动合并"></textarea>
-                </div>
-            </div>
-            <div class="studio-advanced-panel">
-                <div class="studio-panel-heading">
-                    <div>
-                        <strong>当前模型参数</strong>
-                        <span>模型配置中未绑定到基础表单的字段会显示在这里</span>
+            <form class="layui-form studio-form studio-image-form" id="imageForm">
+                <div class="studio-composer-grid">
+                    <div class="studio-field">
+                        <label class="studio-field-label" for="imageModel">模型</label>
+                        <select name="model_id" id="imageModel" lay-filter="image-model" lay-verify="required"></select>
+                    </div>
+                    <div class="studio-field">
+                        <label class="studio-field-label" for="imageProduct">产品</label>
+                        <select name="product_id" id="imageProduct">
+                            <option value="">不关联产品</option>
+                        </select>
+                    </div>
+                    <div class="studio-field studio-field-span-2">
+                        <label class="studio-field-label" for="imageSkill">Skill</label>
+                        <select id="imageSkill">
+                            <option value="">不使用 Skill</option>
+                        </select>
+                        <div class="studio-field-help">Skill 只读取提示词内容，不会把原始文件发送给模型。</div>
                     </div>
                 </div>
-                <div id="imageModelFields" class="studio-dynamic-fields">
-                    <div class="studio-empty studio-empty-compact">请选择模型</div>
-                </div>
-            </div>
-            <div class="layui-form-item">
-                <label class="layui-form-label">扩展 JSON</label>
-                <div class="layui-input-block">
-                    <textarea name="extra_fields" class="layui-textarea" rows="2" placeholder='可选，例如 {"quality":"high"}'></textarea>
-                </div>
-            </div>
-            <div class="studio-note">
-                请求字段以“模型供应商 &gt; 编辑模型”中的定义为准；空字段不会发送给上游。
-            </div>
-            <div class="layui-form-item studio-form-actions">
-                <div class="layui-input-block">
-                    <button class="layui-btn studio-btn-primary" lay-submit>生成图片</button>
-                    <button type="reset" class="layui-btn studio-btn-quiet">清空</button>
-                </div>
-            </div>
-        </form>
-    </section>
 
-    <section class="studio-card studio-preview">
+                <div class="studio-field studio-prompt-field">
+                    <div class="studio-field-label-row">
+                        <label class="studio-field-label" for="imagePrompt">创意描述</label>
+                        <span class="studio-field-required">必填</span>
+                    </div>
+                    <textarea name="prompt" id="imagePrompt" required class="layui-textarea" rows="4"
+                              placeholder="例如：生成一张高级汽车广告主视觉，突出车身线条、金属质感和城市夜景"></textarea>
+                    <div class="studio-field-help">只填写正向创意描述。产品资料、Product Profile、产品记忆和禁止修改规则会自动拼接。</div>
+                </div>
+
+                <div class="studio-image-settings">
+                    <div class="studio-setting-card">
+                        <div class="studio-field-label">生成数量</div>
+                        <div class="studio-range-control studio-range-control-wide">
+                            <input id="imageCountRange" type="range" min="1" max="8" step="1" value="1">
+                            <output id="imageCountValue" class="studio-range-value">1 张</output>
+                            <input name="count" id="imageCount" type="number" min="1" max="8" step="1" value="1"
+                                   class="layui-input studio-range-number" aria-label="生成数量">
+                        </div>
+                    </div>
+                    <div class="studio-setting-card">
+                        <label class="studio-field-label" for="imageAspect">画面比例</label>
+                        <select name="aspect_ratio" id="imageAspect" class="studio-input-select">
+                            <option value="1:1">1:1</option>
+                        </select>
+                    </div>
+                    <div class="studio-setting-card">
+                        <label class="studio-field-label" for="imageResolution">分辨率</label>
+                        <select name="resolution" id="imageResolution" class="studio-input-select">
+                            <option value="1k">1k</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="studio-reference-section">
+                    <div class="studio-field-label-row">
+                        <div class="studio-field-label">额外参考图</div>
+                        <span class="studio-field-optional">可选</span>
+                    </div>
+                    <label class="studio-upload studio-upload-inline studio-reference-dropzone" for="imageReferenceFiles">
+                        <div>
+                            <strong>上传参考图片</strong>
+                            <span>支持多选，临时保留 7 天并自动带入本次任务</span>
+                        </div>
+                        <input id="imageReferenceFiles" type="file" multiple accept="image/*" hidden>
+                    </label>
+                    <textarea name="reference_images" id="imageReferenceUrls" class="layui-textarea studio-reference-url-input" rows="3"
+                              placeholder="上传后会自动填入 go-fastdfs 公网 URL；也可以每行粘贴一个外部 URL"></textarea>
+                    <div id="imageReferenceStatus" class="studio-upload-status studio-helper">
+                        也可以在产品中心维护长期可引用素材。
+                    </div>
+                </div>
+
+                <div class="studio-image-form-footer">
+                    <div class="studio-form-message" id="imageFormMessage"></div>
+                    <div class="studio-form-actions studio-form-actions-inline">
+                        <button class="layui-btn studio-btn-primary" lay-submit>生成图片</button>
+                        <button type="reset" class="layui-btn studio-btn-quiet" id="imageReset">清空</button>
+                    </div>
+                </div>
+            </form>
+        </section>
+    </div>
+</div>
+
+<div class="studio-image-workspace">
+    <section class="studio-card studio-image-feed-card">
         <div class="studio-card-header">
-            <h2>生成预览</h2>
-            <span id="imageTaskStatus" class="studio-pill gray">等待任务</span>
-        </div>
-        <div class="studio-preview-body">
-            <div class="studio-preview-placeholder" id="imagePreviewPlaceholder">
-                <div><strong>尚未生成图片</strong><span>提交任务后，状态和输出会在这里更新</span></div>
+            <div>
+                <h2>生成图片</h2>
+                <div class="studio-card-subtitle">最新结果在上方，向下滚动查看历史</div>
             </div>
-            <div id="imagePreview" style="display:none;"></div>
-            <div class="studio-section-caption">最近图片</div>
-            <div class="studio-history-grid" id="imageHistory"></div>
+            <button type="button" class="layui-btn studio-btn-quiet studio-refresh-button" id="imageRefresh">刷新</button>
         </div>
+        <div class="studio-image-feed-toolbar">
+            <span id="imageFeedSummary" class="studio-helper">正在加载图片记录</span>
+            <span class="studio-feed-hint">点击图片预览，使用按钮下载</span>
+        </div>
+        <div class="studio-image-feed" id="imageFeed">
+            <div class="studio-feed-empty">
+                <strong>还没有生成图片</strong>
+                <span>提交任务后，最新图片会出现在这里。</span>
+            </div>
+        </div>
+    </section>
+</div>
+
+<div class="studio-image-viewer" id="imageViewer" aria-hidden="true">
+    <div class="studio-image-viewer-backdrop" data-viewer-close="1"></div>
+    <section class="studio-image-viewer-panel" role="dialog" aria-modal="true" aria-labelledby="imageViewerTitle">
+        <header class="studio-image-viewer-header">
+            <div>
+                <div class="studio-eyebrow">图片预览</div>
+                <h2 id="imageViewerTitle">生成图片</h2>
+            </div>
+            <button type="button" class="studio-image-viewer-close" id="imageViewerClose" aria-label="关闭预览">×</button>
+        </header>
+        <div class="studio-image-viewer-layout">
+            <aside class="studio-image-viewer-history" id="imageViewerHistory" aria-label="历史图片"></aside>
+            <div class="studio-image-viewer-stage">
+                <img id="imageViewerImage" src="" alt="生成图片预览">
+            </div>
+        </div>
+        <footer class="studio-image-viewer-footer">
+            <div id="imageViewerMeta" class="studio-helper"></div>
+            <button type="button" class="layui-btn studio-btn-primary" id="imageViewerDownload">下载图片</button>
+        </footer>
     </section>
 </div>
 {% endblock %}
@@ -123,147 +169,818 @@ document.addEventListener("DOMContentLoaded", function () {
     var productSelect = document.getElementById("imageProduct");
     var skillSelect = document.getElementById("imageSkill");
     var status = document.getElementById("imageTaskStatus");
+    var feed = document.getElementById("imageFeed");
+    var feedSummary = document.getElementById("imageFeedSummary");
+    var formMessage = document.getElementById("imageFormMessage");
+    var viewer = document.getElementById("imageViewer");
+    var viewerImage = document.getElementById("imageViewerImage");
+    var viewerTitle = document.getElementById("imageViewerTitle");
+    var viewerMeta = document.getElementById("imageViewerMeta");
+    var viewerDownload = document.getElementById("imageViewerDownload");
+    var viewerHistory = document.getElementById("imageViewerHistory");
+    var composerOverlay = document.getElementById("imageComposerOverlay");
     var modelData = [];
     var skillData = [];
+    var referenceAssets = [];
+    var historyData = [];
+    var latestTask = null;
     var pollTimer = null;
+    var optimisticProgressTimer = null;
+    var lastModelValue = null;
+    var viewerState = null;
+    var submitButton = form.querySelector("[lay-submit]");
 
-    function loadOptions() {
-        return Studio.request("/studio/api/options?media_type=IMAGE").then(function (result) {
-            modelData = result.data.models;
-            skillData = result.data.skills.filter(function (item) {
-                return item.media_type === "BOTH" || item.media_type === "IMAGE";
+    function openComposer() {
+        composerOverlay.classList.add("is-open");
+        composerOverlay.setAttribute("aria-hidden", "false");
+        document.body.classList.add("studio-composer-open");
+        window.setTimeout(function () {
+            layui.use("form", function () {
+                layui.form.render("select");
             });
-            modelSelect.innerHTML = modelData.map(function (item) {
-                return '<option value="' + item.id + '">' +
-                    Studio.escapeHtml(item.name) + ' · ' + Studio.escapeHtml(item.provider_name) + '</option>';
-            }).join("");
-            productSelect.innerHTML = '<option value="">不关联产品</option>' + result.data.products.map(function (item) {
-                return '<option value="' + item.id + '">' +
-                    Studio.escapeHtml(item.name) + ' · ' + Studio.escapeHtml(item.code) + '</option>';
-            }).join("");
-            skillSelect.innerHTML = '<option value="">不使用 Skill</option>' + skillData.map(function (item) {
-                return '<option value="' + item.id + '">' + Studio.escapeHtml(item.name) + '</option>';
-            }).join("");
-            renderModelFields();
+            modelSelect.focus();
+        }, 0);
+    }
+
+    function closeComposer() {
+        composerOverlay.classList.remove("is-open");
+        composerOverlay.setAttribute("aria-hidden", "true");
+        document.body.classList.remove("studio-composer-open");
+    }
+
+    function refreshProviderBalance(providerId) {
+        var output = document.getElementById("imageProviderBalance");
+        if (!providerId) {
+            output.textContent = "当前供应商余额：未选择";
+            return Promise.resolve();
+        }
+        output.textContent = "当前供应商余额：查询中...";
+        return Studio.request("/studio/api/providers/" + providerId +
+            "/balance?scope=user", {method: "POST"}).then(function (result) {
+                output.textContent = "当前供应商余额：" +
+                    Studio.formatBalance(result.data.balance);
+            }).catch(function () {
+                output.textContent = "当前供应商余额：查询失败";
+            });
+    }
+
+    function findParameter(model, keys) {
+        return (model && model.parameter_schema || []).find(function (item) {
+            return keys.indexOf(item.field) !== -1 ||
+                keys.indexOf(item.runtime_key) !== -1;
         });
     }
 
-    function renderModelFields() {
+    function configureCount(parameter) {
+        var range = document.getElementById("imageCountRange");
+        var number = document.getElementById("imageCount");
+        var output = document.getElementById("imageCountValue");
+        var options = Studio.parameterOptions(parameter);
+        var numericOptions = options.map(function (option) {
+            return Number(option.value);
+        }).filter(function (value) {
+            return Number.isFinite(value);
+        });
+        var min = parameter && parameter.min != null ? Number(parameter.min) :
+            (numericOptions.length ? Math.min.apply(Math, numericOptions) : 1);
+        var max = parameter && parameter.max != null ? Number(parameter.max) :
+            (numericOptions.length ? Math.max.apply(Math, numericOptions) : 8);
+        var step = parameter && parameter.step != null ? Number(parameter.step) : 1;
+        min = Number.isFinite(min) ? min : 1;
+        max = Number.isFinite(max) ? max : 8;
+        step = Number.isFinite(step) && step > 0 ? step : 1;
+        range.min = min;
+        range.max = Math.max(min, max);
+        range.step = step;
+        number.min = min;
+        number.max = Math.max(min, max);
+        number.step = step;
+
+        function sync(value) {
+            var next = Number(value);
+            if (!Number.isFinite(next)) next = min;
+            next = Math.min(Math.max(next, min), Math.max(min, max));
+            range.value = next;
+            number.value = next;
+            output.textContent = next + " 张";
+        }
+
+        range.oninput = function () { sync(range.value); };
+        number.oninput = function () { sync(number.value); };
+        sync(parameter && parameter.value !== "" ? parameter.value : 1);
+    }
+
+    function renderModelConstraints() {
         var model = modelData.find(function (item) {
             return item.id === Number(modelSelect.value);
         });
-        Studio.renderDynamicFields(
-            document.getElementById("imageModelFields"),
-            model ? model.parameter_schema : [],
-            ["model", "prompt", "n", "size", "aspect_ratio", "resolution", "image_urls", "response_format"]
+        Studio.renderConstrainedControl(
+            "imageAspect",
+            findParameter(model, ["aspect_ratio", "size"]),
+            "1:1"
         );
+        Studio.renderConstrainedControl(
+            "imageResolution",
+            findParameter(model, ["resolution"]),
+            "1k"
+        );
+        configureCount(findParameter(model, ["count", "n"]));
+    }
+
+    function loadOptions() {
+        return Studio.request("/studio/api/options?media_type=IMAGE").then(function (result) {
+            modelData = result.data.models || [];
+            skillData = (result.data.skills || []).filter(function (item) {
+                return item.media_type === "BOTH" || item.media_type === "IMAGE";
+            });
+            modelSelect.innerHTML = modelData.length ? modelData.map(function (item) {
+                return '<option value="' + item.id + '">' +
+                    Studio.escapeHtml(item.name) + " · " +
+                    Studio.escapeHtml(item.provider_name) + '</option>';
+            }).join("") : '<option value="">暂无可用图片模型</option>';
+            if (modelData.length) {
+                var preferred = modelData.find(function (item) {
+                    return String(item.model_code).toLowerCase() === "gpt-image-2";
+                }) || modelData[0];
+                modelSelect.value = String(preferred.id);
+            } else {
+                modelSelect.value = "";
+            }
+            productSelect.innerHTML = '<option value="">不关联产品</option>' +
+                (result.data.products || []).map(function (item) {
+                    return '<option value="' + item.id + '">' +
+                        Studio.escapeHtml(item.name) + " · " +
+                        Studio.escapeHtml(item.code) + '</option>';
+                }).join("");
+            skillSelect.innerHTML = '<option value="">不使用 Skill</option>' +
+                skillData.map(function (item) {
+                    return '<option value="' + item.id + '">' +
+                        Studio.escapeHtml(item.name) + '</option>';
+                }).join("");
+            layui.use("form", function () {
+                layui.form.render("select");
+            });
+            renderModelConstraints();
+            var selected = modelData.find(function (item) {
+                return item.id === Number(modelSelect.value);
+            });
+            refreshProviderBalance(selected && selected.provider_id);
+        });
     }
 
     function setStatus(item) {
         status.className = "studio-pill " + Studio.statusClass(item.status);
-        status.textContent = Studio.statusText(item.status) + (item.progress ? " " + item.progress + "%" : "");
+        status.textContent = Studio.statusText(item.status) +
+            (item.progress && item.status !== "SUCCEEDED" ? " " + item.progress + "%" : "");
     }
 
-    function renderOutput(item) {
-        var preview = document.getElementById("imagePreview");
-        var placeholder = document.getElementById("imagePreviewPlaceholder");
-        if (!item.output_url) {
-            placeholder.style.display = "grid";
-            preview.style.display = "none";
+    function usableOutputs(item) {
+        var outputs = (item && item.output_assets || []).filter(function (asset) {
+            return asset.status === "ACTIVE" && asset.public_url;
+        });
+        if (!outputs.length && item && item.output_url) {
+            outputs = [{
+                public_url: item.output_url,
+                original_filename: item.task_code + ".png",
+                content_type: "image/png",
+                status: "ACTIVE"
+            }];
+        }
+        return outputs;
+    }
+
+    function filenameFor(url, taskCode, index) {
+        var pathname = "";
+        try {
+            pathname = new URL(url, window.location.href).pathname;
+        } catch (error) {
+            pathname = String(url || "");
+        }
+        var extension = (pathname.split(".").pop() || "png").replace(/[^a-z0-9]/gi, "");
+        if (!extension || extension.length > 8) extension = "png";
+        return (taskCode || "commerce-studio") + "-" + (index || 1) + "." + extension;
+    }
+
+    function taskKey(item) {
+        return item && (item.task_code || item.id);
+    }
+
+    function clearOptimisticProgress() {
+        if (optimisticProgressTimer) {
+            clearInterval(optimisticProgressTimer);
+            optimisticProgressTimer = null;
+        }
+    }
+
+    function selectedOptionText(select) {
+        var option = select && select.options[select.selectedIndex];
+        return option ? option.textContent : "";
+    }
+
+    function createOptimisticTask(payload) {
+        clearOptimisticProgress();
+        var task = {
+            id: "local-" + Date.now(),
+            task_code: "NEW",
+            media_type: "IMAGE",
+            product_id: payload.product_id || null,
+            product_name: selectedOptionText(productSelect) || "未关联产品",
+            model_id: payload.model_id || null,
+            model_name: selectedOptionText(modelSelect) || "未指定模型",
+            provider_id: null,
+            provider_name: "",
+            prompt: payload.prompt || "",
+            final_prompt: "",
+            status: "PROCESSING",
+            progress: 1,
+            output_assets: [],
+            output_url: "",
+            output_expired: false,
+            comments: [],
+            created_at: "刚刚"
+        };
+        latestTask = task;
+        setStatus(task);
+        renderFeed(true);
+        optimisticProgressTimer = window.setInterval(function () {
+            if (!latestTask || latestTask.id !== task.id) {
+                clearOptimisticProgress();
+                return;
+            }
+            latestTask.progress = Math.min(96, Number(latestTask.progress || 1) + 1);
+            setStatus(latestTask);
+            renderFeed(true);
+        }, 750);
+        return task;
+    }
+
+    function renderFeed(focusLatest) {
+        var items = [];
+        var seen = {};
+        if (latestTask && taskKey(latestTask)) {
+            items.push(latestTask);
+            seen[taskKey(latestTask)] = true;
+        }
+        historyData.forEach(function (item) {
+            if (!taskKey(item) || seen[taskKey(item)]) return;
+            seen[taskKey(item)] = true;
+            items.push(item);
+        });
+        items = items.filter(function (item) {
+            return usableOutputs(item).length || item.output_expired ||
+                item.status === "SUBMITTED" || item.status === "PROCESSING" ||
+                item.status === "PENDING" || item.status === "FAILED";
+        });
+
+        feedSummary.textContent = items.length
+            ? "共 " + items.length + " 条图片任务，按最新创建时间排序"
+            : "还没有图片生成记录";
+        if (!items.length) {
+            feed.innerHTML = '<div class="studio-feed-empty"><strong>还没有生成图片</strong>' +
+                '<span>提交任务后，最新图片会出现在这里。</span></div>';
             return;
         }
-        placeholder.style.display = "none";
-        preview.style.display = "block";
-        preview.innerHTML =
-            '<img class="studio-output-media" src="' + Studio.escapeHtml(item.output_url) + '" alt="生成图片">' +
-            '<div class="studio-output-meta"><span>任务编号：<b>' + item.task_code + '</b></span>' +
-            '<a target="_blank" rel="noopener" href="' + Studio.escapeHtml(item.output_url) + '">打开原图</a></div>';
+        feed.innerHTML = items.map(renderFeedItem).join("");
+        if (focusLatest) feed.scrollTop = 0;
+    }
+
+    function renderFeedItem(item) {
+        var outputs = usableOutputs(item);
+        var expired = item.output_expired && !outputs.length;
+        var statusLabel = Studio.statusText(item.status);
+        var product = item.product_name || "未关联产品";
+        var model = item.model_name || "未指定模型";
+        var prompt = item.prompt || "";
+        var comments = item.comments || [];
+        var media = "";
+        if (outputs.length) {
+            media = '<div class="studio-feed-images">' + outputs.map(function (asset, index) {
+                var url = Studio.escapeHtml(asset.public_url);
+                var filename = Studio.escapeHtml(
+                    asset.original_filename || filenameFor(asset.public_url, item.task_code, index + 1)
+                );
+                return '<div class="studio-feed-image-block">' +
+                    '<button type="button" class="studio-feed-image-button" data-action="preview" ' +
+                    'data-url="' + url + '" data-task="' + Studio.escapeHtml(item.task_code) +
+                    '" data-filename="' + filename + '" data-index="' + (index + 1) + '">' +
+                    '<img class="studio-feed-image" src="' + url + '" alt="生成图片">' +
+                    '</button>' +
+                    '<div class="studio-feed-image-actions">' +
+                    '<span>图片 ' + (index + 1) + '</span>' +
+                    '<button type="button" class="studio-link-button" data-action="download" ' +
+                    'data-url="' + url + '" data-filename="' + filename + '">下载</button>' +
+                    '</div></div>';
+            }).join("") + '</div>';
+        } else if (expired) {
+            media = '<div class="studio-feed-expired"><strong>图片已过期</strong>' +
+                '<span>生成资产按 7 天保留策略清理，任务记录仍然保留。</span></div>';
+        } else {
+            media = '<div class="studio-feed-processing"><span class="studio-feed-spinner"></span>' +
+                '<div><strong>' + Studio.escapeHtml(statusLabel) + '</strong>' +
+                '<span>任务编号 ' + Studio.escapeHtml(item.task_code || "-") +
+                '，正在等待图片输出' +
+                (item.progress ? "，当前进度 " + item.progress + "%" : "") +
+                '</span></div></div>';
+        }
+        var error = item.error_message
+            ? '<div class="studio-feed-error">' + Studio.escapeHtml(item.error_message) + '</div>'
+            : "";
+        var analysisAction = outputs.length && item.status === "SUCCEEDED"
+            ? '<button type="button" class="layui-btn layui-btn-xs studio-btn-quiet" data-action="analyze" ' +
+                'data-task="' + Studio.escapeHtml(item.task_code || "") + '">AI 分析</button>'
+            : "";
+        var commentsHtml = comments.length
+            ? '<div class="studio-feed-comments">' + comments.map(function (comment) {
+                var content = comment.content || comment.error_message || "分析失败";
+                var suggested = comment.suggested_updates || {};
+                var updates = suggested.updates || {};
+                var appliedFields = comment.applied_update_fields || [];
+                var updateFields = Object.keys(updates);
+                var modelLabel = comment.model_name || "语言模型";
+                if (comment.model_code) modelLabel += " · " + comment.model_code;
+                var remainingFields = updateFields.filter(function (field) {
+                    return appliedFields.indexOf(field) === -1;
+                });
+                var suggestionsHtml = updateFields.length
+                    ? '<div class="studio-feed-suggestions" data-comment-panel="' +
+                        comment.id + '">' +
+                        '<div class="studio-feed-suggestion-title">产品中心调整建议</div>' +
+                        '<div class="studio-feed-suggestion-help">模型只提供候选值，勾选后才会写入当前关联产品。</div>' +
+                        '<div class="studio-feed-suggestion-list">' +
+                        updateFields.map(function (field) {
+                            var update = updates[field] || {};
+                            var applied = appliedFields.indexOf(field) !== -1;
+                            var inputId = "suggestion-" + comment.id + "-" + field;
+                            return '<label class="studio-feed-suggestion-item' +
+                                (applied ? ' is-applied' : '') + '" for="' + inputId + '">' +
+                                '<span class="studio-feed-suggestion-check">' +
+                                '<input type="checkbox" id="' + inputId +
+                                '" data-update-field="' + Studio.escapeHtml(field) + '"' +
+                                (applied ? " disabled" : "") + '>' +
+                                '</span><span class="studio-feed-suggestion-body">' +
+                                '<strong>' + Studio.escapeHtml(update.label || field) + '</strong>' +
+                                (applied ? '<em>已应用</em>' : '') +
+                                '<span class="studio-feed-suggestion-value">' +
+                                Studio.escapeHtml(update.value || "") +
+                                '</span>' +
+                                (update.reason ? '<span class="studio-feed-suggestion-reason">依据：' +
+                                    Studio.escapeHtml(update.reason) + '</span>' : '') +
+                                '</span></label>';
+                        }).join("") +
+                        '</div><button type="button" class="layui-btn layui-btn-xs studio-btn-quiet" ' +
+                        (remainingFields.length ? "" : "disabled ") +
+                        'data-action="apply-updates" data-task="' +
+                        Studio.escapeHtml(comment.task_code || item.task_code || "") +
+                        '" data-comment="' + comment.id + '">' +
+                        (remainingFields.length ? "应用勾选字段到产品中心" : "已应用全部建议") +
+                        '</button></div>'
+                    : "";
+                return '<div class="studio-feed-comment ' +
+                    (comment.status === "FAILED" ? "is-error" : "") + '">' +
+                    '<div class="studio-feed-comment-head"><strong>AI 分析</strong><span>' +
+                    Studio.escapeHtml(modelLabel) + " · " +
+                    Studio.escapeHtml(comment.created_at || "") + '</span></div>' +
+                    '<div class="studio-feed-comment-content">' +
+                    Studio.escapeHtml(content).replace(/\n/g, "<br>") +
+                    '</div>' + suggestionsHtml + '</div>';
+            }).join("") + '</div>'
+            : "";
+        return '<article class="studio-feed-item">' +
+            '<header class="studio-feed-item-header">' +
+            '<div><strong>' + Studio.escapeHtml(item.task_code || "-") + '</strong>' +
+            '<span>' + Studio.escapeHtml(item.created_at || "") + '</span></div>' +
+            '<span class="studio-pill ' + Studio.statusClass(item.status) + '">' +
+            Studio.escapeHtml(statusLabel) + (item.progress && item.status !== "SUCCEEDED"
+                ? " " + item.progress + "%" : "") + '</span></header>' +
+            media +
+            '<div class="studio-feed-item-meta"><span>' + Studio.escapeHtml(product) +
+            '</span><span>' + Studio.escapeHtml(model) + '</span></div>' +
+            '<div class="studio-feed-prompt">' + Studio.escapeHtml(prompt) + '</div>' +
+            '<div class="studio-feed-actions">' + analysisAction + '</div>' +
+            commentsHtml +
+            error +
+            '</article>';
+    }
+
+    function renderLatest(item) {
+        clearOptimisticProgress();
+        latestTask = item;
+        setStatus(item);
+        renderFeed(true);
     }
 
     function poll(taskCode) {
         clearTimeout(pollTimer);
         Studio.request("/studio/api/tasks/" + taskCode).then(function (result) {
             var item = result.data;
-            setStatus(item);
-            renderOutput(item);
-            if (item.status === "SUBMITTED" || item.status === "PROCESSING") {
+            renderLatest(item);
+            if (item.status === "PENDING" || item.status === "SUBMITTED" ||
+                item.status === "PROCESSING") {
                 pollTimer = setTimeout(function () { poll(taskCode); }, 5000);
-            } else if (item.status === "FAILED") {
-                Studio.toast(item.error_message || "生成失败", "error");
+            } else {
+                refreshProviderBalance(item.provider_id);
+                if (item.status === "FAILED") {
+                    Studio.toast(item.error_message || "生成失败", "error");
+                }
             }
             loadHistory();
         }).catch(function (error) {
+            formMessage.textContent = error.message;
             Studio.toast(error.message, "error");
         });
     }
 
     function loadHistory() {
         return Studio.request("/studio/api/history?media_type=IMAGE").then(function (result) {
-            var list = result.data.filter(function (item) { return item.output_url; }).slice(0, 8);
-            var node = document.getElementById("imageHistory");
-            node.innerHTML = list.length ? list.map(function (item) {
-                return '<a class="studio-history-item" target="_blank" rel="noopener" href="' +
-                    Studio.escapeHtml(item.output_url) + '">' +
-                    '<div class="studio-history-thumb"><img src="' + Studio.escapeHtml(item.output_url) + '" alt=""></div>' +
-                    '<div class="studio-history-info"><div class="studio-history-code">' + item.task_code + '</div>' +
-                    '<div class="studio-history-time">' + Studio.escapeHtml(item.created_at) + '</div></div></a>';
-            }).join("") : '<div class="studio-empty studio-empty-compact">暂无图片输出</div>';
+            historyData = (result.data || []).filter(function (item) {
+                return usableOutputs(item).length || item.output_expired ||
+                    item.status === "SUBMITTED" || item.status === "PROCESSING" ||
+                    item.status === "PENDING" || item.status === "FAILED";
+            });
+            renderFeed(false);
         });
     }
 
-    modelSelect.addEventListener("change", renderModelFields);
-    skillSelect.addEventListener("change", function () {
-        var skill = skillData.find(function (item) { return item.id === Number(skillSelect.value); });
-        if (!skill) return;
-        document.getElementById("imagePrompt").value = skill.prompt_template || "";
-        document.getElementById("imageNegative").value = skill.negative_prompt || "";
+    function renderReferenceStatus() {
+        var statusNode = document.getElementById("imageReferenceStatus");
+        statusNode.textContent = referenceAssets.length
+            ? "已上传 " + referenceAssets.length + " 张参考图：" +
+                referenceAssets.map(function (asset) {
+                    return asset.public_url || asset.original_filename;
+                }).join("、") +
+                "；公网 URL 已写入上方输入框"
+            : "也可以在产品中心维护长期可引用素材。";
+    }
+
+    function appendReferenceUrls(textareaId, assets) {
+        var textarea = document.getElementById(textareaId);
+        if (!textarea) return;
+        var urls = textarea.value.split(/\r?\n/).map(function (item) {
+            return item.trim();
+        }).filter(Boolean);
+        (assets || []).forEach(function (asset) {
+            var url = String(asset.public_url || "").trim();
+            if (url && urls.indexOf(url) === -1) urls.push(url);
+        });
+        textarea.value = urls.join("\n");
+    }
+
+    function viewerEntries() {
+        var tasks = [];
+        var seenTasks = {};
+        if (latestTask && taskKey(latestTask)) {
+            tasks.push(latestTask);
+            seenTasks[taskKey(latestTask)] = true;
+        }
+        historyData.forEach(function (item) {
+            if (!taskKey(item) || seenTasks[taskKey(item)]) return;
+            seenTasks[taskKey(item)] = true;
+            tasks.push(item);
+        });
+
+        var entries = [];
+        var seenUrls = {};
+        tasks.forEach(function (task) {
+            usableOutputs(task).forEach(function (asset, index) {
+                var url = String(asset.public_url || "").trim();
+                if (!url || seenUrls[url]) return;
+                seenUrls[url] = true;
+                entries.push({
+                    url: url,
+                    taskCode: task.task_code || "-",
+                    filename: asset.original_filename ||
+                        filenameFor(url, task.task_code, index + 1),
+                    index: index + 1,
+                    createdAt: task.created_at || ""
+                });
+            });
+        });
+        return entries;
+    }
+
+    function renderViewerHistory(activeUrl) {
+        viewerHistory.innerHTML = viewerEntries().map(function (entry) {
+            var active = entry.url === activeUrl;
+            return '<button type="button" class="studio-image-viewer-thumb' +
+                (active ? ' is-active' : '') + '" data-viewer-history="1" ' +
+                'data-url="' + Studio.escapeHtml(entry.url) + '" ' +
+                'data-task="' + Studio.escapeHtml(entry.taskCode) + '" ' +
+                'data-filename="' + Studio.escapeHtml(entry.filename) + '" ' +
+                'data-index="' + entry.index + '" aria-label="查看任务 ' +
+                Studio.escapeHtml(entry.taskCode) + ' 的图片 ' + entry.index + '">' +
+                '<img src="' + Studio.escapeHtml(entry.url) + '" alt="" loading="lazy">' +
+                '</button>';
+        }).join("");
+    }
+
+    function openViewer(url, taskCode, filename, index) {
+        var cleanUrl = String(url || "").trim();
+        var imageIndex = Number(index) || 1;
+        viewerState = {
+            url: cleanUrl,
+            filename: filename || filenameFor(cleanUrl, taskCode, imageIndex),
+            taskCode: taskCode || "-",
+            index: imageIndex
+        };
+        viewerImage.src = cleanUrl;
+        viewerTitle.textContent = "任务 " + (taskCode || "-");
+        viewerMeta.textContent = "图片 " + imageIndex + " · 可切换历史图片或下载原图";
+        renderViewerHistory(cleanUrl);
+        viewer.classList.add("is-open");
+        viewer.setAttribute("aria-hidden", "false");
+        document.body.classList.add("studio-viewer-open");
+    }
+
+    function closeViewer() {
+        viewer.classList.remove("is-open");
+        viewer.setAttribute("aria-hidden", "true");
+        viewerImage.removeAttribute("src");
+        viewerState = null;
+        document.body.classList.remove("studio-viewer-open");
+    }
+
+    function downloadImage(url, filename) {
+        var finalName = filename || filenameFor(url, "commerce-studio", 1);
+        Studio.toast("正在准备下载...", "info");
+        fetch(url, {credentials: "omit"}).then(function (response) {
+            if (!response.ok) throw new Error("图片下载失败");
+            return response.blob();
+        }).then(function (blob) {
+            var objectUrl = URL.createObjectURL(blob);
+            var link = document.createElement("a");
+            link.href = objectUrl;
+            link.download = finalName;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(function () { URL.revokeObjectURL(objectUrl); }, 1000);
+        }).catch(function () {
+            var separator = url.indexOf("?") === -1 ? "?" : "&";
+            window.open(url + separator + "download=1", "_blank", "noopener");
+        });
+    }
+
+    feed.addEventListener("click", function (event) {
+        var target = event.target.closest("[data-action]");
+        if (!target) return;
+        var action = target.dataset.action;
+        if (action === "analyze") {
+            var taskCode = target.dataset.task;
+            target.disabled = true;
+            target.textContent = "分析中...";
+            Studio.request("/studio/api/tasks/" + encodeURIComponent(taskCode) + "/comments/analyze", {
+                method: "POST",
+                body: JSON.stringify({})
+            }).then(function (result) {
+                var comment = result.data;
+                var task = historyData.find(function (item) {
+                    return String(item.task_code) === String(taskCode);
+                });
+                if (latestTask && String(latestTask.task_code) === String(taskCode)) {
+                    latestTask.comments = (latestTask.comments || []).concat([comment]);
+                }
+                if (task) {
+                    task.comments = (task.comments || []).concat([comment]);
+                    renderFeed(false);
+                } else {
+                    loadHistory();
+                }
+                Studio.toast("图片分析已完成");
+            }).catch(function (error) {
+                target.disabled = false;
+                target.textContent = "AI 分析";
+                Studio.toast(error.message, "error");
+            });
+        } else if (action === "apply-updates") {
+            var panel = target.closest("[data-comment-panel]");
+            var fields = panel
+                ? Array.prototype.map.call(
+                    panel.querySelectorAll("input[data-update-field]:checked"),
+                    function (input) { return input.dataset.updateField; }
+                )
+                : [];
+            if (!fields.length) {
+                Studio.toast("请先勾选要应用的产品字段", "error");
+                return;
+            }
+            var taskCodeForUpdate = target.dataset.task;
+            var commentId = target.dataset.comment;
+            target.disabled = true;
+            target.textContent = "正在应用...";
+            Studio.request(
+                "/studio/api/tasks/" + encodeURIComponent(taskCodeForUpdate) +
+                "/comments/" + encodeURIComponent(commentId) +
+                "/apply-product-updates",
+                {
+                    method: "POST",
+                    body: JSON.stringify({fields: fields})
+                }
+            ).then(function (result) {
+                var updatedComment = result.data.comment;
+                var task = historyData.find(function (item) {
+                    return String(item.task_code) === String(taskCodeForUpdate);
+                });
+                function replaceComment(targetTask) {
+                    if (!targetTask) return;
+                    targetTask.comments = (targetTask.comments || []).map(function (comment) {
+                        return String(comment.id) === String(updatedComment.id)
+                            ? updatedComment
+                            : comment;
+                    });
+                }
+                replaceComment(latestTask &&
+                    String(latestTask.task_code) === String(taskCodeForUpdate)
+                    ? latestTask : null);
+                replaceComment(task);
+                renderFeed(false);
+                Studio.toast("已应用到产品中心");
+            }).catch(function (error) {
+                target.disabled = false;
+                target.textContent = "应用勾选字段到产品中心";
+                Studio.toast(error.message, "error");
+            });
+        } else if (action === "preview") {
+            openViewer(target.dataset.url, target.dataset.task, target.dataset.filename, target.dataset.index);
+        } else if (action === "download") {
+            event.preventDefault();
+            event.stopPropagation();
+            downloadImage(target.dataset.url, target.dataset.filename);
+        }
     });
+
+    document.getElementById("imageViewerClose").addEventListener("click", closeViewer);
+    viewerHistory.addEventListener("click", function (event) {
+        var target = event.target.closest("[data-viewer-history]");
+        if (!target) return;
+        openViewer(
+            target.dataset.url,
+            target.dataset.task,
+            target.dataset.filename,
+            target.dataset.index
+        );
+    });
+    viewer.addEventListener("click", function (event) {
+        if (event.target.dataset.viewerClose) closeViewer();
+    });
+    document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape" && viewer.classList.contains("is-open")) closeViewer();
+    });
+    viewerDownload.addEventListener("click", function () {
+        if (viewerState) downloadImage(viewerState.url, viewerState.filename);
+    });
+    document.getElementById("imageRefresh").addEventListener("click", function () {
+        loadHistory().catch(function (error) {
+            Studio.toast(error.message, "error");
+        });
+    });
+    document.getElementById("newImageButton").addEventListener("click", openComposer);
+    document.getElementById("imageComposerClose").addEventListener("click", closeComposer);
+    composerOverlay.addEventListener("click", function (event) {
+        if (event.target.dataset.composerClose) closeComposer();
+    });
+    document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape" && composerOverlay.classList.contains("is-open")) {
+            closeComposer();
+        }
+    });
+    document.getElementById("imageReferenceFiles").addEventListener("change", function (event) {
+        var files = event.target.files;
+        if (!files.length) return;
+        document.getElementById("imageReferenceStatus").textContent = "正在上传参考图片...";
+        Studio.uploadAssets(files, "IMAGE", "GENERATION_REFERENCE").then(function (assets) {
+            referenceAssets = referenceAssets.concat(assets);
+            appendReferenceUrls("imageReferenceUrls", assets);
+            renderReferenceStatus();
+        }).catch(function (error) {
+            document.getElementById("imageReferenceStatus").textContent = error.message;
+            Studio.toast(error.message, "error");
+        }).finally(function () {
+            event.target.value = "";
+        });
+    });
+
+    function handleModelChange() {
+        if (lastModelValue === modelSelect.value) return;
+        lastModelValue = modelSelect.value;
+        renderModelConstraints();
+        var model = modelData.find(function (item) {
+            return item.id === Number(modelSelect.value);
+        });
+        refreshProviderBalance(model && model.provider_id);
+    }
+
+    modelSelect.addEventListener("change", handleModelChange);
+    layui.use("form", function () {
+        layui.form.on("select(image-model)", function (data) {
+            modelSelect.value = data.value;
+            handleModelChange();
+        });
+    });
+    skillSelect.addEventListener("change", function () {
+        var skill = skillData.find(function (item) {
+            return item.id === Number(skillSelect.value);
+        });
+        if (skill) {
+            formMessage.textContent = "已选择 Skill：会作为提示词规则附加到本次创作";
+        }
+    });
+
+    function preparePrompt(payload) {
+        formMessage.textContent = "正在调用 GPT-5.5 分析创意与产品信息...";
+        return Studio.request("/studio/api/prompt/prepare", {
+            method: "POST",
+            body: JSON.stringify({
+                product_id: payload.product_id,
+                prompt: payload.prompt,
+                reference_images: payload.reference_images,
+                reference_asset_ids: payload.reference_asset_ids,
+                skill_prompt: payload.skill_prompt
+            })
+        }).then(function (result) {
+            payload.prepared_prompt = result.data.final_prompt;
+            payload.reference_instruction = result.data.reference_instruction || "";
+            return payload;
+        });
+    }
 
     form.addEventListener("submit", function (event) {
         event.preventDefault();
         var data = new FormData(form);
-        var extra;
-        try {
-            extra = Studio.collectDynamicFields(document.getElementById("imageModelFields"));
-        } catch (error) {
-            Studio.toast(error.message, "error");
+        var prompt = String(data.get("prompt") || "").trim();
+        if (!prompt) {
+            formMessage.textContent = "请先填写创意描述";
             return;
         }
-        if (data.get("extra_fields")) {
-            try {
-                extra = Object.assign(extra, JSON.parse(data.get("extra_fields")));
-            } catch (error) {
-                Studio.toast("扩展字段必须是合法 JSON", "error");
-                return;
-            }
-        }
+        var selectedSkill = skillData.find(function (item) {
+            return item.id === Number(skillSelect.value);
+        });
         var payload = {
             media_type: "IMAGE",
             model_id: data.get("model_id"),
             product_id: data.get("product_id"),
-            prompt: data.get("prompt"),
-            negative_prompt: data.get("negative_prompt"),
+            prompt: prompt,
             count: data.get("count"),
             aspect_ratio: data.get("aspect_ratio"),
             resolution: data.get("resolution"),
             reference_images: data.get("reference_images"),
-            extra_fields: extra
+            reference_asset_ids: referenceAssets.map(function (asset) { return asset.id; }),
+            skill_prompt: selectedSkill ? (selectedSkill.prompt_template || "") : "",
+            extra_fields: {}
         };
-        status.className = "studio-pill";
-        status.textContent = "提交中";
-        Studio.request("/studio/api/generate", {method: "POST", body: JSON.stringify(payload)}).then(function (result) {
+        createOptimisticTask(payload);
+        closeComposer();
+        submitButton.disabled = true;
+        preparePrompt(payload).then(function (preparedPayload) {
+            formMessage.textContent = preparedPayload.product_id
+                ? "产品 Prompt 分析完成，正在提交图片任务..."
+                : "正在提交图片任务...";
+            return Studio.request("/studio/api/generate", {
+                method: "POST",
+                body: JSON.stringify(preparedPayload)
+            });
+        }).then(function (result) {
             var item = result.data;
-            setStatus(item);
-            poll(item.task_code);
+            submitButton.disabled = false;
+            formMessage.textContent = "任务已提交，编号 " + item.task_code;
+            renderLatest(item);
+            refreshProviderBalance(item.provider_id);
+            if (item.status === "PENDING" || item.status === "SUBMITTED" ||
+                item.status === "PROCESSING") {
+                poll(item.task_code);
+            } else {
+                loadHistory();
+            }
             Studio.toast("图片任务已提交");
         }).catch(function (error) {
-            status.className = "studio-pill red";
-            status.textContent = "提交失败";
+            submitButton.disabled = false;
+            clearOptimisticProgress();
+            formMessage.textContent = error.message;
+            if (latestTask && String(latestTask.id || "").indexOf("local-") === 0) {
+                latestTask.status = "FAILED";
+                latestTask.progress = 1;
+                latestTask.error_message = error.message;
+                setStatus(latestTask);
+                renderFeed(true);
+            } else {
+                status.className = "studio-pill red";
+                status.textContent = "提交失败";
+            }
             Studio.toast(error.message, "error");
         });
     });
 
+    document.getElementById("imageReset").addEventListener("click", function () {
+        referenceAssets = [];
+        renderReferenceStatus();
+        formMessage.textContent = "";
+        window.setTimeout(function () {
+            renderModelConstraints();
+            layui.use("form", function () { layui.form.render("select"); });
+        }, 0);
+    });
+
     loadOptions().then(loadHistory).catch(function (error) {
+        feedSummary.textContent = "图片记录加载失败";
         Studio.toast(error.message, "error");
     });
 });

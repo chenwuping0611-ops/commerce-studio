@@ -16,6 +16,7 @@
                     <select name="media_type" id="modelMediaType">
                         <option value="IMAGE">图片</option>
                         <option value="VIDEO">视频</option>
+                        <option value="CHAT">语言模型</option>
                     </select>
                 </div>
                 <div>
@@ -50,7 +51,7 @@
             </div>
             <div class="studio-param-head">
                 <span>字段名</span><span>显示名称</span><span>运行时字段</span><span>默认值</span>
-                <span>类型</span><span>启用</span><span></span>
+                <span>可选值</span><span>类型</span><span>启用</span><span></span>
             </div>
             <div class="studio-param-list" id="modelParams"></div>
             <button type="button" class="layui-btn layui-btn-xs studio-btn-quiet" id="addParam">添加字段</button>
@@ -79,21 +80,27 @@ document.addEventListener("DOMContentLoaded", function () {
     var imageDefaults = [
         {field: "model", label: "模型标识", runtime_key: "", value: "gpt-image-2", value_type: "string", enabled: true},
         {field: "prompt", label: "提示词", runtime_key: "prompt", value: "", value_type: "string", enabled: true},
-        {field: "n", label: "生成数量", runtime_key: "count", value: "1", value_type: "number", enabled: true},
-        {field: "size", label: "画面比例", runtime_key: "aspect_ratio", value: "1:1", value_type: "string", enabled: true},
-        {field: "resolution", label: "分辨率", runtime_key: "resolution", value: "1k", value_type: "string", enabled: true},
+        {field: "n", label: "生成数量", runtime_key: "count", value: "1", min: 1, max: 8, step: 1, value_type: "number", enabled: true},
+        {field: "size", label: "画面比例", runtime_key: "aspect_ratio", value: "1:1", options: ["1:1", "4:3", "16:9", "9:16"], value_type: "string", enabled: true},
+        {field: "resolution", label: "分辨率", runtime_key: "resolution", value: "1k", options: ["1k", "2k", "4k"], value_type: "string", enabled: true},
         {field: "image_urls", label: "参考图片", runtime_key: "reference_images", value: "", value_type: "json", enabled: true},
         {field: "response_format", label: "返回格式", runtime_key: "", value: "url", value_type: "string", enabled: true}
     ];
     var videoDefaults = [
         {field: "model", label: "模型标识", runtime_key: "", value: "seedance-2", value_type: "string", enabled: true},
         {field: "prompt", label: "提示词", runtime_key: "prompt", value: "", value_type: "string", enabled: true},
-        {field: "duration", label: "视频时长", runtime_key: "duration", value: "5", value_type: "number", enabled: true},
-        {field: "aspect_ratio", label: "画面比例", runtime_key: "aspect_ratio", value: "16:9", value_type: "string", enabled: true},
-        {field: "resolution", label: "分辨率", runtime_key: "resolution", value: "720p", value_type: "string", enabled: true},
+        {field: "duration", label: "视频时长", runtime_key: "duration", value: "5", min: 1, max: 60, step: 1, value_type: "number", enabled: true},
+        {field: "aspect_ratio", label: "画面比例", runtime_key: "aspect_ratio", value: "16:9", options: ["16:9", "9:16", "1:1", "4:3"], value_type: "string", enabled: true},
+        {field: "resolution", label: "分辨率", runtime_key: "resolution", value: "720p", options: ["480p", "720p", "1080p"], value_type: "string", enabled: true},
         {field: "image_with_roles", label: "参考图片", runtime_key: "reference_images_with_roles", value: "", value_type: "json", enabled: true},
         {field: "video_with_roles", label: "参考视频", runtime_key: "reference_videos_with_roles", value: "", value_type: "json", enabled: true},
         {field: "generate_audio", label: "生成音频", runtime_key: "generate_audio", value: "true", value_type: "boolean", enabled: true}
+    ];
+    var chatDefaults = [
+        {field: "model", label: "模型标识", runtime_key: "", value: "gpt-5.5", value_type: "string", enabled: true},
+        {field: "messages", label: "消息内容", runtime_key: "messages", value: "", value_type: "json", enabled: true},
+        {field: "max_tokens", label: "最大输出 Token", runtime_key: "max_tokens", value: "800", min: 1, max: 8192, step: 1, value_type: "number", enabled: true},
+        {field: "temperature", label: "温度", runtime_key: "temperature", value: "0.2", min: 0, max: 2, step: 0.1, value_type: "number", enabled: true}
     ];
 
     function setMessage(text, isError) {
@@ -117,12 +124,34 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function cloneDefaults(mediaType) {
-        return JSON.parse(JSON.stringify(mediaType === "VIDEO" ? videoDefaults : imageDefaults));
+        var defaults = mediaType === "VIDEO"
+            ? videoDefaults
+            : (mediaType === "CHAT" ? chatDefaults : imageDefaults);
+        return JSON.parse(JSON.stringify(defaults));
     }
 
     function setField(id, value) {
         var field = document.getElementById(id);
         if (field) field.value = value == null ? "" : value;
+    }
+
+    function optionText(options) {
+        if (typeof options === "string") {
+            try {
+                options = JSON.parse(options);
+            } catch (error) {
+                options = options.split(/[,\n]/);
+            }
+        }
+        if (!Array.isArray(options)) return "";
+        return options.map(function (option) {
+            if (option && typeof option === "object") {
+                return option.value == null ? "" : option.value;
+            }
+            return option;
+        }).filter(function (option) {
+            return option != null && String(option).trim() !== "";
+        }).join(", ");
     }
 
     function renderParams() {
@@ -135,6 +164,8 @@ document.addEventListener("DOMContentLoaded", function () {
                 '<input class="layui-input param-label" data-index="' + index + '" value="' + Studio.escapeHtml(item.label || "") + '" placeholder="显示名称">' +
                 '<input class="layui-input param-runtime" data-index="' + index + '" value="' + Studio.escapeHtml(item.runtime_key || "") + '" placeholder="runtime_key">' +
                 '<input class="layui-input param-value" data-index="' + index + '" value="' + Studio.escapeHtml(value) + '" placeholder="默认值">' +
+                '<input class="layui-input param-options" data-index="' + index + '" value="' +
+                    Studio.escapeHtml(optionText(item.options)) + '" placeholder="例如 1:1, 4:3">' +
                 '<select class="param-type" data-index="' + index + '">' +
                     '<option value="string">字符串</option><option value="number">数字</option>' +
                     '<option value="boolean">布尔值</option><option value="json">JSON</option>' +
@@ -165,6 +196,10 @@ document.addEventListener("DOMContentLoaded", function () {
             params[index].label = row.querySelector(".param-label").value.trim();
             params[index].runtime_key = row.querySelector(".param-runtime").value.trim();
             params[index].value = row.querySelector(".param-value").value;
+            params[index].options = row.querySelector(".param-options").value
+                .split(/[,\n]/)
+                .map(function (item) { return item.trim(); })
+                .filter(Boolean);
             params[index].value_type = row.querySelector(".param-type").value;
             params[index].enabled = row.querySelector(".param-enabled").checked;
         });
@@ -239,6 +274,7 @@ document.addEventListener("DOMContentLoaded", function () {
             label: "",
             runtime_key: "",
             value: "",
+            options: [],
             value_type: "string",
             enabled: true
         });
