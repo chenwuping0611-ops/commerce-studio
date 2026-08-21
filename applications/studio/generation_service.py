@@ -499,6 +499,8 @@ def create_generation(user_id, media_type, model_id, product_id, prompt, options
             prompt,
             product_descriptors,
             skill_prompt=skill_prompt,
+            media_type=media_type,
+            video_urls=extra_videos,
         ),
         "count": options.get("count", 1),
         "aspect_ratio": options.get("aspect_ratio"),

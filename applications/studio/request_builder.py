@@ -350,6 +350,18 @@ def is_empty_value(value):
     return value in ("", None, [], {})
 
 
+def split_option_tokens(value):
+    """Split accidentally concatenated ratio options without changing free text."""
+
+    text = str(value or "").strip()
+    if not text:
+        return []
+    ratio_pattern = r"\d+(?:\.\d+)?\s*:\s*\d+(?:\.\d+)?"
+    if re.fullmatch(rf"{ratio_pattern}(?:\s+{ratio_pattern})+", text):
+        return re.findall(ratio_pattern, text)
+    return [text]
+
+
 def _assign_field(target, field, value):
     """Assign flat or dotted fields, e.g. metadata.resolution, into a JSON body."""
 
@@ -382,8 +394,7 @@ def option_values(parameter):
     for option in options:
         if isinstance(option, dict):
             option = option.get("value", option.get("key", option.get("id")))
-        if option not in (None, ""):
-            values.append(str(option))
+        values.extend(split_option_tokens(option))
     return values
 
 
@@ -401,7 +412,17 @@ def _runtime_value(parameter, runtime, model_code):
         return None
     casted = cast_value(value, parameter.get("value_type", "string"))
     allowed = option_values(parameter)
-    if allowed and str(casted) not in allowed:
+    actual_value = (
+        str(casted).lower()
+        if isinstance(casted, bool)
+        else str(casted)
+    )
+    allowed_values = (
+        [item.lower() for item in allowed]
+        if isinstance(casted, bool)
+        else allowed
+    )
+    if allowed_values and actual_value not in allowed_values:
         raise ValueError(
             f"字段 {field} 的值必须是：{', '.join(allowed)}"
         )

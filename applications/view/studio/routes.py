@@ -30,6 +30,7 @@ from applications.studio.product_prompt import (
     product_reference_urls,
     reference_instructions,
     split_urls,
+    video_reference_instructions,
 )
 from applications.studio.provider_client import (
     ProviderClient,
@@ -39,6 +40,7 @@ from applications.studio.provider_client import (
 from applications.studio.request_builder import (
     build_request_body,
     default_parameters_for_model,
+    split_option_tokens,
 )
 
 
@@ -335,14 +337,22 @@ def _parameter_options(value):
         else:
             option_value = option
             option_label = option
-        if option_value in (None, ""):
-            continue
-        normalized.append(
-            {
-                "value": str(option_value),
-                "label": str(option_label if option_label not in (None, "") else option_value),
-            }
-        )
+        expanded = split_option_tokens(option_value)
+        for item in expanded:
+            normalized.append(
+                {
+                    "value": str(item),
+                    "label": str(
+                        item
+                        if len(expanded) > 1
+                        else (
+                            option_label
+                            if option_label not in (None, "")
+                            else option_value
+                        )
+                    ),
+                }
+            )
     return normalized
 
 
@@ -967,6 +977,10 @@ def _prepare_prompt_request():
         media_type=media_type,
     )
     ordered_references = reference_instructions(descriptors)
+    ordered_video_references = video_reference_instructions(extra_video_urls)
+    ordered_reference_context = "\n".join(
+        part for part in (ordered_references, ordered_video_references) if part
+    )
     planning_required = bool(product or skill_prompt)
 
     if not planning_required:
@@ -976,7 +990,7 @@ def _prepare_prompt_request():
             data={
                 "final_prompt": creative_prompt,
                 "product_name": "",
-                "reference_instruction": ordered_references,
+                "reference_instruction": ordered_reference_context,
                 "planner_model": "",
                 "planner_model_name": "",
                 "references": descriptors,
@@ -996,7 +1010,12 @@ def _prepare_prompt_request():
     context_parts = [
         f"请为一次电商产品{media_label}生成任务规划最终 Prompt。",
         "用户创意描述是最高优先级，必须先准确提取并保留创意目标、主体、场景、构图、镜头、光线、动作和风格。",
-        "然后识别关联产品，明确生成的产品名称；再结合产品资料、Product Profile、产品记忆、生成规则和禁止修改规则。",
+        (
+            "然后识别关联产品，明确生成的产品名称；视频只读取产品名称、品牌、"
+            "Product Profile、产品记忆、生成规则和禁止修改规则作为固定约束。"
+            if media_type == "VIDEO"
+            else "然后识别关联产品，明确生成的产品名称；再结合产品资料、Product Profile、产品记忆、生成规则和禁止修改规则。"
+        ),
         "产品身份、外形结构、材质、颜色、品牌和关键接口不能被创意描述随意改变。",
         "禁止修改规则必须作为约束写入最终 Prompt，而不是被忽略。",
         f"用户创意描述：{creative_prompt}",
@@ -1004,31 +1023,28 @@ def _prepare_prompt_request():
     if skill_prompt:
         context_parts.append(f"创作 Skill 指令：{skill_prompt}")
     if product:
-        context_parts.extend(
+        product_context = [
+            f"关联产品名称：{product.name or ''}",
+            f"产品编码：{product.code or ''}",
+            f"品牌：{product.brand or ''}",
+        ]
+        if media_type != "VIDEO":
+            product_context.append(f"产品资料：{product.description or ''}")
+        product_context.extend(
             [
-                f"关联产品名称：{product.name or ''}",
-                f"产品编码：{product.code or ''}",
-                f"品牌：{product.brand or ''}",
-                f"产品资料：{product.description or ''}",
                 f"Product Profile：{product.product_profile or ''}",
                 f"产品记忆：{product.product_memory or ''}",
                 f"生成规则：{product.generation_rules or ''}",
                 f"禁止修改规则：{product.forbidden_rules or ''}",
             ]
         )
-    if ordered_references:
+        context_parts.extend(product_context)
+    if ordered_reference_context:
         context_parts.append(
             "本次请求会按顺序把产品中心素材放在前面，再放入本次上传的额外素材。"
-            "最终 Prompt 必须明确引用顺序，不能把正面、背面和额外细节图混淆：\n"
-            + ordered_references
-        )
-    if extra_video_urls:
-        context_parts.append(
-            "本次还会携带参考视频 URL，视频参考顺序如下：\n"
-            + "\n".join(
-                f"第 {index} 个参考视频：{url}"
-                for index, url in enumerate(dict.fromkeys(extra_video_urls), 1)
-            )
+            "图片和视频的顺序、URL、角色必须明确写入最终 Prompt；视频只允许作为"
+            "动作与镜头参考，不能改变产品固定结构：\n"
+            + ordered_reference_context
         )
     context_parts.append(
         "请严格只返回 JSON，不要 Markdown 代码块，结构为："
@@ -1036,7 +1052,7 @@ def _prepare_prompt_request():
         '"product_name":"识别出的产品名称",'
         '"reference_instruction":"参考素材顺序说明"}。'
         "final_prompt 必须以用户创意为主线，产品约束接在创意后面，"
-        "并包含参考素材顺序说明；不要输出反向提示词。"
+        "并包含每个参考图片和参考视频的 URL 及顺序说明；不要输出反向提示词。"
     )
     content_blocks = [{"type": "text", "text": "\n".join(context_parts)}]
     content_blocks.extend(
@@ -1091,8 +1107,17 @@ def _prepare_prompt_request():
         if not final_prompt:
             raise ValueError("全局语言模型没有返回可用的最终 Prompt")
         reference_instruction = str(
-            parsed.get("reference_instruction") or ordered_references
+            parsed.get("reference_instruction") or ordered_reference_context
         ).strip()
+        if (
+            ordered_reference_context
+            and ordered_reference_context not in reference_instruction
+        ):
+            reference_instruction = (
+                reference_instruction.rstrip()
+                + ("\n" if reference_instruction else "")
+                + ordered_reference_context
+            )
         if reference_instruction and reference_instruction not in final_prompt:
             final_prompt = (
                 final_prompt.rstrip()
@@ -1151,11 +1176,6 @@ def _analyze_task_feedback(task_code):
         return jsonify(success=False, msg="当前仅支持图片生成结果的意见反馈"), 400
     if task.status != "SUCCEEDED":
         return jsonify(success=False, msg="图片任务尚未完成，暂时不能提交意见反馈"), 400
-    if not task.product:
-        return jsonify(
-            success=False,
-            msg="意见反馈需要先关联产品，才能结合产品中心资料调整",
-        ), 400
 
     feedback = str(_body().get("feedback") or "").strip()
     if not feedback:
@@ -1219,15 +1239,25 @@ def _analyze_task_feedback(task_code):
         f"原始创意：{task.prompt}",
         f"最终提示词：{task.final_prompt or task.prompt}",
         f"操作者意见反馈：{feedback}",
-        f"产品名称：{product.name or ''}",
-        f"品牌信息：{product.brand or ''}",
-        f"产品资料：{product.description or ''}",
-        f"Product Profile：{product.product_profile or ''}",
-        f"产品记忆：{product.product_memory or ''}",
-        f"生成规则：{product.generation_rules or ''}",
-        f"禁止修改规则：{product.forbidden_rules or ''}",
         "下面先提供生成结果图片，再提供本次任务引用的产品/参考图片。",
     ]
+    if product:
+        context_parts.extend(
+            [
+                f"产品名称：{product.name or ''}",
+                f"品牌信息：{product.brand or ''}",
+                f"产品资料：{product.description or ''}",
+                f"Product Profile：{product.product_profile or ''}",
+                f"产品记忆：{product.product_memory or ''}",
+                f"生成规则：{product.generation_rules or ''}",
+                f"禁止修改规则：{product.forbidden_rules or ''}",
+            ]
+        )
+    else:
+        context_parts.append(
+            "本次任务没有关联产品中心；只分析生成图片和操作者意见，"
+            "不要提出或应用产品中心字段修改建议。"
+        )
     content_blocks = [{"type": "text", "text": "\n".join(context_parts)}]
     content_blocks.extend(
         {
@@ -1236,21 +1266,27 @@ def _analyze_task_feedback(task_code):
         }
         for url in image_urls
     )
-    content_blocks[0]["text"] += (
-        "\n请严格只返回 JSON，不要使用 Markdown 代码块，结构如下："
-        "\n{"
-        '"analysis":"中文意见反馈与下一轮调整建议",'
-        '"product_updates":{'
-        '"description":{"value":"产品资料完整建议值","reason":"依据"},'
-        '"product_profile":{"value":"Product Profile完整建议值","reason":"依据"},'
-        '"product_memory":{"value":"产品记忆完整建议值","reason":"依据"},'
-        '"generation_rules":{"value":"可选的生成规则完整建议值","reason":"依据"},'
-        '"forbidden_rules":{"value":"可选的禁止修改规则完整建议值","reason":"依据"}'
-        "}"
-        "}"
-        "\n没有足够证据修改的字段不要返回。建议值必须是可直接替换该字段的完整文本，"
-        "而不是零散片段。"
-    )
+    if product:
+        content_blocks[0]["text"] += (
+            "\n请严格只返回 JSON，不要使用 Markdown 代码块，结构如下："
+            "\n{"
+            '"analysis":"中文意见反馈与下一轮调整建议",'
+            '"product_updates":{'
+            '"description":{"value":"产品资料完整建议值","reason":"依据"},'
+            '"product_profile":{"value":"Product Profile完整建议值","reason":"依据"},'
+            '"product_memory":{"value":"产品记忆完整建议值","reason":"依据"},'
+            '"generation_rules":{"value":"可选的生成规则完整建议值","reason":"依据"},'
+            '"forbidden_rules":{"value":"可选的禁止修改规则完整建议值","reason":"依据"}'
+            "}"
+            "}"
+            "\n没有足够证据修改的字段不要返回。建议值必须是可直接替换该字段的完整文本，"
+            "而不是零散片段。"
+        )
+    else:
+        content_blocks[0]["text"] += (
+            '\n请严格只返回 JSON，不要使用 Markdown 代码块，结构如下：'
+            '{"analysis":"中文意见反馈与下一轮调整建议","product_updates":{}}。'
+        )
     messages = [
         {
             "role": "system",
@@ -1258,7 +1294,11 @@ def _analyze_task_feedback(task_code):
                 "你是电商视觉质检与产品记忆维护助手。"
                 "请基于产品字段、图片证据和操作者意见回答，不要臆造图片中看不到的信息。"
                 "你不负责生成图片，只负责分析生成结果是否保持产品一致性，"
-                "并在证据充分时提出产品字段的完整改写建议。"
+                + (
+                    "并在证据充分时提出产品字段的完整改写建议。"
+                    if product
+                    else "当前没有关联产品，只给出图片质量和下一轮创作建议，不提出产品字段改写。"
+                )
             ),
         },
         {"role": "user", "content": content_blocks},

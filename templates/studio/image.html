@@ -126,7 +126,7 @@
         </div>
         <div class="studio-image-feed-toolbar">
             <span id="imageFeedSummary" class="studio-helper">正在加载图片记录</span>
-            <span class="studio-feed-hint">点击图片预览，使用按钮下载</span>
+            <span class="studio-feed-hint">点击图片预览或下载；生成完成后可提交意见反馈</span>
         </div>
         <div class="studio-image-feed" id="imageFeed">
             <div class="studio-feed-empty">
@@ -175,6 +175,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var viewerHistory = document.getElementById("imageViewerHistory");
     var viewerOwnerDocument = document;
     var viewerTopKeyHandlerBound = false;
+    var viewerResizeBound = false;
     var composerOverlay = document.getElementById("imageComposerOverlay");
     var modelData = [];
     var skillData = [];
@@ -186,6 +187,34 @@ document.addEventListener("DOMContentLoaded", function () {
     var lastModelValue = null;
     var viewerState = null;
     var submitButton = form.querySelector("[lay-submit]");
+
+    function fitViewerImage() {
+        var stage = viewerImage.parentElement;
+        if (!stage || !viewerImage.naturalWidth || !viewerImage.naturalHeight) return;
+        var style = (viewerOwnerDocument.defaultView || window).getComputedStyle(stage);
+        var availableWidth = Math.max(
+            1,
+            stage.clientWidth -
+                parseFloat(style.paddingLeft || 0) -
+                parseFloat(style.paddingRight || 0)
+        );
+        var availableHeight = Math.max(
+            1,
+            stage.clientHeight -
+                parseFloat(style.paddingTop || 0) -
+                parseFloat(style.paddingBottom || 0)
+        );
+        var scale = Math.min(
+            availableWidth / viewerImage.naturalWidth,
+            availableHeight / viewerImage.naturalHeight
+        );
+        var width = Math.max(1, Math.floor(viewerImage.naturalWidth * scale));
+        var height = Math.max(1, Math.floor(viewerImage.naturalHeight * scale));
+        viewerImage.style.maxWidth = "none";
+        viewerImage.style.maxHeight = "none";
+        viewerImage.style.width = width + "px";
+        viewerImage.style.height = height + "px";
+    }
 
     function mountViewerPortal() {
         try {
@@ -214,6 +243,10 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         } catch (error) {
             viewerOwnerDocument = document;
+        }
+        if (!viewerResizeBound && viewerOwnerDocument.defaultView) {
+            viewerOwnerDocument.defaultView.addEventListener("resize", fitViewerImage);
+            viewerResizeBound = true;
         }
     }
 
@@ -512,14 +545,17 @@ document.addEventListener("DOMContentLoaded", function () {
         var error = item.error_message
             ? '<div class="studio-feed-error">' + Studio.escapeHtml(item.error_message) + '</div>'
             : "";
-        var feedbackAction = outputs.length && item.status === "SUCCEEDED" && item.product_id
+        var feedbackAction = outputs.length && item.status === "SUCCEEDED"
             ? '<button type="button" class="layui-btn layui-btn-xs studio-btn-quiet" data-action="feedback-toggle" ' +
                 'data-task="' + Studio.escapeHtml(item.task_code || "") + '">意见反馈</button>' +
                 '<div class="studio-feedback-editor" data-feedback-editor="' +
                 Studio.escapeHtml(item.task_code || "") + '" hidden>' +
                 '<textarea class="layui-textarea" data-feedback-input="' +
                 Studio.escapeHtml(item.task_code || "") + '" rows="3" ' +
-                'placeholder="请填写本次生成中不满意、瑕疵、变形或需要调整的部分"></textarea>' +
+                'placeholder="' + (item.product_id
+                    ? "请填写本次生成中不满意、瑕疵、变形或需要调整的部分"
+                    : "请填写本次生成中不满意、瑕疵或需要调整的部分；关联产品后可应用到产品中心") +
+                '"></textarea>' +
                 '<div class="studio-feedback-editor-actions">' +
                 '<button type="button" class="layui-btn layui-btn-xs studio-btn-primary" data-action="feedback-submit" ' +
                 'data-task="' + Studio.escapeHtml(item.task_code || "") + '">提交反馈</button>' +
@@ -722,6 +758,7 @@ document.addEventListener("DOMContentLoaded", function () {
             index: imageIndex
         };
         viewerImage.src = cleanUrl;
+        viewerImage.onload = fitViewerImage;
         viewerTitle.textContent = "任务 " + (taskCode || "-");
         viewerMeta.textContent = "图片 " + imageIndex + " · 可切换历史图片或下载原图";
         renderViewerHistory(cleanUrl);
@@ -730,12 +767,19 @@ document.addEventListener("DOMContentLoaded", function () {
         document.body.classList.add("studio-viewer-open");
         viewerOwnerDocument.body.classList.add("studio-viewer-open");
         viewerOwnerDocument.documentElement.classList.add("studio-viewer-open");
+        window.setTimeout(fitViewerImage, 0);
     }
 
     function closeViewer() {
         viewer.classList.remove("is-open");
         viewer.setAttribute("aria-hidden", "true");
         viewerImage.removeAttribute("src");
+        viewerImage.removeAttribute("width");
+        viewerImage.removeAttribute("height");
+        viewerImage.style.width = "";
+        viewerImage.style.height = "";
+        viewerImage.style.maxWidth = "";
+        viewerImage.style.maxHeight = "";
         viewerState = null;
         document.body.classList.remove("studio-viewer-open");
         viewerOwnerDocument.body.classList.remove("studio-viewer-open");
