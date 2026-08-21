@@ -22,8 +22,8 @@
         </div>
         <div class="studio-table-wrap">
             <table class="studio-table">
-                <thead><tr><th>生成编号</th><th>类型</th><th>产品</th><th>模型</th><th>状态</th><th>进度</th><th>输出资产</th><th>创建时间</th></tr></thead>
-                <tbody id="historyTable"><tr><td colspan="8" class="studio-empty">正在加载</td></tr></tbody>
+                <thead><tr><th>生成编号</th><th>类型</th><th>产品</th><th>模型</th><th>状态</th><th>进度</th><th>输出资产</th><th>创建时间</th>{% if can_delete_history %}<th>操作</th>{% endif %}</tr></thead>
+                <tbody id="historyTable"><tr><td colspan="{{ 9 if can_delete_history else 8 }}" class="studio-empty">正在加载</td></tr></tbody>
             </table>
         </div>
     </div>
@@ -33,6 +33,26 @@
 {% block scripts %}
 <script>
 document.addEventListener("DOMContentLoaded", function () {
+    var canDeleteHistory = {{ "true" if can_delete_history else "false" }};
+    var historyColumnCount = canDeleteHistory ? 9 : 8;
+
+    function deleteHistory(taskId, button) {
+        if (!canDeleteHistory || !taskId) return;
+        if (!window.confirm("确定删除这条生成历史及其生成资产吗？")) return;
+        button.disabled = true;
+        button.textContent = "删除中...";
+        Studio.request("/studio/api/history/" + encodeURIComponent(taskId), {
+            method: "DELETE"
+        }).then(function () {
+            Studio.toast("历史任务已删除");
+            loadHistory();
+        }).catch(function (error) {
+            button.disabled = false;
+            button.textContent = "删除";
+            Studio.toast(error.message, "error");
+        });
+    }
+
     function loadHistory() {
         var code = document.getElementById("historyCode").value.trim();
         var type = document.getElementById("historyType").value;
@@ -42,7 +62,7 @@ document.addEventListener("DOMContentLoaded", function () {
         Studio.request("/studio/api/history?" + query.toString()).then(function (result) {
             var table = document.getElementById("historyTable");
             if (!result.data.length) {
-                table.innerHTML = '<tr><td colspan="8" class="studio-empty">没有找到匹配任务</td></tr>';
+                table.innerHTML = '<tr><td colspan="' + historyColumnCount + '" class="studio-empty">没有找到匹配任务</td></tr>';
                 return;
             }
             table.innerHTML = result.data.map(function (item) {
@@ -54,6 +74,10 @@ document.addEventListener("DOMContentLoaded", function () {
                         : '<span class="muted">等待输出</span>');
                 var error = item.error_message ?
                     '<div class="studio-error-text">' + Studio.escapeHtml(item.error_message) + '</div>' : "";
+                var action = canDeleteHistory
+                    ? '<td><button type="button" class="studio-link-button studio-history-delete" data-action="delete-history" data-task-id="' +
+                        item.id + '">删除</button></td>'
+                    : "";
                 return '<tr><td><a class="studio-history-code" href="/studio/history?code=' + item.task_code + '">' + item.task_code + '</a></td>' +
                     '<td>' + (item.media_type === "VIDEO" ? "视频" : "图片") + '</td>' +
                     '<td>' + Studio.escapeHtml(item.product_name || "未关联") + '</td>' +
@@ -62,7 +86,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     '<td>' + (item.progress || 0) + '%</td><td>' + output +
                     (item.output_assets && item.output_assets.length
                         ? '<div class="studio-helper">输出 ' + item.output_assets.length + ' 个</div>' : "") + '</td>' +
-                    '<td class="muted">' + Studio.escapeHtml(item.created_at) + '</td></tr>';
+                    '<td class="muted">' + Studio.escapeHtml(item.created_at) + '</td>' + action + '</tr>';
             }).join("");
         }).catch(function (error) {
             Studio.toast(error.message, "error");
@@ -71,6 +95,10 @@ document.addEventListener("DOMContentLoaded", function () {
 
     document.getElementById("searchHistory").addEventListener("click", loadHistory);
     document.getElementById("refreshHistory").addEventListener("click", loadHistory);
+    document.getElementById("historyTable").addEventListener("click", function (event) {
+        var target = event.target.closest('[data-action="delete-history"]');
+        if (target) deleteHistory(target.dataset.taskId, target);
+    });
     document.getElementById("historyCode").addEventListener("keydown", function (event) {
         if (event.key === "Enter") loadHistory();
     });

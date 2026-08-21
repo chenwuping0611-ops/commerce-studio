@@ -10,6 +10,19 @@ from applications.common.utils.gen_captcha import gen_captcha
 from applications.schemas import PowerOutSchema
 
 
+def is_super_admin():
+    """Return whether the current account owns the built-in admin role."""
+
+    if not current_user.is_authenticated:
+        return False
+    return any(
+        role
+        and role.enable == 1
+        and role.code == "admin"
+        for role in current_user.role
+    )
+
+
 def authorize(power, log=False):
     def decorator(func):
         from flask_login import login_required

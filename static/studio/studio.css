@@ -500,10 +500,17 @@ body.studio-page {
 }
 
 .studio-history-item {
+    position: relative;
     overflow: hidden;
     border: 1px solid var(--studio-line);
     border-radius: 8px;
     background: #fff;
+}
+
+.studio-history-link {
+    display: block;
+    color: inherit;
+    text-decoration: none;
 }
 
 .studio-history-thumb {
@@ -522,7 +529,21 @@ body.studio-page {
 }
 
 .studio-history-info {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
     padding: 12px;
+}
+
+.studio-history-delete {
+    flex: 0 0 auto;
+    color: #d92d20;
+}
+
+.studio-history-delete:hover,
+.studio-link-button.studio-history-delete:hover {
+    color: #b42318;
 }
 
 .studio-history-code {
@@ -2093,6 +2114,13 @@ body.studio-composer-open {
     justify-content: space-between;
     gap: 10px;
     margin-bottom: 11px;
+}
+
+.studio-feed-item-header-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 0 0 auto;
 }
 
 .studio-feed-item-header > div {

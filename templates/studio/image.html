@@ -159,6 +159,7 @@
 {% block scripts %}
 <script>
 document.addEventListener("DOMContentLoaded", function () {
+    var canDeleteHistory = {{ "true" if can_delete_history else "false" }};
     var form = document.getElementById("imageForm");
     var modelSelect = document.getElementById("imageModel");
     var productSelect = document.getElementById("imageProduct");
@@ -545,6 +546,10 @@ document.addEventListener("DOMContentLoaded", function () {
         var error = item.error_message
             ? '<div class="studio-feed-error">' + Studio.escapeHtml(item.error_message) + '</div>'
             : "";
+        var deleteAction = canDeleteHistory && Number(item.id) > 0
+            ? '<button type="button" class="studio-link-button studio-history-delete" data-action="delete-history" data-task-id="' +
+                item.id + '">删除历史</button>'
+            : "";
         var feedbackAction = outputs.length && item.status === "SUCCEEDED"
             ? '<button type="button" class="layui-btn layui-btn-xs studio-btn-quiet" data-action="feedback-toggle" ' +
                 'data-task="' + Studio.escapeHtml(item.task_code || "") + '">意见反馈</button>' +
@@ -623,9 +628,10 @@ document.addEventListener("DOMContentLoaded", function () {
             '<header class="studio-feed-item-header">' +
             '<div><strong>' + Studio.escapeHtml(item.task_code || "-") + '</strong>' +
             '<span>' + Studio.escapeHtml(item.created_at || "") + '</span></div>' +
-            '<span class="studio-pill ' + Studio.statusClass(item.status) + '">' +
+            '<div class="studio-feed-item-header-right"><span class="studio-pill ' +
+            Studio.statusClass(item.status) + '">' +
             Studio.escapeHtml(statusLabel) + (item.progress && item.status !== "SUCCEEDED"
-                ? " " + item.progress + "%" : "") + '</span></header>' +
+                ? " " + item.progress + "%" : "") + '</span>' + deleteAction + '</div></header>' +
             media +
             '<div class="studio-feed-item-meta"><span>' + Studio.escapeHtml(product) +
             '</span><span>' + Studio.escapeHtml(model) + '</span></div>' +
@@ -811,7 +817,30 @@ document.addEventListener("DOMContentLoaded", function () {
         var target = event.target.closest("[data-action]");
         if (!target) return;
         var action = target.dataset.action;
-        if (action === "feedback-toggle") {
+        if (action === "delete-history") {
+            if (!canDeleteHistory) return;
+            if (!window.confirm("确定删除这条生成历史及其生成资产吗？")) return;
+            target.disabled = true;
+            target.textContent = "删除中...";
+            Studio.request("/studio/api/history/" + encodeURIComponent(target.dataset.taskId), {
+                method: "DELETE"
+            }).then(function () {
+                var taskId = String(target.dataset.taskId);
+                historyData = historyData.filter(function (item) {
+                    return String(item.id) !== taskId;
+                });
+                if (latestTask && String(latestTask.id) === taskId) {
+                    latestTask = null;
+                    clearOptimisticProgress();
+                }
+                renderFeed(false);
+                Studio.toast("历史任务已删除");
+            }).catch(function (error) {
+                target.disabled = false;
+                target.textContent = "删除历史";
+                Studio.toast(error.message, "error");
+            });
+        } else if (action === "feedback-toggle") {
             var editor = feed.querySelector(
                 '[data-feedback-editor="' + CSS.escape(target.dataset.task || "") + '"]'
             );

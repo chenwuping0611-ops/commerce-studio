@@ -9,7 +9,7 @@ from flask import Blueprint, current_app, jsonify, render_template, request, ses
 from flask_login import current_user, login_required
 from sqlalchemy import desc
 
-from applications.common.utils.rights import authorize
+from applications.common.utils.rights import authorize, is_super_admin
 from applications.extensions import db
 from applications.models import (
     StudioAsset,
@@ -37,6 +37,7 @@ from applications.studio.provider_client import (
     extract_chat_content,
     normalize_balance,
 )
+from applications.studio.retention import delete_generation_task
 from applications.studio.request_builder import (
     build_request_body,
     default_parameters_for_model,
@@ -624,6 +625,10 @@ def _has_permission(code):
     return code in session.get("permissions", [])
 
 
+def _can_delete_history():
+    return is_super_admin()
+
+
 @studio_bp.get("/")
 @authorize("studio:dashboard")
 def dashboard():
@@ -633,13 +638,19 @@ def dashboard():
 @studio_bp.get("/image")
 @authorize("studio:image")
 def image():
-    return render_template("studio/image.html")
+    return render_template(
+        "studio/image.html",
+        can_delete_history=_can_delete_history(),
+    )
 
 
 @studio_bp.get("/video")
 @authorize("studio:video")
 def video():
-    return render_template("studio/video.html")
+    return render_template(
+        "studio/video.html",
+        can_delete_history=_can_delete_history(),
+    )
 
 
 @studio_bp.get("/products")
@@ -675,7 +686,10 @@ def skill_form():
 @studio_bp.get("/history")
 @authorize("studio:history")
 def history():
-    return render_template("studio/history.html")
+    return render_template(
+        "studio/history.html",
+        can_delete_history=_can_delete_history(),
+    )
 
 
 @studio_bp.get("/providers")
@@ -1456,6 +1470,27 @@ def history_api():
         query = query.filter_by(media_type=media_type)
     tasks = query.limit(100).all()
     return jsonify(success=True, data=[_task_dict(task) for task in tasks])
+
+
+@studio_bp.delete("/api/history/<int:task_id>")
+@authorize("studio:history", log=True)
+def delete_history_api(task_id):
+    if not _can_delete_history():
+        return jsonify(success=False, msg="仅超级管理员可以删除生成历史"), 403
+
+    task = StudioGenerationTask.query.filter_by(id=task_id).first()
+    if not task:
+        return jsonify(success=False, msg="历史任务不存在"), 404
+
+    try:
+        result = delete_generation_task(task)
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.exception("failed to delete generation task id=%s", task_id)
+        return jsonify(success=False, msg=str(exc)), 400
+    if not result["deleted"]:
+        return jsonify(success=False, msg=result["message"]), 400
+    return jsonify(success=True, msg=result["message"])
 
 
 @studio_bp.get("/api/products")

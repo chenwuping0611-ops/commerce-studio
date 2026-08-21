@@ -1,7 +1,36 @@
 from applications import create_app
+from applications.extensions import db
 import json
+import secrets
 
-from applications.models import Power, Role, StudioModel, StudioProvider, User
+from applications.models import (
+    Power,
+    Role,
+    StudioGenerationTask,
+    StudioModel,
+    StudioProvider,
+    User,
+)
+
+
+def set_user_session(client, user, permissions):
+    with client.session_transaction() as session:
+        session["_user_id"] = str(user.id)
+        session["_fresh"] = True
+        session["permissions"] = permissions
+
+
+def unique_task_code():
+    existing = {
+        task_code
+        for (task_code,) in StudioGenerationTask.query.with_entities(
+            StudioGenerationTask.task_code
+        ).all()
+    }
+    while True:
+        task_code = str(secrets.randbelow(9_000_000) + 1_000_000)
+        if task_code not in existing:
+            return task_code
 
 
 def main():
@@ -92,6 +121,67 @@ def main():
             if item.get("field") == "generate_audio"
         )
         assert str(audio_parameter.get("value")).lower() == "false"
+        admin_user = User.query.filter_by(username="admin").first()
+        ordinary_user = next(
+            (
+                user
+                for user in User.query.all()
+                if user.username != "admin"
+                and any(
+                    role.code == "studio_user" and role.enable == 1
+                    for role in user.role
+                )
+            ),
+            None,
+        )
+        assert admin_user is not None
+        assert ordinary_user is not None
+
+        for path in ("/studio/image", "/studio/video", "/studio/history"):
+            response = client.get(path)
+            assert response.status_code == 200, path
+            assert b"var canDeleteHistory = true" in response.data
+
+        set_user_session(
+            client,
+            ordinary_user,
+            ["studio:image", "studio:video", "studio:history"],
+        )
+        for path in ("/studio/image", "/studio/video", "/studio/history"):
+            response = client.get(path)
+            assert response.status_code == 200, path
+            assert b"var canDeleteHistory = false" in response.data
+
+        task = StudioGenerationTask(
+            task_code=unique_task_code(),
+            user_id=ordinary_user.id,
+            media_type="IMAGE",
+            prompt="删除权限烟测任务",
+            status="FAILED",
+            error_message="test",
+        )
+        db.session.add(task)
+        db.session.commit()
+        task_id = task.id
+
+        try:
+            forbidden = client.delete(f"/studio/api/history/{task_id}")
+            assert forbidden.status_code == 403
+
+            set_user_session(
+                client,
+                admin_user,
+                ["studio:image", "studio:video", "studio:history"],
+            )
+            deleted = client.delete(f"/studio/api/history/{task_id}")
+            assert deleted.status_code == 200, deleted.data
+            assert deleted.json["success"] is True
+            assert StudioGenerationTask.query.get(task_id) is None
+        finally:
+            leftover = StudioGenerationTask.query.get(task_id)
+            if leftover is not None:
+                db.session.delete(leftover)
+                db.session.commit()
 
     print("studio smoke test passed")
 

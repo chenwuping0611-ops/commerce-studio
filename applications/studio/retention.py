@@ -59,6 +59,49 @@ def clear_stale_task_outputs(task_ids):
     return cleared
 
 
+def delete_generation_task(task):
+    """Delete one terminal generation task and its stored media assets.
+
+    The caller is responsible for authorizing the operator. Storage objects
+    are removed before their metadata and the task row are deleted so a
+    failed GoFastDFS request leaves a retryable history record.
+    """
+
+    if not task:
+        return {"deleted": False, "message": "任务不存在", "failed_assets": 0}
+    if task.status in ("PENDING", "SUBMITTED", "PROCESSING"):
+        return {
+            "deleted": False,
+            "message": "处理中任务不能删除，请等待任务结束",
+            "failed_assets": 0,
+        }
+
+    assets = StudioAsset.query.filter_by(generation_task_id=task.id).all()
+    failed_assets = 0
+    for asset in assets:
+        if asset.status in ("ACTIVE", "DELETE_FAILED"):
+            if not FileService.delete_asset(asset):
+                failed_assets += 1
+
+    if failed_assets:
+        db.session.commit()
+        return {
+            "deleted": False,
+            "message": "部分生成资产删除失败，请稍后重试",
+            "failed_assets": failed_assets,
+        }
+
+    for asset in assets:
+        db.session.delete(asset)
+    db.session.delete(task)
+    db.session.commit()
+    return {
+        "deleted": True,
+        "message": "历史任务已删除",
+        "failed_assets": 0,
+    }
+
+
 def cleanup_expired_assets(limit=100, now=None):
     """Delete expired temporary assets and keep failed rows for retry."""
 

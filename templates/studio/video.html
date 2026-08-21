@@ -143,6 +143,7 @@
 {% block scripts %}
 <script>
 document.addEventListener("DOMContentLoaded", function () {
+    var canDeleteHistory = {{ "true" if can_delete_history else "false" }};
     var form = document.getElementById("videoForm");
     var modelSelect = document.getElementById("videoModel");
     var productSelect = document.getElementById("videoProduct");
@@ -323,20 +324,36 @@ document.addEventListener("DOMContentLoaded", function () {
     function loadHistory() {
         return Studio.request("/studio/api/history?media_type=VIDEO").then(function (result) {
             var list = result.data.filter(function (item) {
-                return item.output_url || item.output_expired;
+                return item.output_url || item.output_expired ||
+                    item.status === "SUBMITTED" || item.status === "PROCESSING" ||
+                    item.status === "PENDING" || item.status === "FAILED";
             }).slice(0, 6);
             document.getElementById("videoHistory").innerHTML = list.length ? list.map(function (item) {
                 var expired = item.output_expired && !item.output_url;
-                var wrapper = expired ? "div" : "a";
-                var href = expired ? "" : ' target="_blank" rel="noopener" href="' +
-                    Studio.escapeHtml(item.output_url) + '"';
-                return '<' + wrapper + ' class="studio-history-item"' + href + '>' +
-                    '<div class="studio-history-thumb">' + (expired
-                        ? '<span>资产已过期</span>'
-                        : '<video src="' + Studio.escapeHtml(item.output_url) + '" muted></video>') + '</div>' +
-                    '<div class="studio-history-info"><div class="studio-history-code">' + item.task_code + '</div>' +
+                var hasOutput = Boolean(item.output_url) && !expired;
+                var thumb = expired
+                    ? '<span>资产已过期</span>'
+                    : hasOutput
+                        ? '<video src="' + Studio.escapeHtml(item.output_url) + '" muted></video>'
+                        : '<span>' + Studio.escapeHtml(Studio.statusText(item.status)) + '</span>';
+                var error = item.error_message
+                    ? '<div class="studio-error-text">' + Studio.escapeHtml(item.error_message) + '</div>'
+                    : "";
+                var deleteAction = canDeleteHistory
+                    ? '<button type="button" class="studio-link-button studio-history-delete" data-action="delete-history" data-task-id="' +
+                        item.id + '">删除</button>'
+                    : "";
+                var media = hasOutput
+                    ? '<a class="studio-history-link" target="_blank" rel="noopener" href="' +
+                        Studio.escapeHtml(item.output_url) + '">' +
+                        '<div class="studio-history-thumb">' + thumb + '</div></a>'
+                    : '<div class="studio-history-thumb">' + thumb + '</div>';
+                return '<article class="studio-history-item">' + media +
+                    '<div class="studio-history-info"><div><div class="studio-history-code">' +
+                    Studio.escapeHtml(item.task_code) + '</div>' +
                     '<div class="studio-history-time">' + Studio.escapeHtml(item.created_at) +
-                    (expired ? " · 保留 7 天" : "") + '</div></div></' + wrapper + '>';
+                    (expired ? " · 保留 7 天" : "") + '</div>' + error + '</div>' +
+                    deleteAction + '</div></article>';
             }).join("") : '<div class="studio-empty studio-empty-compact">暂无视频输出</div>';
         });
     }
@@ -368,6 +385,24 @@ document.addEventListener("DOMContentLoaded", function () {
     document.getElementById("videoComposerClose").addEventListener("click", closeComposer);
     composerOverlay.addEventListener("click", function (event) {
         if (event.target.dataset.composerClose) closeComposer();
+    });
+    document.getElementById("videoHistory").addEventListener("click", function (event) {
+        var target = event.target.closest('[data-action="delete-history"]');
+        if (!target || !canDeleteHistory) return;
+        event.preventDefault();
+        if (!window.confirm("确定删除这条生成历史及其生成资产吗？")) return;
+        target.disabled = true;
+        target.textContent = "删除中...";
+        Studio.request("/studio/api/history/" + encodeURIComponent(target.dataset.taskId), {
+            method: "DELETE"
+        }).then(function () {
+            Studio.toast("历史任务已删除");
+            loadHistory();
+        }).catch(function (error) {
+            target.disabled = false;
+            target.textContent = "删除";
+            Studio.toast(error.message, "error");
+        });
     });
     document.addEventListener("keydown", function (event) {
         if (event.key === "Escape" && composerOverlay.classList.contains("is-open")) {
