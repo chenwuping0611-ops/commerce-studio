@@ -147,7 +147,7 @@ VIDEO_DEFAULT_PARAMETERS = [
     {
         "field": "generate_audio",
         "label": "生成音频",
-        "value": "true",
+        "value": "false",
         "runtime_key": "generate_audio",
         "value_type": "boolean",
         "enabled": True,

@@ -12,8 +12,32 @@ from applications.extensions import db
 from applications.models import Role
 from applications.models import User, AdminLog
 from applications.schemas import UserOutSchema
+from applications.studio.bootstrap import DEFAULT_STUDIO_ROLE_CODE
 
 admin_user = Blueprint('adminUser', __name__, url_prefix='/admin/user')
+
+
+def _parse_role_ids(raw_role_ids):
+    """Normalize the comma-separated role ids submitted by the Pear forms."""
+
+    if not raw_role_ids:
+        return []
+    values = raw_role_ids if isinstance(raw_role_ids, list) else str(raw_role_ids).split(',')
+    role_ids = []
+    for value in values:
+        value = str(value).strip()
+        if value.isdigit() and int(value) > 0:
+            role_ids.append(int(value))
+    return list(dict.fromkeys(role_ids))
+
+
+def _get_enabled_roles(role_ids=None):
+    query = Role.query.filter_by(enable=1)
+    if role_ids is not None:
+        if not role_ids:
+            return []
+        query = query.filter(Role.id.in_(role_ids))
+    return query.order_by(Role.sort.asc(), Role.id.asc()).all()
 
 
 # 用户管理
@@ -51,31 +75,44 @@ def data():
 @admin_user.get('/add')
 @authorize("admin:user:add", log=True)
 def add():
-    roles = Role.query.all()
+    roles = _get_enabled_roles()
     return render_template('admin/user/add.html', roles=roles)
 
 
 @admin_user.post('/save')
 @authorize("admin:user:add", log=True)
 def save():
-    req_json = request.json
-    a = req_json.get("roleIds")
+    req_json = request.json or {}
+    a = req_json.get("roleIds") or ""
     username = xss_escape(req_json.get('username'))
     real_name = xss_escape(req_json.get('realName'))
     password = xss_escape(req_json.get('password'))
-    role_ids = a.split(',')
+    role_ids = _parse_role_ids(a)
 
     if not username or not real_name or not password:
         return fail_api(msg="账号姓名密码不得为空")
+    if len(password) < 6:
+        return fail_api(msg="密码长度不能少于6位")
 
     if bool(User.query.filter_by(username=username).count()):
         return fail_api(msg="用户已经存在")
-    user = User(username=username, realname=real_name)
+    roles = _get_enabled_roles(role_ids)
+    if role_ids and len(roles) != len(role_ids):
+        return fail_api(msg="只能分配已启用的角色")
+    if not roles:
+        default_role = Role.query.filter_by(
+            code=DEFAULT_STUDIO_ROLE_CODE,
+            enable=1,
+        ).first()
+        if default_role:
+            roles = [default_role]
+    if not roles:
+        return fail_api(msg="请先配置可用角色")
+
+    user = User(username=username, realname=real_name, enable=1)
     user.set_password(password)
+    user.role = roles
     db.session.add(user)
-    roles = Role.query.filter(Role.id.in_(role_ids)).all()
-    for r in roles:
-        user.role.append(r)
     db.session.commit()
     return success_api(msg="增加成功")
 
@@ -99,10 +136,11 @@ def delete(id):
 @authorize("admin:user:edit", log=True)
 def edit(id):
     user = curd.get_one_by_id(User,id)
-    roles = Role.query.all()
+    roles = _get_enabled_roles()
     checked_roles = []
     for r in user.role:
-        checked_roles.append(r.id)
+        if r.enable == 1:
+            checked_roles.append(r.id)
     return render_template('admin/user/edit.html', user=user, roles=roles, checked_roles=checked_roles)
 
 
@@ -110,17 +148,24 @@ def edit(id):
 @admin_user.put('/update')
 @authorize("admin:user:edit", log=True)
 def update():
-    req_json = request.json
-    a = xss_escape(req_json.get("roleIds"))
+    req_json = request.json or {}
+    a = req_json.get("roleIds")
     id = xss_escape(req_json.get("userId"))
     username = xss_escape(req_json.get('username'))
     real_name = xss_escape(req_json.get('realName'))
     dept_id = xss_escape(req_json.get('deptId'))
-    role_ids = a.split(',')
-    User.query.filter_by(id=id).update({'username': username, 'realname': real_name, 'dept_id': dept_id})
+    role_ids = _parse_role_ids(a)
     u = User.query.filter_by(id=id).first()
+    if not u:
+        return fail_api(msg="用户不存在")
 
-    roles = Role.query.filter(Role.id.in_(role_ids)).all()
+    roles = _get_enabled_roles(role_ids)
+    if role_ids and len(roles) != len(role_ids):
+        return fail_api(msg="只能分配已启用的角色")
+
+    u.username = username
+    u.realname = real_name
+    u.dept_id = dept_id
     u.role = roles
 
     db.session.commit()
@@ -180,13 +225,18 @@ def edit_password():
 @admin_user.put('/editPassword')
 @login_required
 def edit_password_put():
-    res_json = request.json
-    if res_json.get("newPassword") == '':
+    res_json = request.json or {}
+    old_password = res_json.get("oldPassword") or ""
+    new_password = res_json.get("newPassword") or ""
+    confirm_password = res_json.get("confirmPassword") or ""
+    if not new_password:
         return fail_api("新密码不得为空")
-    if res_json.get("newPassword") != res_json.get("confirmPassword"):
+    if len(new_password) < 6:
+        return fail_api("新密码长度不能少于6位")
+    if new_password != confirm_password:
         return fail_api("俩次密码不一样")
     user = current_user
-    is_right = user.validate_password(res_json.get("oldPassword"))
+    is_right = user.validate_password(old_password)
     if not is_right:
         return fail_api("旧密码错误")
     user.set_password(res_json.get("newPassword"))

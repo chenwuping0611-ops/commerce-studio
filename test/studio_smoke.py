@@ -1,5 +1,7 @@
 from applications import create_app
-from applications.models import Power, StudioModel, StudioProvider, User
+import json
+
+from applications.models import Power, Role, StudioModel, StudioProvider, User
 
 
 def main():
@@ -31,10 +33,17 @@ def main():
         "admin:system:root",
     ]
     system_root = next(item for item in menu_roots if item["code"] == "admin:system:root")
-    assert any(
-        item["code"] == "studio:providers"
-        for item in system_root.get("children", [])
-    )
+    system_codes = {
+        item["code"] for item in system_root.get("children", [])
+    }
+    assert {
+        "admin:user:main",
+        "admin:role:main",
+        "admin:power:main",
+        "admin:dept:main",
+        "admin:log:main",
+        "studio:providers",
+    }.issubset(system_codes)
 
     for path in (
         "/studio/",
@@ -59,9 +68,30 @@ def main():
     with app.app_context():
         assert User.query.filter_by(username="admin").count() == 1
         assert Power.query.filter(Power.code.like("studio:%")).count() >= 7
+        studio_role = Role.query.filter_by(code="studio_user").first()
+        assert studio_role is not None
+        assert all(
+            power.code.startswith("studio:")
+            and power.code != "studio:providers"
+            for power in studio_role.power
+        )
+        assert any(power.code == "studio:image" for power in studio_role.power)
+        assert not any(
+            power.code.startswith("admin:") for power in studio_role.power
+        )
+        assert not any(
+            power.code == "studio:providers" for power in studio_role.power
+        )
         assert StudioProvider.query.filter_by(name="ToAPIs").count() == 1
         assert StudioModel.query.filter_by(model_code="gpt-image-2").count() == 1
-        assert StudioModel.query.filter_by(model_code="seedance-2").count() == 1
+        seedance = StudioModel.query.filter_by(model_code="seedance-2").first()
+        assert seedance is not None
+        seedance_parameters = json.loads(seedance.parameter_schema or "[]")
+        audio_parameter = next(
+            item for item in seedance_parameters
+            if item.get("field") == "generate_audio"
+        )
+        assert str(audio_parameter.get("value")).lower() == "false"
 
     print("studio smoke test passed")
 

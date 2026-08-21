@@ -1,4 +1,3 @@
-import copy
 from collections import OrderedDict
 from functools import wraps
 from io import BytesIO
@@ -58,15 +57,28 @@ def make_menu_tree():
                 powers.append(power)
 
     power_dict = PowerOutSchema(many=True).dump(powers)
-    power_dict.sort(key=lambda item: item["id"], reverse=True)
-    menu_dict = OrderedDict()
+    unique_powers = OrderedDict()
     for item in power_dict:
-        if item["id"] in menu_dict:
-            item["children"] = copy.deepcopy(menu_dict[item["id"]])
-            item["children"].sort(key=lambda child: child["sort"])
-            del menu_dict[item["id"]]
-        menu_dict.setdefault(item["parent_id"], []).append(item)
-    return sorted(menu_dict.get(0, []), key=lambda item: item["sort"])
+        unique_powers.setdefault(item["id"], item)
+
+    children_by_parent = {}
+    for item in unique_powers.values():
+        children_by_parent.setdefault(item["parent_id"], []).append(item)
+
+    def build_children(parent_id):
+        children = sorted(
+            children_by_parent.get(parent_id, []),
+            key=lambda item: (item.get("sort") or 0, item.get("id") or 0),
+        )
+        for item in children:
+            nested = build_children(item["id"])
+            if nested:
+                item["children"] = nested
+            else:
+                item.pop("children", None)
+        return children
+
+    return build_children(0)
 
 
 def get_captcha():

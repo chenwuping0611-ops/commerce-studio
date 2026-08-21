@@ -25,6 +25,7 @@ STUDIO_MENUS = [
 ]
 
 GLOBAL_CHAT_MODEL_SETTING_KEY = "global_chat_model_id"
+DEFAULT_STUDIO_ROLE_CODE = "studio_user"
 
 
 CORE_MENUS = [
@@ -117,6 +118,29 @@ def _ensure_admin():
     return role
 
 
+def _ensure_studio_user_role():
+    """Create the safe default role for newly created workspace users."""
+
+    role = Role.query.filter_by(code=DEFAULT_STUDIO_ROLE_CODE).first()
+    if not role:
+        role = Role(
+            name="AI 创作用户",
+            code=DEFAULT_STUDIO_ROLE_CODE,
+            remark="默认创作工作台角色",
+            details="拥有 AI 创作工作台全部功能，不包含系统管理权限",
+            sort=10,
+            enable=1,
+        )
+        db.session.add(role)
+        db.session.flush()
+    else:
+        role.name = "AI 创作用户"
+        role.remark = "默认创作工作台角色"
+        role.details = "拥有 AI 创作工作台全部功能，不包含系统管理权限"
+        role.enable = 1
+    return role
+
+
 def _disable_power_tree(power):
     """Hide a legacy menu and all of its descendants without deleting data."""
 
@@ -163,6 +187,39 @@ def seed_menu():
     for power in Power.query.filter(Power.enable == 1).all():
         if power not in role.power:
             role.power.append(power)
+
+    studio_role = _ensure_studio_user_role()
+    studio_codes = {menu[1] for menu in STUDIO_MENUS}
+    studio_powers = Power.query.filter(
+        Power.code.in_(studio_codes),
+        Power.enable == 1,
+    ).all()
+    studio_role.power = studio_powers
+
+    # Migrate the starter Pear "common" role away from system permissions.
+    # Existing users keep access to the workspace, while explicit custom
+    # roles remain untouched.
+    legacy_role = Role.query.filter_by(code="common").first()
+    if legacy_role and legacy_role.id != studio_role.id:
+        for user in User.query.all():
+            roles = list(user.role)
+            if legacy_role not in roles:
+                continue
+            remaining_roles = [item for item in roles if item.id != legacy_role.id]
+            if user.username != "admin" and not remaining_roles:
+                remaining_roles = [studio_role]
+            user.role = remaining_roles
+        legacy_role.power = []
+        legacy_role.enable = 0
+        legacy_role.remark = "旧版 Pear 默认角色，已停用"
+        legacy_role.details = "请使用 AI 创作用户或自定义角色"
+
+    # Existing users without an explicit authorization get the same safe
+    # workspace-only role as newly created users. Explicit assignments remain
+    # untouched so administrators can build custom RBAC roles.
+    for user in User.query.all():
+        if user.username != "admin" and not list(user.role):
+            user.role.append(studio_role)
     db.session.commit()
 
 
@@ -319,6 +376,43 @@ def _backfill_model_constraints(model):
             parameter["max"] = 8
             parameter["step"] = 1
             changed = True
+        elif (
+            model.model_code == "seedance-2"
+            and field == "generate_audio"
+        ):
+            # The starter Seedance configuration historically enabled audio
+            # and only allowed the true value. Keep the field configurable,
+            # but make the safe default explicit and accept both states.
+            if str(parameter.get("value", "")).strip().lower() in (
+                "true",
+                "1",
+                "yes",
+                "on",
+            ):
+                parameter["value"] = "false"
+                changed = True
+            options = parameter.get("options") or []
+            if isinstance(options, list):
+                option_values = []
+                for option in options:
+                    if isinstance(option, dict):
+                        option_values.append(
+                            str(
+                                option.get(
+                                    "value",
+                                    option.get("key", option.get("id", "")),
+                                )
+                            ).lower()
+                        )
+                    else:
+                        option_values.append(str(option).lower())
+                if "false" not in option_values:
+                    if any(isinstance(option, dict) for option in options):
+                        options.append({"value": "false", "label": "false"})
+                    else:
+                        options.append("false")
+                    parameter["options"] = options
+                    changed = True
 
     if changed:
         model.parameter_schema = json.dumps(parameters, ensure_ascii=False)

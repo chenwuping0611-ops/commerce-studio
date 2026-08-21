@@ -99,6 +99,17 @@ def main():
         assert video_body["image_with_roles"][0]["role"] == "reference_image"
         assert video_body["generate_audio"] is True
 
+        default_video_body = build_request_body(
+            video_model,
+            {
+                "prompt": "默认关闭音频的视频",
+                "duration": "5",
+                "aspect_ratio": "16:9",
+                "resolution": "720p",
+            },
+        )
+        assert default_video_body["generate_audio"] is False
+
         product = StudioProduct.query.filter_by(code="SMOKE-001").first()
         if not product:
             product = StudioProduct(

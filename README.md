@@ -37,7 +37,9 @@ python -m venv .venv
 
 ## MySQL-only 本地启动
 
-项目只支持 MySQL，不提供 SQLite 回退。先在 `.flaskenv` 配置可访问的 MySQL：
+项目只支持 MySQL，不提供 SQLite 回退。仓库不包含本地 `.flaskenv`。
+请复制 `.flaskenv.example` 为 `.flaskenv`，再填入自己的数据库、供应商和文件存储配置。
+`.flaskenv` 已加入 Git 忽略规则，不会被提交到远端。
 
 ```powershell
 MYSQL_HOST=your-mysql-host
@@ -72,13 +74,15 @@ MYSQL_PASSWORD=your-password
 http://127.0.0.1:5000/admin/
 ```
 
-默认账号：
+首次初始化账号：
 
 ```text
 admin / 123456
 ```
 
 首次进入后应立即修改密码。测试配置使用 `MYSQL_TEST_DATABASE`，必须使用独立的 MySQL 测试库，禁止指向生产库。
+新建用户默认获得“AI 创作用户”角色，拥有 AI 创作工作台权限，不包含系统管理权限。
+管理员可以在“角色管理”中按页面和操作逐项授权。
 
 ## ToAPIs 配置
 
@@ -95,12 +99,12 @@ admin / 123456
 ## go-fastdfs 配置
 
 所有新图片、视频和 Skill 文件都通过 `FileService` 写入 go-fastdfs。
-本地 `.flaskenv` 保留公网地址，服务器部署时必须先确认 fileserver 的实际监听端口，
-再设置内部地址：
+本地 `.flaskenv` 只在本机保存实际地址，服务器部署时必须先确认 fileserver 的实际监听端口，
+再设置内部地址。公开仓库只提供占位示例：
 
 ```text
 GOFASTDFS_INTERNAL_URL=http://127.0.0.1:<actual-port>
-GOFASTDFS_PUBLIC_URL=https://ray.garafana.com/gofastdfs
+GOFASTDFS_PUBLIC_URL=https://your-domain.example/gofastdfs
 GOFASTDFS_GROUP=group1
 ```
 

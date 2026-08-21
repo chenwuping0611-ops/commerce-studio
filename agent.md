@@ -46,13 +46,13 @@ Configuration is split into two addresses:
 - `GOFASTDFS_INTERNAL_URL`: the fileserver address reachable by Flask, for example
   `http://127.0.0.1:<actual-port>`.
 - `GOFASTDFS_PUBLIC_URL`: the browser and provider-facing URL,
-  `https://ray.garafana.com/gofastdfs`.
+  `https://your-domain.example/gofastdfs`.
 
 The internal port must be checked on the deployment host before changing the
 blank local placeholder. Never guess the port in source code.
 
-For Windows development without a local fileserver, the verified Nginx proxy
-may be used as `GOFASTDFS_INTERNAL_URL=https://ray.garafana.com/gofastdfs`.
+For Windows development without a local fileserver, configure the approved
+Nginx proxy only in the ignored local `.flaskenv` file.
 For CentOS deployment, replace it with the actual loopback listener after
 checking `ss -lntp | grep fileserver`.
 

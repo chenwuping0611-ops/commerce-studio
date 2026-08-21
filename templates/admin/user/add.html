@@ -26,7 +26,7 @@
                 <div class="layui-form-item">
                     <label class="layui-form-label">密码</label>
                     <div class="layui-input-block">
-                        <input type="text" name="password" lay-verify="title" autocomplete="off" placeholder="请输入标题"
+                        <input type="password" name="password" lay-verify="required" autocomplete="new-password" placeholder="至少6位"
                                class="layui-input">
                     </div>
                 </div>
@@ -38,6 +38,7 @@
                         {% for role in roles %}
                             <input
                                     value="{{ role.id }}" title="{{ role.name }}" type="checkbox"
+                                    {% if role.code == "studio_user" %}checked{% endif %}
                                     name="roleIds" lay-skin="primary">
                         {% endfor %}
 
