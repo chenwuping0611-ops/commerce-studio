@@ -65,7 +65,7 @@ def product_reference_descriptors(product, extra_urls=None, media_type="IMAGE"):
     descriptors = []
     seen = set()
 
-    def add(url, role, source, name="", index=None):
+    def add(url, role, source, name="", index=None, asset_type="IMAGE"):
         url = str(url or "").strip()
         if not url or url in seen:
             return
@@ -81,6 +81,7 @@ def product_reference_descriptors(product, extra_urls=None, media_type="IMAGE"):
                 "label": label,
                 "source": source,
                 "name": str(name or "").strip(),
+                "asset_type": str(asset_type or "IMAGE").upper(),
             }
         )
 
@@ -108,10 +109,17 @@ def product_reference_descriptors(product, extra_urls=None, media_type="IMAGE"):
                 getattr(asset, "role", "reference"),
                 "product",
                 getattr(asset, "name", ""),
+                asset_type=asset_type,
             )
 
         for index, url in enumerate(split_urls(getattr(product, "asset_urls", "")), 1):
-            add(url, "reference", "product", f"产品外部素材 {index}")
+            add(
+                url,
+                "reference",
+                "product",
+                f"产品外部素材 {index}",
+                asset_type="IMAGE",
+            )
 
     for index, url in enumerate(split_urls(extra_urls), 1):
         add(
@@ -120,6 +128,7 @@ def product_reference_descriptors(product, extra_urls=None, media_type="IMAGE"):
             "request",
             f"本次上传的其他细节图 {index}",
             index=index,
+            asset_type="IMAGE",
         )
 
     return descriptors

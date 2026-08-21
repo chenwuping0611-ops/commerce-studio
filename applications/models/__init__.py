@@ -15,5 +15,6 @@ from .studio import (
     StudioProduct,
     StudioProductAsset,
     StudioProvider,
+    StudioSetting,
     StudioSkill,
 )

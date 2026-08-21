@@ -5,7 +5,7 @@
     <div>
         <div class="studio-eyebrow">图片生成</div>
         <h1>图片创作</h1>
-        <p>图片模型负责生成；提交前固定使用 ToAPIs 的 gpt-5.5 语言/视觉模型整理创意。关联产品时，产品资料、Product Profile 和产品记忆会接在创意描述之后一起发送。</p>
+        <p>图片模型负责生成；仅在关联产品或选择 Skill 时，才使用系统配置的全局语言模型整理创意。没有产品和 Skill 时直接发送你的创意描述。</p>
     </div>
     <div class="studio-toolbar-right">
         <span id="imageProviderBalance" class="studio-balance-inline">当前供应商余额：未查询</span>
@@ -139,25 +139,20 @@
 
 <div class="studio-image-viewer" id="imageViewer" aria-hidden="true">
     <div class="studio-image-viewer-backdrop" data-viewer-close="1"></div>
-    <section class="studio-image-viewer-panel" role="dialog" aria-modal="true" aria-labelledby="imageViewerTitle">
-        <header class="studio-image-viewer-header">
-            <div>
-                <div class="studio-eyebrow">图片预览</div>
-                <h2 id="imageViewerTitle">生成图片</h2>
+    <div class="studio-image-viewer-layout" role="dialog" aria-modal="true" aria-labelledby="imageViewerTitle">
+        <aside class="studio-image-viewer-history" id="imageViewerHistory" aria-label="历史图片"></aside>
+        <main class="studio-image-viewer-stage">
+            <img id="imageViewerImage" src="" alt="生成图片预览">
+        </main>
+        <div class="studio-image-viewer-controls">
+            <div class="studio-image-viewer-meta">
+                <strong id="imageViewerTitle">生成图片</strong>
+                <span id="imageViewerMeta"></span>
             </div>
+            <button type="button" class="studio-image-viewer-action" id="imageViewerDownload">下载</button>
             <button type="button" class="studio-image-viewer-close" id="imageViewerClose" aria-label="关闭预览">×</button>
-        </header>
-        <div class="studio-image-viewer-layout">
-            <aside class="studio-image-viewer-history" id="imageViewerHistory" aria-label="历史图片"></aside>
-            <div class="studio-image-viewer-stage">
-                <img id="imageViewerImage" src="" alt="生成图片预览">
-            </div>
         </div>
-        <footer class="studio-image-viewer-footer">
-            <div id="imageViewerMeta" class="studio-helper"></div>
-            <button type="button" class="layui-btn studio-btn-primary" id="imageViewerDownload">下载图片</button>
-        </footer>
-    </section>
+    </div>
 </div>
 {% endblock %}
 
@@ -178,6 +173,8 @@ document.addEventListener("DOMContentLoaded", function () {
     var viewerMeta = document.getElementById("imageViewerMeta");
     var viewerDownload = document.getElementById("imageViewerDownload");
     var viewerHistory = document.getElementById("imageViewerHistory");
+    var viewerOwnerDocument = document;
+    var viewerTopKeyHandlerBound = false;
     var composerOverlay = document.getElementById("imageComposerOverlay");
     var modelData = [];
     var skillData = [];
@@ -189,6 +186,36 @@ document.addEventListener("DOMContentLoaded", function () {
     var lastModelValue = null;
     var viewerState = null;
     var submitButton = form.querySelector("[lay-submit]");
+
+    function mountViewerPortal() {
+        try {
+            var topDocument = window.top.document;
+            if (topDocument !== document) {
+                var stylesheet = topDocument.getElementById("commerceStudioViewerStyles");
+                if (!stylesheet) {
+                    stylesheet = topDocument.createElement("link");
+                    stylesheet.id = "commerceStudioViewerStyles";
+                    stylesheet.rel = "stylesheet";
+                    stylesheet.href = "{{ url_for('static', filename='studio/studio.css') }}";
+                    topDocument.head.appendChild(stylesheet);
+                }
+                if (viewer.parentNode !== topDocument.body) {
+                    topDocument.body.appendChild(viewer);
+                }
+                viewerOwnerDocument = topDocument;
+                if (!viewerTopKeyHandlerBound) {
+                    topDocument.addEventListener("keydown", function (event) {
+                        if (event.key === "Escape" && viewer.classList.contains("is-open")) {
+                            closeViewer();
+                        }
+                    });
+                    viewerTopKeyHandlerBound = true;
+                }
+            }
+        } catch (error) {
+            viewerOwnerDocument = document;
+        }
+    }
 
     function openComposer() {
         composerOverlay.classList.add("is-open");
@@ -485,13 +512,24 @@ document.addEventListener("DOMContentLoaded", function () {
         var error = item.error_message
             ? '<div class="studio-feed-error">' + Studio.escapeHtml(item.error_message) + '</div>'
             : "";
-        var analysisAction = outputs.length && item.status === "SUCCEEDED"
-            ? '<button type="button" class="layui-btn layui-btn-xs studio-btn-quiet" data-action="analyze" ' +
-                'data-task="' + Studio.escapeHtml(item.task_code || "") + '">AI 分析</button>'
+        var feedbackAction = outputs.length && item.status === "SUCCEEDED" && item.product_id
+            ? '<button type="button" class="layui-btn layui-btn-xs studio-btn-quiet" data-action="feedback-toggle" ' +
+                'data-task="' + Studio.escapeHtml(item.task_code || "") + '">意见反馈</button>' +
+                '<div class="studio-feedback-editor" data-feedback-editor="' +
+                Studio.escapeHtml(item.task_code || "") + '" hidden>' +
+                '<textarea class="layui-textarea" data-feedback-input="' +
+                Studio.escapeHtml(item.task_code || "") + '" rows="3" ' +
+                'placeholder="请填写本次生成中不满意、瑕疵、变形或需要调整的部分"></textarea>' +
+                '<div class="studio-feedback-editor-actions">' +
+                '<button type="button" class="layui-btn layui-btn-xs studio-btn-primary" data-action="feedback-submit" ' +
+                'data-task="' + Studio.escapeHtml(item.task_code || "") + '">提交反馈</button>' +
+                '<button type="button" class="layui-btn layui-btn-xs studio-btn-quiet" data-action="feedback-cancel" ' +
+                'data-task="' + Studio.escapeHtml(item.task_code || "") + '">取消</button>' +
+                '</div></div>'
             : "";
         var commentsHtml = comments.length
             ? '<div class="studio-feed-comments">' + comments.map(function (comment) {
-                var content = comment.content || comment.error_message || "分析失败";
+                var content = comment.content || comment.error_message || "意见反馈失败";
                 var suggested = comment.suggested_updates || {};
                 var updates = suggested.updates || {};
                 var appliedFields = comment.applied_update_fields || [];
@@ -537,7 +575,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     : "";
                 return '<div class="studio-feed-comment ' +
                     (comment.status === "FAILED" ? "is-error" : "") + '">' +
-                    '<div class="studio-feed-comment-head"><strong>AI 分析</strong><span>' +
+                    '<div class="studio-feed-comment-head"><strong>意见反馈</strong><span>' +
                     Studio.escapeHtml(modelLabel) + " · " +
                     Studio.escapeHtml(comment.created_at || "") + '</span></div>' +
                     '<div class="studio-feed-comment-content">' +
@@ -556,7 +594,7 @@ document.addEventListener("DOMContentLoaded", function () {
             '<div class="studio-feed-item-meta"><span>' + Studio.escapeHtml(product) +
             '</span><span>' + Studio.escapeHtml(model) + '</span></div>' +
             '<div class="studio-feed-prompt">' + Studio.escapeHtml(prompt) + '</div>' +
-            '<div class="studio-feed-actions">' + analysisAction + '</div>' +
+            '<div class="studio-feed-actions">' + feedbackAction + '</div>' +
             commentsHtml +
             error +
             '</article>';
@@ -676,6 +714,7 @@ document.addEventListener("DOMContentLoaded", function () {
     function openViewer(url, taskCode, filename, index) {
         var cleanUrl = String(url || "").trim();
         var imageIndex = Number(index) || 1;
+        mountViewerPortal();
         viewerState = {
             url: cleanUrl,
             filename: filename || filenameFor(cleanUrl, taskCode, imageIndex),
@@ -689,6 +728,8 @@ document.addEventListener("DOMContentLoaded", function () {
         viewer.classList.add("is-open");
         viewer.setAttribute("aria-hidden", "false");
         document.body.classList.add("studio-viewer-open");
+        viewerOwnerDocument.body.classList.add("studio-viewer-open");
+        viewerOwnerDocument.documentElement.classList.add("studio-viewer-open");
     }
 
     function closeViewer() {
@@ -697,6 +738,8 @@ document.addEventListener("DOMContentLoaded", function () {
         viewerImage.removeAttribute("src");
         viewerState = null;
         document.body.classList.remove("studio-viewer-open");
+        viewerOwnerDocument.body.classList.remove("studio-viewer-open");
+        viewerOwnerDocument.documentElement.classList.remove("studio-viewer-open");
     }
 
     function downloadImage(url, filename) {
@@ -724,13 +767,45 @@ document.addEventListener("DOMContentLoaded", function () {
         var target = event.target.closest("[data-action]");
         if (!target) return;
         var action = target.dataset.action;
-        if (action === "analyze") {
+        if (action === "feedback-toggle") {
+            var editor = feed.querySelector(
+                '[data-feedback-editor="' + CSS.escape(target.dataset.task || "") + '"]'
+            );
+            if (editor) {
+                editor.hidden = !editor.hidden;
+                if (!editor.hidden) {
+                    var input = editor.querySelector("[data-feedback-input]");
+                    if (input) input.focus();
+                }
+            }
+        } else if (action === "feedback-cancel") {
+            var cancelEditor = feed.querySelector(
+                '[data-feedback-editor="' + CSS.escape(target.dataset.task || "") + '"]'
+            );
+            if (cancelEditor) {
+                cancelEditor.hidden = true;
+                var cancelInput = cancelEditor.querySelector("[data-feedback-input]");
+                if (cancelInput) cancelInput.value = "";
+            }
+        } else if (action === "feedback-submit") {
             var taskCode = target.dataset.task;
+            var feedbackEditor = feed.querySelector(
+                '[data-feedback-editor="' + CSS.escape(taskCode || "") + '"]'
+            );
+            var feedbackInput = feedbackEditor
+                ? feedbackEditor.querySelector("[data-feedback-input]")
+                : null;
+            var feedback = feedbackInput ? feedbackInput.value.trim() : "";
+            if (!feedback) {
+                Studio.toast("请先填写本次生成的不满意、瑕疵或变形说明", "error");
+                if (feedbackInput) feedbackInput.focus();
+                return;
+            }
             target.disabled = true;
             target.textContent = "分析中...";
             Studio.request("/studio/api/tasks/" + encodeURIComponent(taskCode) + "/comments/analyze", {
                 method: "POST",
-                body: JSON.stringify({})
+                body: JSON.stringify({feedback: feedback})
             }).then(function (result) {
                 var comment = result.data;
                 var task = historyData.find(function (item) {
@@ -745,10 +820,10 @@ document.addEventListener("DOMContentLoaded", function () {
                 } else {
                     loadHistory();
                 }
-                Studio.toast("图片分析已完成");
+                Studio.toast("意见反馈已完成");
             }).catch(function (error) {
                 target.disabled = false;
-                target.textContent = "AI 分析";
+                target.textContent = "提交反馈";
                 Studio.toast(error.message, "error");
             });
         } else if (action === "apply-updates") {
@@ -885,11 +960,23 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     });
 
+    function needsPromptPlanning(payload) {
+        return Boolean(
+            String(payload.product_id || "").trim() ||
+            String(payload.skill_prompt || "").trim()
+        );
+    }
+
     function preparePrompt(payload) {
-        formMessage.textContent = "正在调用 GPT-5.5 分析创意与产品信息...";
+        if (!needsPromptPlanning(payload)) {
+            formMessage.textContent = "未关联产品或 Skill，直接使用创意描述提交...";
+            return Promise.resolve(payload);
+        }
+        formMessage.textContent = "正在调用系统配置的全局语言模型整理创意与产品信息...";
         return Studio.request("/studio/api/prompt/prepare", {
             method: "POST",
             body: JSON.stringify({
+                media_type: "IMAGE",
                 product_id: payload.product_id,
                 prompt: payload.prompt,
                 reference_images: payload.reference_images,
@@ -899,6 +986,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }).then(function (result) {
             payload.prepared_prompt = result.data.final_prompt;
             payload.reference_instruction = result.data.reference_instruction || "";
+            payload.planner_model = result.data.planner_model || "";
             return payload;
         });
     }
@@ -931,8 +1019,8 @@ document.addEventListener("DOMContentLoaded", function () {
         closeComposer();
         submitButton.disabled = true;
         preparePrompt(payload).then(function (preparedPayload) {
-            formMessage.textContent = preparedPayload.product_id
-                ? "产品 Prompt 分析完成，正在提交图片任务..."
+            formMessage.textContent = needsPromptPlanning(preparedPayload)
+                ? "全局语言模型整理完成，正在提交图片任务..."
                 : "正在提交图片任务...";
             return Studio.request("/studio/api/generate", {
                 method: "POST",

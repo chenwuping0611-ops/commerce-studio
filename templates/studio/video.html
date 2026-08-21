@@ -5,7 +5,7 @@
     <div>
         <div class="studio-eyebrow">视频生成</div>
         <h1>视频创作</h1>
-        <p>视频模型独立配置时长、比例、分辨率、音频和参考素材字段。</p>
+        <p>视频模型独立配置时长、比例、分辨率、音频和参考素材字段；仅在关联产品或选择 Skill 时调用系统配置的全局语言模型整理创意。</p>
     </div>
     <div class="studio-toolbar-right">
         <span id="videoProviderBalance" class="studio-balance-inline">当前供应商余额：未查询</span>
@@ -116,6 +116,7 @@
                         <button type="reset" class="layui-btn studio-btn-quiet" id="videoReset">清空</button>
                     </div>
                 </div>
+                <div class="studio-form-message" id="videoFormMessage"></div>
             </form>
         </section>
     </div>
@@ -147,6 +148,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var productSelect = document.getElementById("videoProduct");
     var skillSelect = document.getElementById("videoSkill");
     var status = document.getElementById("videoTaskStatus");
+    var formMessage = document.getElementById("videoFormMessage");
     var modelData = [];
     var skillData = [];
     var referenceImageAssets = [];
@@ -425,9 +427,43 @@ document.addEventListener("DOMContentLoaded", function () {
     });
     skillSelect.addEventListener("change", function () {
         var skill = skillData.find(function (item) { return item.id === Number(skillSelect.value); });
-        if (!skill) return;
-        document.getElementById("videoPrompt").value = skill.prompt_template || "";
+        formMessage.textContent = skill
+            ? "已选择 Skill：会作为提示词规则附加到本次创作，不会覆盖你的创意描述"
+            : "";
     });
+
+    function needsPromptPlanning(payload) {
+        return Boolean(
+            String(payload.product_id || "").trim() ||
+            String(payload.skill_prompt || "").trim()
+        );
+    }
+
+    function prepareVideoPrompt(payload) {
+        if (!needsPromptPlanning(payload)) {
+            formMessage.textContent = "未关联产品或 Skill，直接使用创意描述提交...";
+            return Promise.resolve(payload);
+        }
+        formMessage.textContent = "正在调用系统配置的全局语言模型整理创意与产品信息...";
+        return Studio.request("/studio/api/prompt/prepare", {
+            method: "POST",
+            body: JSON.stringify({
+                media_type: "VIDEO",
+                product_id: payload.product_id,
+                prompt: payload.prompt,
+                skill_prompt: payload.skill_prompt,
+                reference_images: payload.reference_images,
+                reference_asset_ids: payload.reference_asset_ids,
+                reference_videos: payload.reference_videos,
+                reference_video_asset_ids: payload.reference_video_asset_ids
+            })
+        }).then(function (result) {
+            payload.prepared_prompt = result.data.final_prompt;
+            payload.reference_instruction = result.data.reference_instruction || "";
+            payload.planner_model = result.data.planner_model || "";
+            return payload;
+        });
+    }
 
     form.addEventListener("submit", function (event) {
         event.preventDefault();
@@ -443,7 +479,7 @@ document.addEventListener("DOMContentLoaded", function () {
             media_type: "VIDEO",
             model_id: data.get("model_id"),
             product_id: data.get("product_id"),
-            prompt: data.get("prompt"),
+            prompt: String(data.get("prompt") || "").trim(),
             duration: data.get("duration"),
             aspect_ratio: data.get("aspect_ratio"),
             resolution: data.get("resolution"),
@@ -452,20 +488,37 @@ document.addEventListener("DOMContentLoaded", function () {
             reference_videos: data.get("reference_videos"),
             reference_asset_ids: referenceImageAssets.map(function (asset) { return asset.id; }),
             reference_video_asset_ids: referenceVideoAssets.map(function (asset) { return asset.id; }),
+            skill_prompt: (skillData.find(function (item) {
+                return item.id === Number(skillSelect.value);
+            }) || {}).prompt_template || "",
             extra_fields: extra
         };
+        if (!payload.prompt) {
+            formMessage.textContent = "请先填写创意描述";
+            return;
+        }
         status.className = "studio-pill";
         status.textContent = "提交中";
-        Studio.request("/studio/api/generate", {method: "POST", body: JSON.stringify(payload)}).then(function (result) {
+        prepareVideoPrompt(payload).then(function (preparedPayload) {
+            formMessage.textContent = needsPromptPlanning(preparedPayload)
+                ? "全局语言模型整理完成，正在提交视频任务..."
+                : "正在提交视频任务...";
+            return Studio.request("/studio/api/generate", {
+                method: "POST",
+                body: JSON.stringify(preparedPayload)
+            });
+        }).then(function (result) {
             var item = result.data;
             setStatus(item);
             refreshProviderBalance(item.provider_id);
             poll(item.task_code);
             closeComposer();
+            formMessage.textContent = "任务已提交，编号 " + item.task_code;
             Studio.toast("视频任务已提交");
         }).catch(function (error) {
             status.className = "studio-pill red";
             status.textContent = "提交失败";
+            formMessage.textContent = error.message;
             Studio.toast(error.message, "error");
         });
     });

@@ -3,6 +3,23 @@ import datetime
 from applications.extensions import db
 
 
+class StudioSetting(db.Model):
+    """Persistent system-level Studio settings."""
+
+    __tablename__ = "studio_setting"
+
+    id = db.Column(db.Integer, primary_key=True)
+    setting_key = db.Column(db.String(120), nullable=False, unique=True)
+    setting_value = db.Column(db.String(255), nullable=True)
+    description = db.Column(db.String(500), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.datetime.now)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.datetime.now,
+        onupdate=datetime.datetime.now,
+    )
+
+
 class StudioProvider(db.Model):
     """Configurable API provider, including official endpoints and relay services."""
 

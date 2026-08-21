@@ -27,6 +27,27 @@
 
 <section class="studio-card studio-section-gap">
     <div class="studio-card-header">
+        <div>
+            <h2>全局语言模型</h2>
+            <div class="studio-card-subtitle">图片或视频关联产品、Skill 时，用它整理最终 Prompt 和意见反馈</div>
+        </div>
+        <span id="globalChatModelStatus" class="studio-helper">正在加载配置</span>
+    </div>
+    <div class="studio-card-body studio-global-chat-config">
+        <div class="studio-field">
+            <label class="studio-field-label" for="globalChatModel">选择语言模型</label>
+            <select id="globalChatModel" class="studio-input-select">
+                <option value="">正在加载...</option>
+            </select>
+            <div class="studio-field-help">只会显示已启用的 CHAT 语言模型；切换后写入数据库，后续创作与意见反馈统一使用该模型。</div>
+        </div>
+        <div class="studio-global-chat-current" id="globalChatModelCurrent">尚未选择</div>
+        <button type="button" class="layui-btn studio-btn-primary" id="saveGlobalChatModel">保存选择</button>
+    </div>
+</section>
+
+<section class="studio-card studio-section-gap">
+    <div class="studio-card-header">
         <h2>模型定义</h2>
         <span class="studio-helper">仅发送已启用的请求字段</span>
     </div>
@@ -51,6 +72,7 @@
 document.addEventListener("DOMContentLoaded", function () {
     var providers = [];
     var models = [];
+    var globalChatConfig = null;
 
     function fitArea(area) {
         area = area || ["820px", "760px"];
@@ -188,9 +210,50 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
+    function renderGlobalChatConfig() {
+        var select = document.getElementById("globalChatModel");
+        var status = document.getElementById("globalChatModelStatus");
+        var current = document.getElementById("globalChatModelCurrent");
+        var options = (globalChatConfig && globalChatConfig.models) || [];
+        if (!options.length) {
+            select.innerHTML = '<option value="">暂无启用的语言模型</option>';
+            select.disabled = true;
+            current.textContent = "请先新增并启用一个 CHAT 语言模型";
+            status.textContent = "未配置";
+            return;
+        }
+        select.disabled = false;
+        select.innerHTML = options.map(function (item) {
+            return '<option value="' + item.id + '">' +
+                Studio.escapeHtml(item.name) + " · " +
+                Studio.escapeHtml(item.provider_name) + " · " +
+                Studio.escapeHtml(item.model_code) + '</option>';
+        }).join("");
+        select.value = String(globalChatConfig.global_chat_model_id || options[0].id);
+        var selected = options.find(function (item) {
+            return item.id === Number(select.value);
+        }) || options[0];
+        current.textContent = "当前使用：" + selected.name + " · " +
+            selected.provider_name + " · " + selected.model_code;
+        status.textContent = "已配置";
+        layui.use("form", function () { layui.form.render("select"); });
+    }
+
+    function loadGlobalChatConfig() {
+        return Studio.request("/studio/api/ai-config").then(function (result) {
+            globalChatConfig = result.data;
+            renderGlobalChatConfig();
+        });
+    }
+
     function loadData() {
-        return Studio.request("/studio/api/providers").then(function (result) {
+        return Promise.all([
+            Studio.request("/studio/api/providers"),
+            Studio.request("/studio/api/ai-config")
+        ]).then(function (results) {
+            var result = results[0];
             providers = result.data;
+            globalChatConfig = results[1].data;
             models = [];
             providers.forEach(function (provider) {
                 (provider.models || []).forEach(function (model) {
@@ -199,6 +262,7 @@ document.addEventListener("DOMContentLoaded", function () {
             });
             renderProviders();
             renderModels();
+            renderGlobalChatConfig();
             providers.filter(function (provider) {
                 return provider.enabled && provider.api_key_configured;
             }).forEach(function (provider) {
@@ -224,6 +288,29 @@ document.addEventListener("DOMContentLoaded", function () {
             return;
         }
         openFrame("新增模型", "/studio/forms/model", ["1120px", "800px"]);
+    });
+
+    document.getElementById("saveGlobalChatModel").addEventListener("click", function () {
+        var select = document.getElementById("globalChatModel");
+        if (!select.value) {
+            Studio.toast("请先选择语言模型", "error");
+            return;
+        }
+        var button = document.getElementById("saveGlobalChatModel");
+        button.disabled = true;
+        Studio.request("/studio/api/ai-config", {
+            method: "POST",
+            body: JSON.stringify({global_chat_model_id: select.value})
+        }).then(function (result) {
+            globalChatConfig.global_chat_model_id = result.data.global_chat_model_id;
+            globalChatConfig.global_chat_model = result.data.global_chat_model;
+            renderGlobalChatConfig();
+            Studio.toast("全局语言模型已切换");
+        }).catch(function (error) {
+            Studio.toast(error.message, "error");
+        }).finally(function () {
+            button.disabled = false;
+        });
     });
 
     loadData().catch(function (error) { Studio.toast(error.message, "error"); });

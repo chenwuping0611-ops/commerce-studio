@@ -2208,10 +2208,48 @@ body.studio-composer-open {
     margin-top: 9px;
 }
 
+.studio-feedback-editor {
+    display: grid;
+    gap: 8px;
+    width: min(640px, 100%);
+    margin-top: 10px;
+    padding: 10px;
+    border: 1px solid #dbe5f0;
+    border-radius: 7px;
+    background: #fbfcfe;
+}
+
+.studio-feedback-editor[hidden] {
+    display: none;
+}
+
+.studio-feedback-editor-actions {
+    display: flex;
+    gap: 6px;
+}
+
 .studio-feed-comments {
     display: grid;
     gap: 8px;
     margin-top: 10px;
+}
+
+.studio-global-chat-config {
+    display: grid;
+    grid-template-columns: minmax(260px, 1fr) minmax(220px, 1fr) auto;
+    gap: 18px;
+    align-items: end;
+}
+
+.studio-global-chat-current {
+    min-height: 38px;
+    padding: 10px 12px;
+    border: 1px solid #e4e9f0;
+    border-radius: 6px;
+    background: #f8fafc;
+    color: #475467;
+    font-size: 12px;
+    line-height: 18px;
 }
 
 .studio-feed-comment {
@@ -2393,97 +2431,73 @@ body.studio-composer-open {
 
 .studio-image-viewer {
     position: fixed;
-    z-index: 5000;
+    z-index: 999999;
     inset: 0;
     display: none;
-    padding: clamp(8px, 2vw, 24px);
+    padding: 0;
+    background: #0b0f14;
 }
 
 .studio-image-viewer.is-open {
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    display: block;
 }
 
 .studio-image-viewer-backdrop {
     position: absolute;
     inset: 0;
-    background: rgba(255, 255, 255, .86);
-    backdrop-filter: blur(3px);
-}
-
-.studio-image-viewer-panel {
-    position: relative;
-    z-index: 1;
-    display: flex;
-    flex-direction: column;
-    width: min(96vw, 1280px);
-    height: min(92vh, 900px);
-    max-height: calc(100vh - 16px);
-    overflow: hidden;
-    border: 1px solid #e4e7ec;
-    border-radius: 10px;
-    background: #fff;
-    box-shadow: 0 18px 60px rgba(15, 23, 42, .16);
-}
-
-.studio-image-viewer-header,
-.studio-image-viewer-footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 14px 18px;
-}
-
-.studio-image-viewer-header {
-    border-bottom: 1px solid var(--studio-line);
-}
-
-.studio-image-viewer-header h2 {
-    margin: 3px 0 0;
-    color: #1f2937;
-    font-size: 16px;
-}
-
-.studio-image-viewer-close {
-    display: grid;
-    place-items: center;
-    width: 36px;
-    height: 36px;
-    padding: 0;
-    border: 1px solid rgba(152, 162, 179, .5);
-    border-radius: 50%;
-    background: rgba(242, 244, 247, .74);
-    color: #475467;
-    font-size: 23px;
-    line-height: 1;
-    cursor: pointer;
-}
-
-.studio-image-viewer-close:hover {
-    border-color: #98a2b3;
-    background: rgba(228, 231, 236, .9);
-    color: #1f2937;
+    background: #0b0f14;
 }
 
 .studio-image-viewer-layout {
+    position: relative;
+    z-index: 1;
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    background: #0b0f14;
+}
+
+.studio-image-viewer-stage {
     display: grid;
-    grid-template-columns: 72px minmax(0, 1fr);
-    flex: 1 1 auto;
+    place-items: center;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
     min-height: 0;
-    background: #fff;
+    overflow: hidden;
+    padding: 0;
+    background: #0b0f14;
+}
+
+.studio-image-viewer-stage img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    object-fit: contain;
 }
 
 .studio-image-viewer-history {
+    position: absolute;
+    z-index: 3;
+    top: 18px;
+    bottom: 18px;
+    left: 18px;
     display: flex;
     flex-direction: column;
     gap: 8px;
-    min-height: 0;
-    padding: 12px 10px;
+    width: 58px;
+    padding: 8px 4px;
     overflow-y: auto;
-    border-right: 1px solid var(--studio-line);
-    background: #fff;
+    border: 1px solid rgba(255, 255, 255, .12);
+    border-radius: 10px;
+    background: rgba(11, 15, 20, .5);
+    scrollbar-width: thin;
+    opacity: 0;
+    transform: translateX(-6px);
+    transition: opacity .2s ease, transform .2s ease;
 }
 
 .studio-image-viewer-thumb {
@@ -2492,16 +2506,16 @@ body.studio-composer-open {
     width: 50px;
     aspect-ratio: 1;
     padding: 2px;
-    border: 1px solid #e4e7ec;
+    border: 1px solid rgba(255, 255, 255, .2);
     border-radius: 6px;
-    background: #fff;
+    background: rgba(255, 255, 255, .08);
     cursor: pointer;
 }
 
 .studio-image-viewer-thumb:hover,
 .studio-image-viewer-thumb.is-active {
-    border-color: var(--studio-primary);
-    box-shadow: 0 0 0 2px rgba(22, 119, 255, .1);
+    border-color: #fff;
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, .22);
 }
 
 .studio-image-viewer-thumb img {
@@ -2512,30 +2526,85 @@ body.studio-composer-open {
     object-fit: contain;
 }
 
-.studio-image-viewer-stage {
+.studio-image-viewer-controls {
+    position: absolute;
+    z-index: 4;
+    top: 18px;
+    right: 22px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: calc(100vw - 120px);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-6px);
+    transition: opacity .2s ease, transform .2s ease;
+}
+
+.studio-image-viewer:hover .studio-image-viewer-controls,
+.studio-image-viewer:focus-within .studio-image-viewer-controls,
+.studio-image-viewer:hover .studio-image-viewer-history,
+.studio-image-viewer:focus-within .studio-image-viewer-history {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+}
+
+.studio-image-viewer-meta {
+    display: grid;
+    gap: 2px;
+    max-width: min(360px, 42vw);
+    padding: 8px 11px;
+    border: 1px solid rgba(255, 255, 255, .16);
+    border-radius: 8px;
+    background: rgba(11, 15, 20, .58);
+    color: #fff;
+    font-size: 11px;
+    line-height: 1.35;
+}
+
+.studio-image-viewer-meta strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.studio-image-viewer-meta span {
+    overflow: hidden;
+    color: rgba(255, 255, 255, .72);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.studio-image-viewer-action,
+.studio-image-viewer-close {
     display: grid;
     place-items: center;
-    min-width: 0;
-    min-height: 0;
-    overflow: auto;
-    padding: clamp(12px, 2vw, 30px);
-    background: #fff;
+    height: 36px;
+    padding: 0 12px;
+    border: 1px solid rgba(255, 255, 255, .24);
+    border-radius: 8px;
+    background: rgba(11, 15, 20, .58);
+    color: #fff;
+    cursor: pointer;
+    font-size: 12px;
 }
 
-.studio-image-viewer-stage img {
-    display: block;
-    width: auto;
-    max-width: 100%;
-    height: auto;
-    max-height: 100%;
-    object-fit: contain;
+.studio-image-viewer-close {
+    width: 36px;
+    padding: 0;
+    border-radius: 50%;
+    font-size: 23px;
+    line-height: 1;
 }
 
-.studio-image-viewer-footer {
-    border-top: 1px solid var(--studio-line);
-    background: #fff;
+.studio-image-viewer-action:hover,
+.studio-image-viewer-close:hover {
+    border-color: rgba(255, 255, 255, .72);
+    background: rgba(255, 255, 255, .16);
 }
 
+html.studio-viewer-open,
 body.studio-viewer-open {
     overflow: hidden;
 }
@@ -2547,6 +2616,11 @@ body.studio-viewer-open {
 }
 
 @media screen and (max-width: 900px) {
+    .studio-global-chat-config {
+        grid-template-columns: minmax(0, 1fr);
+        align-items: stretch;
+    }
+
     .studio-image-header {
         align-items: flex-start;
     }
@@ -2613,8 +2687,7 @@ body.studio-viewer-open {
     }
 
     .studio-image-form-footer,
-    .studio-image-feed-toolbar,
-    .studio-image-viewer-footer {
+    .studio-image-feed-toolbar {
         align-items: stretch;
         flex-direction: column;
     }
@@ -2632,27 +2705,30 @@ body.studio-viewer-open {
         flex-direction: column;
     }
 
-    .studio-image-viewer-panel {
-        width: 100%;
-        height: 100%;
-        max-height: 100vh;
-        border-radius: 0;
-    }
-
-    .studio-image-viewer-layout {
-        grid-template-columns: 58px minmax(0, 1fr);
-    }
-
     .studio-image-viewer-history {
+        top: 12px;
+        bottom: 12px;
+        left: 8px;
+        width: 50px;
         padding: 10px 6px;
     }
 
     .studio-image-viewer-thumb {
-        width: 44px;
+        width: 38px;
     }
 
-    .studio-image-viewer-stage img {
-        max-height: calc(100vh - 190px);
+    .studio-image-viewer-controls {
+        top: 12px;
+        right: 10px;
+        max-width: calc(100vw - 76px);
+    }
+
+    .studio-image-viewer-meta {
+        max-width: 36vw;
+    }
+
+    .studio-image-viewer-action {
+        padding: 0 9px;
     }
 
     .studio-products-header {

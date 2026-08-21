@@ -19,6 +19,7 @@ from applications.models import (
     StudioProduct,
     StudioProductAsset,
     StudioProvider,
+    StudioSetting,
     StudioSkill,
 )
 from applications.common.storage import FileService, StorageError
@@ -42,6 +43,7 @@ from applications.studio.request_builder import (
 
 
 studio_bp = Blueprint("studio", __name__, url_prefix="/studio")
+GLOBAL_CHAT_MODEL_SETTING_KEY = "global_chat_model_id"
 
 
 PRODUCT_UPDATE_FIELDS = (
@@ -568,6 +570,46 @@ def _chat_provider_snapshot(provider):
     )
 
 
+def _global_chat_models():
+    """Return enabled language models that can be selected system-wide."""
+
+    return (
+        StudioModel.query.join(StudioProvider)
+        .filter(
+            StudioModel.enabled == 1,
+            StudioModel.media_type == "CHAT",
+            StudioProvider.enabled == 1,
+        )
+        .order_by(StudioProvider.name.asc(), StudioModel.name.asc())
+        .all()
+    )
+
+
+def _global_chat_model():
+    """Resolve the configured global planner and feedback language model."""
+
+    models = _global_chat_models()
+    setting = StudioSetting.query.filter_by(
+        setting_key=GLOBAL_CHAT_MODEL_SETTING_KEY
+    ).first()
+    selected_id = _int_or_none(setting.setting_value) if setting else None
+    selected = next((model for model in models if model.id == selected_id), None)
+    return selected or (models[0] if models else None)
+
+
+def _global_chat_model_payload(model):
+    if not model:
+        return None
+    return {
+        "id": model.id,
+        "name": model.name,
+        "model_code": model.model_code,
+        "provider_id": model.provider_id,
+        "provider_name": model.provider.name if model.provider else "",
+        "enabled": bool(model.enabled and model.provider and model.provider.enabled),
+    }
+
+
 def _has_permission(code):
     return code in session.get("permissions", [])
 
@@ -840,45 +882,48 @@ def generate():
         return jsonify(success=False, msg=str(exc)), 400
 
 
-@studio_bp.post("/api/prompt/prepare")
-@login_required
-def prepare_image_prompt():
-    """Use the configured GPT-5.5 model to assemble a product-safe image prompt."""
-
-    if not _has_permission("studio:image"):
-        return jsonify(success=False, msg="权限不足"), 403
+def _prepare_prompt_request():
+    """Build a prompt directly or plan it with the selected global chat model."""
 
     data = _body()
+    media_type = str(data.get("media_type") or "IMAGE").upper()
+    if media_type not in ("IMAGE", "VIDEO"):
+        return jsonify(success=False, msg="不支持的创作类型"), 400
+    required_permission = "studio:video" if media_type == "VIDEO" else "studio:image"
+    if not _has_permission(required_permission):
+        return jsonify(success=False, msg="权限不足"), 403
+
     product_id = _int_or_none(data.get("product_id"))
     product = (
         StudioProduct.query.filter_by(id=product_id, enabled=1).first()
         if product_id
         else None
     )
+    if product_id and not product:
+        return jsonify(success=False, msg="关联产品不存在或已停用"), 400
 
     creative_prompt = str(data.get("prompt") or "").strip()
     if not creative_prompt:
         return jsonify(success=False, msg="创意描述不能为空"), 400
 
-    requested_ids = _int_list(data.get("reference_asset_ids"))
+    requested_image_ids = _int_list(data.get("reference_asset_ids"))
     reference_assets = (
         StudioAsset.query.filter(
-            StudioAsset.id.in_(requested_ids),
+            StudioAsset.id.in_(requested_image_ids),
             StudioAsset.status == "ACTIVE",
             StudioAsset.purpose == "GENERATION_REFERENCE",
             StudioAsset.asset_type == "IMAGE",
-        )
-        .all()
-        if requested_ids
+        ).all()
+        if requested_image_ids
         else []
     )
-    reference_assets_by_id = {asset.id: asset for asset in reference_assets}
+    image_assets_by_id = {asset.id: asset for asset in reference_assets}
     reference_assets = [
-        reference_assets_by_id[asset_id]
-        for asset_id in requested_ids
-        if asset_id in reference_assets_by_id
+        image_assets_by_id[asset_id]
+        for asset_id in requested_image_ids
+        if asset_id in image_assets_by_id
     ]
-    if len(reference_assets) != len(set(requested_ids)):
+    if len(reference_assets) != len(set(requested_image_ids)):
         return jsonify(success=False, msg="额外参考图不存在、已过期或用途不正确"), 400
     for asset in reference_assets:
         if asset.created_by not in (None, current_user.id):
@@ -886,17 +931,71 @@ def prepare_image_prompt():
         if not _asset_is_active(asset) or not _is_usable_asset_url(asset.public_url):
             return jsonify(success=False, msg="额外参考图已经失效，请重新上传"), 400
 
-    extra_urls = [asset.public_url for asset in reference_assets]
-    extra_urls.extend(split_urls(data.get("reference_images")))
+    requested_video_ids = _int_list(data.get("reference_video_asset_ids"))
+    reference_videos = (
+        StudioAsset.query.filter(
+            StudioAsset.id.in_(requested_video_ids),
+            StudioAsset.status == "ACTIVE",
+            StudioAsset.purpose == "GENERATION_REFERENCE",
+            StudioAsset.asset_type == "VIDEO",
+        ).all()
+        if requested_video_ids
+        else []
+    )
+    video_assets_by_id = {asset.id: asset for asset in reference_videos}
+    reference_videos = [
+        video_assets_by_id[asset_id]
+        for asset_id in requested_video_ids
+        if asset_id in video_assets_by_id
+    ]
+    if len(reference_videos) != len(set(requested_video_ids)):
+        return jsonify(success=False, msg="额外参考视频不存在、已过期或用途不正确"), 400
+    for asset in reference_videos:
+        if asset.created_by not in (None, current_user.id):
+            return jsonify(success=False, msg="不能使用其他用户上传的参考视频"), 403
+        if not _asset_is_active(asset) or not _is_usable_asset_url(asset.public_url):
+            return jsonify(success=False, msg="额外参考视频已经失效，请重新上传"), 400
+
+    extra_image_urls = [asset.public_url for asset in reference_assets]
+    extra_image_urls.extend(split_urls(data.get("reference_images")))
+    extra_video_urls = [asset.public_url for asset in reference_videos]
+    extra_video_urls.extend(split_urls(data.get("reference_videos")))
+    skill_prompt = str(data.get("skill_prompt") or "").strip()
     descriptors = product_reference_descriptors(
         product,
-        extra_urls,
-        media_type="IMAGE",
+        extra_image_urls,
+        media_type=media_type,
     )
-    skill_prompt = str(data.get("skill_prompt") or "").strip()
+    ordered_references = reference_instructions(descriptors)
+    planning_required = bool(product or skill_prompt)
+
+    if not planning_required:
+        return jsonify(
+            success=True,
+            msg="未关联产品或 Skill，直接使用创意描述",
+            data={
+                "final_prompt": creative_prompt,
+                "product_name": "",
+                "reference_instruction": ordered_references,
+                "planner_model": "",
+                "planner_model_name": "",
+                "references": descriptors,
+            },
+        )
+
+    chat_model = _global_chat_model()
+    if not chat_model or not chat_model.provider:
+        return jsonify(success=False, msg="请先在模型供应商中选择启用的全局语言模型"), 400
+    if not str(chat_model.provider.api_key or "").strip():
+        return jsonify(
+            success=False,
+            msg="全局语言模型尚未配置 API Key，请先编辑对应供应商",
+        ), 400
+
+    media_label = "图片" if media_type == "IMAGE" else "视频"
     context_parts = [
-        "请为一次电商产品图片生成任务规划最终 Prompt。",
-        "用户创意描述是最高优先级，必须先准确提取并保留创意目标、主体、场景、构图、光线和风格。",
+        f"请为一次电商产品{media_label}生成任务规划最终 Prompt。",
+        "用户创意描述是最高优先级，必须先准确提取并保留创意目标、主体、场景、构图、镜头、光线、动作和风格。",
         "然后识别关联产品，明确生成的产品名称；再结合产品资料、Product Profile、产品记忆、生成规则和禁止修改规则。",
         "产品身份、外形结构、材质、颜色、品牌和关键接口不能被创意描述随意改变。",
         "禁止修改规则必须作为约束写入最终 Prompt，而不是被忽略。",
@@ -917,25 +1016,27 @@ def prepare_image_prompt():
                 f"禁止修改规则：{product.forbidden_rules or ''}",
             ]
         )
-    else:
-        context_parts.append(
-            "本次未关联产品：只依据用户创意描述、Skill 和参考图规划 Prompt，"
-            "不要虚构或附加产品中心信息。"
-        )
-    ordered_references = reference_instructions(descriptors)
     if ordered_references:
         context_parts.append(
-            "本次请求会按顺序把这些参考图发送给图片模型。"
+            "本次请求会按顺序把产品中心素材放在前面，再放入本次上传的额外素材。"
             "最终 Prompt 必须明确引用顺序，不能把正面、背面和额外细节图混淆：\n"
             + ordered_references
         )
+    if extra_video_urls:
+        context_parts.append(
+            "本次还会携带参考视频 URL，视频参考顺序如下：\n"
+            + "\n".join(
+                f"第 {index} 个参考视频：{url}"
+                for index, url in enumerate(dict.fromkeys(extra_video_urls), 1)
+            )
+        )
     context_parts.append(
         "请严格只返回 JSON，不要 Markdown 代码块，结构为："
-        '{"final_prompt":"可直接发送给图片模型的完整中文 Prompt",'
+        '{"final_prompt":"可直接发送给上游模型的完整中文 Prompt",'
         '"product_name":"识别出的产品名称",'
-        '"reference_instruction":"参考图顺序说明"}。'
+        '"reference_instruction":"参考素材顺序说明"}。'
         "final_prompt 必须以用户创意为主线，产品约束接在创意后面，"
-        "并包含参考图顺序说明；不要输出反向提示词。"
+        "并包含参考素材顺序说明；不要输出反向提示词。"
     )
     content_blocks = [{"type": "text", "text": "\n".join(context_parts)}]
     content_blocks.extend(
@@ -944,35 +1045,20 @@ def prepare_image_prompt():
             "image_url": {"url": descriptor["url"]},
         }
         for descriptor in descriptors
-        if descriptor.get("role") != "360"
+        if descriptor.get("asset_type", "IMAGE") in ("IMAGE", "BOTH")
+        and descriptor.get("role") != "360"
     )
     messages = [
         {
             "role": "system",
             "content": (
                 "你是电商产品视觉生成规划器。"
-                "你的职责是把创意描述和产品固定信息整理成一个可执行的图片 Prompt。"
+                "你的职责是把创意描述、产品固定信息、Skill 和参考素材整理成一个可执行 Prompt。"
                 "优先保护产品身份，不要自行捏造产品规格。"
             ),
         },
         {"role": "user", "content": content_blocks},
     ]
-
-    chat_model = (
-        StudioModel.query.join(StudioProvider)
-        .filter(
-            StudioModel.enabled == 1,
-            StudioModel.media_type == "CHAT",
-            StudioModel.model_code == "gpt-5.5",
-            StudioProvider.enabled == 1,
-        )
-        .order_by(StudioModel.id.asc())
-        .first()
-    )
-    if not chat_model or not chat_model.provider:
-        return jsonify(success=False, msg="请先配置启用的 GPT-5.5 语言模型"), 400
-    if not str(chat_model.provider.api_key or "").strip():
-        return jsonify(success=False, msg="GPT-5.5 语言模型尚未配置 API Key"), 400
 
     runtime = {
         "messages": messages,
@@ -1003,19 +1089,19 @@ def prepare_image_prompt():
             or ""
         ).strip()
         if not final_prompt:
-            raise ValueError("GPT-5.5 没有返回可用的最终 Prompt")
+            raise ValueError("全局语言模型没有返回可用的最终 Prompt")
         reference_instruction = str(
             parsed.get("reference_instruction") or ordered_references
         ).strip()
         if reference_instruction and reference_instruction not in final_prompt:
             final_prompt = (
                 final_prompt.rstrip()
-                + "\n\n参考图顺序与角色约束：\n"
+                + "\n\n参考素材顺序与角色约束：\n"
                 + reference_instruction
             )
         return jsonify(
             success=True,
-            msg="图片 Prompt 已完成规划",
+            msg="创作 Prompt 已完成规划",
             data={
                 "final_prompt": final_prompt,
                 "product_name": str(
@@ -1023,11 +1109,20 @@ def prepare_image_prompt():
                 ),
                 "reference_instruction": reference_instruction,
                 "planner_model": chat_model.model_code,
+                "planner_model_name": chat_model.name,
                 "references": descriptors,
             },
         )
     except Exception as exc:
         return jsonify(success=False, msg=str(exc)), 400
+
+
+@studio_bp.post("/api/prompt/prepare")
+@login_required
+def prepare_image_prompt():
+    """Keep the original endpoint while using the global planner implementation."""
+
+    return _prepare_prompt_request()
 
 
 @studio_bp.get("/api/tasks/<task_code>")
@@ -1044,10 +1139,8 @@ def task_status(task_code):
     return jsonify(success=True, data=_task_dict(task))
 
 
-@studio_bp.post("/api/tasks/<task_code>/comments/analyze")
-@login_required
-def analyze_task(task_code):
-    """Analyze a generated image with the configured GPT-5.5 vision model."""
+def _analyze_task_feedback(task_code):
+    """Analyze operator feedback and propose product-center updates."""
 
     task = StudioGenerationTask.query.filter_by(task_code=task_code).first()
     if not task:
@@ -1055,9 +1148,18 @@ def analyze_task(task_code):
     if not _can_read_task(task):
         return jsonify(success=False, msg="权限不足"), 403
     if task.media_type != "IMAGE":
-        return jsonify(success=False, msg="当前仅支持图片生成结果分析"), 400
+        return jsonify(success=False, msg="当前仅支持图片生成结果的意见反馈"), 400
     if task.status != "SUCCEEDED":
-        return jsonify(success=False, msg="图片任务尚未完成，暂时不能分析"), 400
+        return jsonify(success=False, msg="图片任务尚未完成，暂时不能提交意见反馈"), 400
+    if not task.product:
+        return jsonify(
+            success=False,
+            msg="意见反馈需要先关联产品，才能结合产品中心资料调整",
+        ), 400
+
+    feedback = str(_body().get("feedback") or "").strip()
+    if not feedback:
+        return jsonify(success=False, msg="请先填写本次生成的不满意、瑕疵或变形说明"), 400
 
     output_assets = (
         StudioAsset.query.filter_by(
@@ -1077,23 +1179,16 @@ def analyze_task(task_code):
     if not output_urls and _is_usable_asset_url(task.output_url):
         output_urls = [task.output_url]
     if not output_urls:
-        return jsonify(success=False, msg="没有可供分析的图片资产"), 400
+        return jsonify(success=False, msg="没有可供意见反馈使用的图片资产"), 400
 
-    chat_model = (
-        StudioModel.query.join(StudioProvider)
-        .filter(
-            StudioModel.enabled == 1,
-            StudioModel.media_type == "CHAT",
-            StudioModel.model_code == "gpt-5.5",
-            StudioProvider.enabled == 1,
-        )
-        .order_by(StudioModel.id.asc())
-        .first()
-    )
+    chat_model = _global_chat_model()
     if not chat_model or not chat_model.provider:
-        return jsonify(success=False, msg="请先在模型供应商中配置 GPT-5.5 分析模型"), 400
+        return jsonify(success=False, msg="请先在模型供应商中选择启用的全局语言模型"), 400
     if not str(chat_model.provider.api_key or "").strip():
-        return jsonify(success=False, msg="GPT-5.5 分析模型尚未配置 API Key"), 400
+        return jsonify(
+            success=False,
+            msg="全局语言模型尚未配置 API Key，请先编辑对应供应商",
+        ), 400
 
     reference_assets = (
         StudioAsset.query.filter_by(
@@ -1116,28 +1211,23 @@ def analyze_task(task_code):
         media_type="IMAGE",
     )
     image_urls = list(dict.fromkeys(output_urls + product_urls))[:14]
-
     product = task.product
     context_parts = [
-        "请分析这次电商图片生成结果，并以中文给出可执行的审查意见。",
+        "请分析这次电商图片生成结果，并以中文给出可执行的意见反馈。",
         "请重点检查：产品主体是否保持一致、结构和材质是否跑偏、品牌信息是否正确、画面是否符合创意要求、是否违反禁止修改规则，以及下一轮生成可以怎样改进。",
         f"生成任务编号：{task.task_code}",
         f"原始创意：{task.prompt}",
         f"最终提示词：{task.final_prompt or task.prompt}",
+        f"操作者意见反馈：{feedback}",
+        f"产品名称：{product.name or ''}",
+        f"品牌信息：{product.brand or ''}",
+        f"产品资料：{product.description or ''}",
+        f"Product Profile：{product.product_profile or ''}",
+        f"产品记忆：{product.product_memory or ''}",
+        f"生成规则：{product.generation_rules or ''}",
+        f"禁止修改规则：{product.forbidden_rules or ''}",
+        "下面先提供生成结果图片，再提供本次任务引用的产品/参考图片。",
     ]
-    if product:
-        context_parts.extend(
-            [
-                f"产品名称：{product.name or ''}",
-                f"品牌信息：{product.brand or ''}",
-                f"产品资料：{product.description or ''}",
-                f"Product Profile：{product.product_profile or ''}",
-                f"产品记忆：{product.product_memory or ''}",
-                f"生成规则：{product.generation_rules or ''}",
-                f"禁止修改规则：{product.forbidden_rules or ''}",
-            ]
-        )
-    context_parts.append("下面先提供生成结果图片，再提供本次任务引用的产品/参考图片。")
     content_blocks = [{"type": "text", "text": "\n".join(context_parts)}]
     content_blocks.extend(
         {
@@ -1146,22 +1236,10 @@ def analyze_task(task_code):
         }
         for url in image_urls
     )
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "你是电商视觉质检与产品记忆维护助手。"
-                "请基于产品字段和图片证据回答，不要臆造图片中看不到的信息。"
-                "你不负责生成图片，只负责分析生成结果是否保持产品一致性，"
-                "并在证据充分时提出产品字段的完整改写建议。"
-            ),
-        },
-        {"role": "user", "content": content_blocks},
-    ]
     content_blocks[0]["text"] += (
         "\n请严格只返回 JSON，不要使用 Markdown 代码块，结构如下："
         "\n{"
-        '"analysis":"中文分析意见",'
+        '"analysis":"中文意见反馈与下一轮调整建议",'
         '"product_updates":{'
         '"description":{"value":"产品资料完整建议值","reason":"依据"},'
         '"product_profile":{"value":"Product Profile完整建议值","reason":"依据"},'
@@ -1173,19 +1251,28 @@ def analyze_task(task_code):
         "\n没有足够证据修改的字段不要返回。建议值必须是可直接替换该字段的完整文本，"
         "而不是零散片段。"
     )
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "你是电商视觉质检与产品记忆维护助手。"
+                "请基于产品字段、图片证据和操作者意见回答，不要臆造图片中看不到的信息。"
+                "你不负责生成图片，只负责分析生成结果是否保持产品一致性，"
+                "并在证据充分时提出产品字段的完整改写建议。"
+            ),
+        },
+        {"role": "user", "content": content_blocks},
+    ]
     runtime = {
         "messages": messages,
         "max_tokens": 800,
         "temperature": 0.2,
     }
-    from applications.studio.request_builder import build_request_body
-
     body = build_request_body(chat_model, runtime)
     body.setdefault("model", chat_model.model_code)
     body.setdefault("messages", messages)
     body.setdefault("max_tokens", 800)
     body.setdefault("temperature", 0.2)
-
     provider_snapshot = _chat_provider_snapshot(chat_model.provider)
     model_snapshot = SimpleNamespace(
         media_type="CHAT",
@@ -1196,7 +1283,7 @@ def analyze_task(task_code):
         generation_task_id=task.id,
         user_id=current_user.id,
         model_id=chat_model.id,
-        comment_type="AI_ANALYSIS",
+        comment_type="FEEDBACK",
         status="PENDING",
         request_body=json.dumps(body, ensure_ascii=False, default=str),
     )
@@ -1210,10 +1297,10 @@ def analyze_task(task_code):
         response = client.chat_completion(model_snapshot, body)
         content = extract_chat_content(response)
         if not content:
-            raise ValueError("GPT-5.5 返回了空的分析内容")
+            raise ValueError("全局语言模型返回了空的意见反馈")
         comment = StudioGenerationComment.query.get(comment_id)
         if not comment:
-            return jsonify(success=False, msg="分析记录不存在"), 500
+            return jsonify(success=False, msg="意见反馈记录不存在"), 500
         comment.status = "SUCCEEDED"
         normalized = _normalize_suggested_updates(content)
         comment.content = normalized["analysis"] or content
@@ -1229,7 +1316,7 @@ def analyze_task(task_code):
         )
         comment.error_message = None
         db.session.commit()
-        return jsonify(success=True, msg="图片分析已完成", data=_comment_dict(comment))
+        return jsonify(success=True, msg="意见反馈已完成", data=_comment_dict(comment))
     except Exception as exc:
         comment = StudioGenerationComment.query.get(comment_id)
         if comment:
@@ -1237,6 +1324,14 @@ def analyze_task(task_code):
             comment.error_message = str(exc)
             db.session.commit()
         return jsonify(success=False, msg=str(exc)), 400
+
+
+@studio_bp.post("/api/tasks/<task_code>/comments/analyze")
+@login_required
+def analyze_task(task_code):
+    """Keep the original endpoint while using the feedback implementation."""
+
+    return _analyze_task_feedback(task_code)
 
 
 @studio_bp.post("/api/tasks/<task_code>/comments/<int:comment_id>/apply-product-updates")
@@ -1500,6 +1595,61 @@ def delete_product_asset(product_id, asset_id):
 def providers_api():
     providers = StudioProvider.query.order_by(StudioProvider.name).all()
     return jsonify(success=True, data=[_provider_dict(provider) for provider in providers])
+
+
+@studio_bp.get("/api/ai-config")
+@authorize("studio:providers")
+def ai_config_api():
+    models = _global_chat_models()
+    selected = _global_chat_model()
+    return jsonify(
+        success=True,
+        data={
+            "global_chat_model_id": selected.id if selected else None,
+            "global_chat_model": _global_chat_model_payload(selected),
+            "models": [_global_chat_model_payload(model) for model in models],
+        },
+    )
+
+
+@studio_bp.post("/api/ai-config")
+@authorize("studio:providers")
+def save_ai_config():
+    model_id = _int_or_none(_body().get("global_chat_model_id"))
+    model = (
+        StudioModel.query.join(StudioProvider)
+        .filter(
+            StudioModel.id == model_id,
+            StudioModel.enabled == 1,
+            StudioModel.media_type == "CHAT",
+            StudioProvider.enabled == 1,
+        )
+        .first()
+        if model_id
+        else None
+    )
+    if not model:
+        return jsonify(success=False, msg="请选择启用的语言模型"), 400
+
+    setting = StudioSetting.query.filter_by(
+        setting_key=GLOBAL_CHAT_MODEL_SETTING_KEY
+    ).first()
+    if not setting:
+        setting = StudioSetting(
+            setting_key=GLOBAL_CHAT_MODEL_SETTING_KEY,
+            description="图片与视频创作在关联产品或 Skill 时使用的全局语言模型",
+        )
+    setting.setting_value = str(model.id)
+    db.session.add(setting)
+    db.session.commit()
+    return jsonify(
+        success=True,
+        msg="全局语言模型已切换",
+        data={
+            "global_chat_model_id": model.id,
+            "global_chat_model": _global_chat_model_payload(model),
+        },
+    )
 
 
 @studio_bp.post("/api/providers")

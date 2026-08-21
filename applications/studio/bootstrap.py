@@ -2,7 +2,14 @@ import json
 import os
 
 from applications.extensions import db
-from applications.models import Power, Role, StudioModel, StudioProvider, User
+from applications.models import (
+    Power,
+    Role,
+    StudioModel,
+    StudioProvider,
+    StudioSetting,
+    User,
+)
 
 from .request_builder import default_parameters_for_model
 
@@ -16,6 +23,8 @@ STUDIO_MENUS = [
     ("Skill 配置", "studio:skills", "/studio/skills", "layui-icon layui-icon-component", 5, "1"),
     ("生成历史", "studio:history", "/studio/history", "layui-icon layui-icon-log", 6, "1"),
 ]
+
+GLOBAL_CHAT_MODEL_SETTING_KEY = "global_chat_model_id"
 
 
 CORE_MENUS = [
@@ -237,6 +246,40 @@ def seed_provider():
             db.session.add(model)
         else:
             _backfill_model_constraints(model)
+    db.session.flush()
+    chat_models = (
+        StudioModel.query.join(StudioProvider)
+        .filter(
+            StudioModel.media_type == "CHAT",
+            StudioModel.enabled == 1,
+            StudioProvider.enabled == 1,
+        )
+        .order_by(StudioModel.id.asc())
+        .all()
+    )
+    setting = StudioSetting.query.filter_by(
+        setting_key=GLOBAL_CHAT_MODEL_SETTING_KEY
+    ).first()
+    selected_model = None
+    if setting and setting.setting_value:
+        try:
+            selected_id = int(setting.setting_value)
+        except (TypeError, ValueError):
+            selected_id = None
+        selected_model = next(
+            (model for model in chat_models if model.id == selected_id),
+            None,
+        )
+    if not selected_model and chat_models:
+        selected_model = chat_models[0]
+    if selected_model:
+        if not setting:
+            setting = StudioSetting(
+                setting_key=GLOBAL_CHAT_MODEL_SETTING_KEY,
+                description="图片与视频创作在关联产品或 Skill 时使用的全局语言模型",
+            )
+            db.session.add(setting)
+        setting.setting_value = str(selected_model.id)
     db.session.commit()
 
 
