@@ -1,0 +1,70 @@
+{% extends "amazon_ai/base.html" %}
+{% block title %}Amazon AI | 任务历史{% endblock %}
+{% block content %}
+<section class="amazon-page-title">
+    <div>
+        <div class="amazon-eyebrow">History</div>
+        <h2>Amazon AI 任务历史</h2>
+        <p>查看竞品分析、差异化分析、基础信息修正和 Listing 创作的任务状态与结果关联。</p>
+    </div>
+</section>
+<section class="amazon-panel">
+    <div class="amazon-toolbar">
+        <select id="amazonHistoryType" class="amazon-select">
+            <option value="">全部任务类型</option>
+            <option value="COMPETITOR_ANALYZE">竞品分析</option>
+            <option value="DIFFERENTIATION_GENERATE">差异化分析</option>
+            <option value="BASIC_INFO_CORRECT">基础信息修正</option>
+            <option value="LISTING_GENERATE">Listing 创作</option>
+        </select>
+        <select id="amazonHistoryStatus" class="amazon-select">
+            <option value="">全部状态</option>
+            <option value="PENDING">待执行</option>
+            <option value="RUNNING">执行中</option>
+            <option value="SUCCEEDED">成功</option>
+            <option value="FAILED">失败</option>
+            <option value="CANCELLED">已取消</option>
+        </select>
+        <button type="button" class="amazon-button" id="amazonHistorySearch">查询</button>
+        <button type="button" class="amazon-button quiet" id="amazonHistoryRefresh">刷新</button>
+        <button type="button" class="amazon-button quiet" id="amazonHistoryBatchDelete" disabled>
+            批量删除
+        </button>
+        <span id="amazonHistorySelectionInfo" class="amazon-helper"></span>
+    </div>
+    <div class="amazon-table-scroll">
+        <table class="amazon-table amazon-history-table">
+            <thead>
+            <tr>
+                <th class="amazon-history-select-cell">
+                    <input type="checkbox" id="amazonHistorySelectAll" aria-label="全选当前页任务">
+                </th>
+                <th>任务编号</th>
+                <th>标题</th>
+                <th>任务类型</th>
+                <th>模型</th>
+                <th>Skill</th>
+                <th>状态</th>
+                <th>创建时间</th>
+                <th>操作</th>
+            </tr>
+            </thead>
+            <tbody id="amazonHistoryTable"><tr><td colspan="9">读取中</td></tr></tbody>
+        </table>
+    </div>
+    <div class="amazon-pagination">
+        <span id="amazonHistoryPageInfo" class="amazon-helper"></span>
+        <span>
+            <button type="button" class="amazon-button quiet" id="amazonHistoryPrevious">上一页</button>
+            <button type="button" class="amazon-button quiet" id="amazonHistoryNext">下一页</button>
+        </span>
+    </div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    AmazonAI.bindHistory();
+});
+</script>
+{% endblock %}

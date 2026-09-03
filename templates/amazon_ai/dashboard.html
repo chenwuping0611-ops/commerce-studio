@@ -1,0 +1,71 @@
+{% extends "amazon_ai/base.html" %}
+{% block title %}Amazon AI | 首页{% endblock %}
+{% block content %}
+<section class="amazon-page-title">
+    <div>
+        <div class="amazon-eyebrow">Workspace</div>
+        <h2>工作台首页</h2>
+        <p>Amazon 业务数据与任务执行记录独立管理，分析统一复用现有语言模型、Skill 和 Studio 产品。</p>
+    </div>
+</section>
+<section class="amazon-stat-grid" id="amazonStats">
+    <div class="amazon-stat"><span>任务总数</span><strong data-stat="tasks">-</strong></div>
+    <div class="amazon-stat"><span>今日任务</span><strong data-stat="today_tasks">-</strong></div>
+    <div class="amazon-stat"><span>成功数量</span><strong data-stat="succeeded">-</strong></div>
+    <div class="amazon-stat"><span>失败数量</span><strong data-stat="failed">-</strong></div>
+</section>
+<div class="amazon-dashboard-grid">
+    <section class="amazon-panel">
+        <div class="amazon-panel-header">
+            <h3>最近任务</h3>
+            <button type="button" class="amazon-icon-button" id="amazonRefreshDashboard" title="刷新数据" aria-label="刷新数据">
+                <i class="layui-icon layui-icon-refresh"></i>
+            </button>
+        </div>
+        <div class="amazon-table-scroll">
+            <table class="amazon-table">
+                <thead><tr><th>任务编号</th><th>标题</th><th>任务类型</th><th>状态</th><th>创建时间</th></tr></thead>
+                <tbody id="amazonRecentTasks"><tr><td colspan="5">读取中</td></tr></tbody>
+            </table>
+        </div>
+    </section>
+    <div class="amazon-dashboard-side">
+        <section class="amazon-panel">
+            <div class="amazon-panel-header"><h3>快捷入口</h3></div>
+            <div class="amazon-shortcuts">
+                {% if authorize("amazon_ai:competitor") %}
+                <a class="amazon-shortcut" href="/amazon-ai/competitor"><span class="layui-icon layui-icon-search"></span><span>竞品分析</span><i class="layui-icon layui-icon-right"></i></a>
+                {% endif %}
+                {% if authorize("amazon_ai:differentiation") %}
+                <a class="amazon-shortcut" href="/amazon-ai/differentiation"><span class="layui-icon layui-icon-chart"></span><span>差异化分析</span><i class="layui-icon layui-icon-right"></i></a>
+                {% endif %}
+                {% if authorize("amazon_ai:basic_info") %}
+                <a class="amazon-shortcut" href="/amazon-ai/basic-info"><span class="layui-icon layui-icon-edit"></span><span>基础信息修正</span><i class="layui-icon layui-icon-right"></i></a>
+                {% endif %}
+                {% if authorize("amazon_ai:listing_create") %}
+                <a class="amazon-shortcut" href="/amazon-ai/listing/create"><span class="layui-icon layui-icon-edit"></span><span>Listing创作</span><i class="layui-icon layui-icon-right"></i></a>
+                {% endif %}
+                {% if not authorize("amazon_ai:competitor") and not authorize("amazon_ai:differentiation") and not authorize("amazon_ai:basic_info") and not authorize("amazon_ai:listing_create") %}
+                <div class="amazon-empty-shortcuts">暂无可用快捷入口</div>
+                {% endif %}
+            </div>
+        </section>
+        <section class="amazon-panel">
+            <div class="amazon-panel-header"><h3>任务类型统计</h3></div>
+            <div id="amazonTaskTypeStats" class="amazon-type-stats"><div class="amazon-loading">读取中</div></div>
+        </section>
+    </div>
+</div>
+<section class="amazon-panel">
+    <div class="amazon-panel-header"><h3>全局语言模型</h3><span id="amazonModelBadge" class="amazon-badge">读取中</span></div>
+    <div id="amazonModelState" class="amazon-model-state">读取配置中</div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    AmazonAI.bindDashboardControls();
+    AmazonAI.loadDashboard();
+});
+</script>
+{% endblock %}

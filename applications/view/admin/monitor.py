@@ -4,10 +4,20 @@ import re
 from datetime import datetime
 import time
 import psutil
-from flask import Blueprint, render_template, jsonify
+from flask import Blueprint, abort, render_template, jsonify
+from flask_login import current_user
 from applications.common.utils.rights import authorize
+from applications.common.scope import is_super_admin_user
 
 admin_monitor_bp = Blueprint('adminMonitor', __name__, url_prefix='/admin/monitor')
+
+
+@admin_monitor_bp.before_request
+def require_super_admin():
+    # Host-level metrics are system-wide and cannot be made department-scoped
+    # by the legacy endpoint, so reserve them for the built-in admin account.
+    if current_user.is_authenticated and not is_super_admin_user():
+        abort(403)
 
 
 # 系统监控

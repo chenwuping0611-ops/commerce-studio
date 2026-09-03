@@ -32,6 +32,7 @@
     </div>
 </div>
 <div class="user-left user-collasped">
+    {% if can_manage_accounts %}
     <div class="layui-card">
         <div class="layui-card-body">
             <div class="button button-primary user-group" user-group=""> 全 部 用 户</div>
@@ -41,6 +42,7 @@
             </div>
         </div>
     </div>
+    {% endif %}
 </div>
 {# 用户表格 #}
 <div class="user-main user-collasped">
@@ -53,13 +55,13 @@
 </body>
 {# 表格操作 #}
 <script type="text/html" id="user-toolbar">
-    {% if authorize("admin:user:add") %}
+    {% if can_manage_accounts and authorize("admin:user:add") %}
         <button class="pear-btn pear-btn-primary pear-btn-md" lay-event="add">
             <i class="pear-icon pear-icon-add"></i>
             新增
         </button>
     {% endif %}
-    {% if authorize("admin:user:remove") %}
+    {% if can_manage_accounts and authorize("admin:user:remove") %}
         <button class="pear-btn pear-btn-md" lay-event="batchRemove">
             <i class="pear-icon pear-icon-ashbin"></i>
             删除
@@ -73,11 +75,15 @@
 
 {# 用户修改操作 #}
 <script type="text/html" id="user-bar">
-    {% if authorize("admin:user:edit") %}
+    <button class="pear-btn pear-btn-warming pear-btn-sm" lay-event="password">
+        <i class="pear-icon pear-icon-lock"></i>
+        修改密码
+    </button>
+    {% if can_manage_accounts and authorize("admin:user:edit") %}
         <button class="pear-btn pear-btn-primary pear-btn-sm" lay-event="edit"><i class="pear-icon pear-icon-edit"></i>
         </button>
     {% endif %}
-    {% if authorize("admin:user:remove") %}
+    {% if can_manage_accounts and authorize("admin:user:remove") %}
         <button class="pear-btn pear-btn-danger pear-btn-sm" lay-event="remove"><i
                 class="pear-icon pear-icon-ashbin"></i>
         </button>
@@ -116,17 +122,19 @@
     // 表格数据
     let cols = [
       [
-        {% if authorize("admin:user:remove") %}
+        {% if can_manage_accounts and authorize("admin:user:remove") %}
           { type: 'checkbox' },
         {% endif %}
         { title: '姓名', field: 'realname', align: 'center', width: 110 },
         { title: '账号', field: 'username', align: 'center' },
         { title: '角色', field: 'roles', align: 'center', minWidth: 150 },
         { title: '部门', field: 'dept', align: 'center' },
+        {% if can_manage_accounts %}
         { title: '启用', field: 'enable', align: 'center', templet: '#user-enable', width: 120 },
+        {% endif %}
         { title: '注册时间', field: 'create_at', templet: '#user-createTime', align: 'center' },
         { title: '更新时间', field: 'update_at', templet: '#user-updateTime', align: 'center' },
-        { title: '操作', toolbar: '#user-bar', align: 'center', width: 130 }
+        { title: '操作', toolbar: '#user-bar', align: 'center', width: 230 }
       ]
     ]
 
@@ -143,6 +151,7 @@
       defaultToolbar: [{ layEvent: 'refresh', icon: 'layui-icon-refresh' }, 'filter', 'print', 'exports'] /*默认工具栏*/
     })
 
+    {% if can_manage_accounts %}
     // 公司部门树状图菜单
     dtree.render({
       elem: '#dept-tree',
@@ -181,12 +190,15 @@
       }
       window.refresh(field)
     })
+    {% endif %}
 
     table.on('tool(user-table)', function (obj) {
       if (obj.event === 'remove') {
         window.remove(obj)
       } else if (obj.event === 'edit') {
         window.edit(obj)
+      } else if (obj.event === 'password') {
+        window.changePassword(obj)
       }
     })
 
@@ -251,6 +263,16 @@
         shade: 0.1,
         area: ['550px', '500px'],
         content: MODULE_PATH + 'edit/' + obj.data['id']
+      })
+    }
+
+    window.changePassword = function (obj) {
+      layer.open({
+        type: 2,
+        title: '修改密码：' + obj.data.username,
+        shade: 0.1,
+        area: ['500px', '420px'],
+        content: MODULE_PATH + 'editPassword?userId=' + encodeURIComponent(obj.data.id)
       })
     }
 

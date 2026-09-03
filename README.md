@@ -50,16 +50,24 @@ MYSQL_USERNAME=your-user
 MYSQL_PASSWORD=your-password
 ```
 
-如果目标数据库还不存在，先执行一次 Pear Admin 的 MySQL 初始化命令。它会创建目标数据库并导入基础管理表；数据库已经存在时不会重复导入：
+全新环境使用下面的初始化命令。它会删除并重建 `MYSQL_DATABASE`，执行完整
+Alembic 迁移，创建 Pear Admin、部门、RBAC、Studio、Amazon AI 及全部关系表。
+不会导入 `test/pear.sql`，不会创建测试数据，默认只创建 `admin` 用户。
+`--skip-storage` 用于 GoFastDFS 尚未部署时先完成数据库初始化：
 
 ```powershell
-.\.venv\Scripts\python.exe -m flask init
+.\.venv\Scripts\python.exe -m flask init --fresh --yes --skip-storage
 ```
 
-然后创建 Commerce Studio 表、菜单、RBAC、ToAPIs 供应商和默认模型模板：
+初始化会创建 ToAPIs、快跑 AI 的供应商和模型模板，但 API Key 强制为空。
+部门表默认创建 `总项目`、`三部五组`、`三部二组` 三个组织结构节点，
+`admin` 绑定到 `总项目` 并作为唯一超级管理员；普通用户只能绑定两个业务部门。
+登录后可以在部门管理中继续新增实际业务部门，再为部门配置供应商和 API Key。
+
+GoFastDFS 部署完成并配置 `.flaskenv` 后，如需上传内置 Skill 文件，再执行：
 
 ```powershell
-.\.venv\Scripts\python.exe -m flask studio-init
+.\.venv\Scripts\python.exe -m flask init --seed-storage
 ```
 
 启动本地服务：
@@ -74,13 +82,14 @@ MYSQL_PASSWORD=your-password
 http://127.0.0.1:5000/admin/
 ```
 
-首次初始化账号：
+首次初始化账号（如果没有设置 `ADMIN_PASSWORD`）：
 
 ```text
 admin / 123456
 ```
 
-首次进入后应立即修改密码。测试配置使用 `MYSQL_TEST_DATABASE`，必须使用独立的 MySQL 测试库，禁止指向生产库。
+生产环境请在 `.flaskenv` 设置随机的 `ADMIN_PASSWORD`，不要使用默认密码。
+测试配置使用 `MYSQL_TEST_DATABASE`，必须使用独立的 MySQL 测试库，禁止指向生产库。
 新建用户默认获得“AI 创作用户”角色，拥有 AI 创作工作台权限，不包含系统管理权限。
 管理员可以在“角色管理”中按页面和操作逐项授权。
 
@@ -108,8 +117,54 @@ GOFASTDFS_PUBLIC_URL=https://your-domain.example/gofastdfs
 GOFASTDFS_GROUP=group1
 ```
 
-产品中心素材和 Skill 文件永久保留；用户参考文件以及 API 生成图片、视频保留 7 天。
+产品中心素材和 Skill 文件永久保留；用户参考文件以及 API 生成图片、视频按当前配置保留 30 天。
 清理任务由 Flask-APScheduler 定时执行，删除失败会保留为可重试状态。
+
+## CentOS 9 生产日志
+
+生产模式不会把日志写入项目目录，也不会把应用运行日志作为主要输出留在
+`journalctl` 中。项目日志统一写入 `/var/log/pear-ai`：
+
+```text
+/var/log/pear-ai/pear-ai.log             Flask、业务和 Alembic 日志
+/var/log/pear-ai/gunicorn-access.log    HTTP 访问日志
+/var/log/pear-ai/gunicorn-error.log     Gunicorn 启动和 Worker 错误
+/var/log/pear-ai/systemd.log            systemd 标准输出
+/var/log/pear-ai/systemd-error.log      systemd 标准错误
+```
+
+推荐把项目部署到 `/opt/pear-ai`，由专用 `pear` 用户运行。项目在
+`/root/pear-ai` 时，`pear` 用户通常无法穿过 `/root` 目录，不要只修改
+`WorkingDirectory` 而遗漏文件权限。部署模板位于 `deploy/`：
+
+```bash
+sudo useradd --system --home-dir /opt/pear-ai --shell /sbin/nologin pear
+sudo install -d -o pear -g pear -m 0750 /var/log/pear-ai
+sudo chown -R pear:pear /opt/pear-ai
+sudo cp /opt/pear-ai/deploy/pear-ai.service /etc/systemd/system/pear-ai.service
+sudo cp /opt/pear-ai/deploy/pear-ai-tmpfiles.conf /etc/tmpfiles.d/pear-ai.conf
+sudo cp /opt/pear-ai/deploy/pear-ai-logrotate /etc/logrotate.d/pear-ai
+sudo systemd-tmpfiles --create
+sudo systemctl daemon-reload
+sudo systemctl enable --now pear-ai
+sudo systemctl status pear-ai --no-pager
+```
+
+实时查看项目运行日志：
+
+```bash
+sudo tail -f /var/log/pear-ai/pear-ai.log
+sudo tail -f /var/log/pear-ai/gunicorn-error.log
+sudo tail -f /var/log/pear-ai/gunicorn-access.log
+```
+
+`deploy/pear-ai.service` 会显式覆盖旧 `.flaskenv` 中的 `LOG_DIR=logs`，
+使用 `PEAR_AI_LOG_DIR=/var/log/pear-ai` 和独立的 `pear-ai.log`。日志轮转
+配置在 `deploy/pear-ai-logrotate`，无需修改应用代码即可配合 CentOS 9 的
+`logrotate` 工作。
+
+直接执行项目根目录的 `start.sh` 也会自动使用生产模式，并把 Gunicorn
+日志写入同一目录。
 
 ## 目录边界
 

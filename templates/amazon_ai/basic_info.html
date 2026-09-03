@@ -1,0 +1,54 @@
+{% extends "amazon_ai/base.html" %}
+{% block title %}Amazon AI | 基础信息修正{% endblock %}
+{% block content %}
+<section class="amazon-page-title">
+    <div>
+        <div class="amazon-eyebrow">Step 3 · Review</div>
+        <h2>基础信息修正</h2>
+        <p>选择竞品分析或差异化分析任务，系统读取完整结果到编辑区；修改后使用自定义文件名保存为 TXT 文件。</p>
+    </div>
+</section>
+<section class="amazon-panel">
+    <form id="basicInfoForm" class="amazon-form">
+        <label>竞品分析任务 ID
+            <select name="competitor_task_code" id="basicCompetitorTaskCode" class="amazon-select">
+                <option value="">选择竞品分析任务 ID</option>
+            </select>
+        </label>
+        <label>差异化分析任务 ID
+            <select name="differentiation_task_code" id="basicDifferentiationTaskCode" class="amazon-select">
+                <option value="">选择差异化分析任务 ID</option>
+            </select>
+        </label>
+        <label>写入产品核心卖点
+            <select name="studio_product_id" id="basicInfoProductId" class="amazon-select amazon-option-product">
+                <option value="">不写入产品核心卖点</option>
+            </select>
+        </label>
+        <label class="wide">基础信息修正内容
+            <textarea name="content" id="basicInfoContent" rows="27" placeholder="选择竞品分析或差异化分析历史后，系统会读取完整结果到这里；可直接修改。" required></textarea>
+        </label>
+        <div class="amazon-form-actions">
+            <label class="amazon-inline-field">文件名
+                <input type="text" name="result_filename" id="basicInfoFilename" maxlength="180" placeholder="例如：竞品分析暴风机" autocomplete="off" required>
+            </label>
+            <button type="submit">保存基础信息</button>
+            <span class="amazon-form-result"></span>
+        </div>
+    </form>
+</section>
+<section class="amazon-panel amazon-result-panel" id="basicInfoResultPanel" hidden>
+    <div class="amazon-panel-header"><h3>基础信息修正已保存</h3></div>
+</section>
+<section class="amazon-panel">
+    <div class="amazon-panel-header"><h3>基础信息修正历史</h3></div>
+    <div id="basicInfoList" class="amazon-list"></div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    AmazonAI.bindBasicInfoForm("basicInfoForm");
+});
+</script>
+{% endblock %}

@@ -52,6 +52,27 @@ class BaseConfig:
     JSON_AS_ASCII = False
     SECRET_KEY = os.getenv("SECRET_KEY", "commerce-studio-local-key")
 
+    LOG_DIR = os.getenv("LOG_DIR") or "logs"
+    APP_LOG_FILE = os.getenv("APP_LOG_FILE") or ""
+    LOG_STRICT = os.getenv("LOG_STRICT", "false").lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    LOG_TO_CONSOLE = os.getenv("LOG_TO_CONSOLE", "true").lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    LOG_FORMAT = os.getenv("LOG_FORMAT") or (
+        "%(asctime)s %(levelname)-8s [%(process)d] "
+        "[%(name)s] %(message)s"
+    )
+    ALEMBIC_LOG_LEVEL = os.getenv("ALEMBIC_LOG_LEVEL") or "INFO"
+    SQLALCHEMY_LOG_LEVEL = os.getenv("SQLALCHEMY_LOG_LEVEL") or "WARNING"
+
     REDIS_HOST = os.getenv("REDIS_HOST") or "127.0.0.1"
     REDIS_PORT = int(os.getenv("REDIS_PORT") or 6379)
 
@@ -73,9 +94,67 @@ class BaseConfig:
     STUDIO_POLL_INTERVAL = int(os.getenv("STUDIO_POLL_INTERVAL") or 10)
     STUDIO_MAX_IMAGE_REFERENCES = int(os.getenv("STUDIO_MAX_IMAGE_REFERENCES") or 14)
     STUDIO_MAX_VIDEO_REFERENCES = int(os.getenv("STUDIO_MAX_VIDEO_REFERENCES") or 10)
-    STUDIO_ASSET_TTL_DAYS = int(os.getenv("STUDIO_ASSET_TTL_DAYS") or 7)
+    # Temporary generation/Amazon assets use explicit expiry timestamps.
+    # Keep the legacy setting as a compatibility fallback for old rows.
+    STUDIO_TEMPORARY_RETENTION_DAYS = int(
+        os.getenv("STUDIO_TEMPORARY_RETENTION_DAYS")
+        or os.getenv("STUDIO_ASSET_TTL_DAYS")
+        or 30
+    )
+    STUDIO_ASSET_TTL_DAYS = STUDIO_TEMPORARY_RETENTION_DAYS
+    ADMIN_LOG_RETENTION_DAYS = int(
+        os.getenv("ADMIN_LOG_RETENTION_DAYS") or 90
+    )
+    ADMIN_LOG_CLEANUP_INTERVAL = int(
+        os.getenv("ADMIN_LOG_CLEANUP_INTERVAL") or 86400
+    )
+    STUDIO_CLEANUP_BATCH_SIZE = int(
+        os.getenv("STUDIO_CLEANUP_BATCH_SIZE") or 100
+    )
+    STUDIO_POLL_BATCH_SIZE = int(
+        os.getenv("STUDIO_POLL_BATCH_SIZE") or 20
+    )
+    STUDIO_POLL_MAX_WORKERS = int(
+        os.getenv("STUDIO_POLL_MAX_WORKERS") or 5
+    )
+    STUDIO_HTTP_POOL_SIZE = int(
+        os.getenv("STUDIO_HTTP_POOL_SIZE") or 10
+    )
+    STUDIO_HTTP_MAX_RETRIES = int(
+        os.getenv("STUDIO_HTTP_MAX_RETRIES") or 2
+    )
+    STUDIO_OUTPUT_UPLOAD_ATTEMPTS = max(
+        1,
+        int(os.getenv("STUDIO_OUTPUT_UPLOAD_ATTEMPTS") or 2),
+    )
     STUDIO_ASSET_CLEANUP_INTERVAL = int(
         os.getenv("STUDIO_ASSET_CLEANUP_INTERVAL") or 3600
+    )
+    AMAZON_AI_MAX_TEXT_BYTES = int(
+        os.getenv("AMAZON_AI_MAX_TEXT_BYTES") or 120000
+    )
+    AMAZON_AI_MAX_INPUT_FILES = int(
+        os.getenv("AMAZON_AI_MAX_INPUT_FILES") or 10
+    )
+    # OpenAI Files API allows one file up to 512 MB. Keep Amazon AI input
+    # uploads at or below that limit even when the storage server allows more.
+    AMAZON_AI_OPENAI_FILE_MAX_BYTES = 512 * 1024 * 1024
+    AMAZON_AI_MAX_UPLOAD_FILE_BYTES = min(
+        max(
+            int(
+                os.getenv("AMAZON_AI_MAX_UPLOAD_FILE_BYTES")
+                or AMAZON_AI_OPENAI_FILE_MAX_BYTES
+            ),
+            1,
+        ),
+        AMAZON_AI_OPENAI_FILE_MAX_BYTES,
+    )
+    AMAZON_AI_MAX_COMBINED_CONTEXT_BYTES = int(
+        os.getenv("AMAZON_AI_MAX_COMBINED_CONTEXT_BYTES") or 280000
+    )
+    AMAZON_AI_MAX_OUTPUT_TOKENS = min(
+        max(int(os.getenv("AMAZON_AI_MAX_OUTPUT_TOKENS") or 128000), 1),
+        128000,
     )
 
     GOFASTDFS_INTERNAL_URL = os.getenv("GOFASTDFS_INTERNAL_URL") or ""
@@ -119,7 +198,26 @@ class ProductionConfig(BaseConfig):
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ECHO = False
     SQLALCHEMY_POOL_RECYCLE = 1800
-    LOG_LEVEL = logging.ERROR
+    # Production logging deliberately uses separate PEAR_AI_* variables.
+    # This prevents a development .flaskenv value such as LOG_DIR=logs from
+    # sending a production service back into the project directory.
+    LOG_LEVEL = os.getenv("PEAR_AI_LOG_LEVEL") or logging.INFO
+    LOG_DIR = os.getenv("PEAR_AI_LOG_DIR") or "/var/log/pear-ai"
+    APP_LOG_FILE = os.getenv("PEAR_AI_APP_LOG_FILE") or (
+        "/var/log/pear-ai/pear-ai.log"
+    )
+    LOG_STRICT = os.getenv("PEAR_AI_LOG_STRICT", "true").lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    LOG_TO_CONSOLE = os.getenv("PEAR_AI_LOG_TO_CONSOLE", "false").lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
 
 
 config = {

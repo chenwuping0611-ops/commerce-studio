@@ -1,0 +1,198 @@
+{% set batch_type = batch_media_type|default("IMAGE", true)|upper %}
+<section class="studio-card studio-batch-prompt-card"
+         data-batch-prompt-panel
+         data-media-type="{{ batch_type }}">
+    <div class="studio-card-header">
+        <div>
+            <h2>批量创作提示词历史</h2>
+            <div class="studio-card-subtitle">生成后的版本内容保存于 GoFastDFS，刷新页面后从文件重新读取</div>
+        </div>
+        <div class="studio-toolbar-right">
+            <span class="studio-helper" data-batch-prompt-summary>正在加载历史</span>
+            <button type="button"
+                    class="layui-btn studio-btn-quiet studio-refresh-button"
+                    data-batch-prompt-refresh
+                    title="刷新批量提示词历史">刷新</button>
+        </div>
+    </div>
+    <div class="studio-batch-prompt-history" data-batch-prompt-history>
+        <div class="studio-feed-empty">
+            <strong>还没有批量创作提示词</strong>
+            <span>点击上方按钮生成多个不同版本。</span>
+        </div>
+    </div>
+    <div class="studio-history-pagination">
+        <span class="studio-helper" data-batch-prompt-page-info></span>
+        <button type="button"
+                class="studio-link-button"
+                data-batch-prompt-load-more
+                hidden>加载更多历史</button>
+    </div>
+</section>
+
+<div class="studio-composer-overlay"
+     data-batch-prompt-overlay
+     aria-hidden="true">
+    <div class="studio-composer-backdrop" data-batch-prompt-close="1"></div>
+    <div class="studio-composer-dialog"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="batchPromptTitle-{{ batch_type }}">
+        <section class="studio-card studio-form-card studio-batch-prompt-composer">
+            <div class="studio-card-header">
+                <div>
+                    <h2 id="batchPromptTitle-{{ batch_type }}">批量创作提示词</h2>
+                    <div class="studio-card-subtitle">调用当前部门全局语言模型生成多个可直接使用的版本</div>
+                </div>
+                <div class="studio-toolbar-right">
+                    {% if batch_type == "ALL" %}
+                    <span class="studio-pill">图片 / 视频</span>
+                    {% else %}
+                    <span class="studio-pill">{{ "图片" if batch_type == "IMAGE" else "视频" }}</span>
+                    {% endif %}
+                    <button type="button"
+                            class="studio-composer-close"
+                            data-batch-prompt-close="1"
+                            aria-label="关闭批量创作提示词">×</button>
+                </div>
+            </div>
+            <form class="layui-form studio-form studio-batch-prompt-form"
+                  data-batch-prompt-form>
+                <div class="studio-composer-grid">
+                    {% if batch_type == "ALL" %}
+                    <div class="studio-field">
+                        <label class="studio-field-label"
+                               for="batchPromptMedia">创作类型</label>
+                        <select id="batchPromptMedia"
+                                data-batch-prompt-media
+                                lay-ignore>
+                            <option value="IMAGE">图片</option>
+                            <option value="VIDEO">视频</option>
+                        </select>
+                    </div>
+                    {% endif %}
+                    <div class="studio-field">
+                        <label class="studio-field-label"
+                               for="batchPromptProduct-{{ batch_type }}">产品</label>
+                        <select id="batchPromptProduct-{{ batch_type }}"
+                                data-batch-prompt-product
+                                lay-ignore>
+                            <option value="">不关联产品</option>
+                        </select>
+                    </div>
+                    <div class="studio-field">
+                        <label class="studio-field-label"
+                               for="batchPromptSkill-{{ batch_type }}">Skill</label>
+                        <select id="batchPromptSkill-{{ batch_type }}"
+                                data-batch-prompt-skill
+                                lay-ignore>
+                            <option value="">不使用 Skill</option>
+                        </select>
+                    </div>
+                    {% if batch_type != "VIDEO" %}
+                    <div class="studio-field"
+                         data-batch-prompt-image-aspect-ratio-field>
+                        <label class="studio-field-label"
+                               for="batchPromptImageAspectRatio-{{ batch_type }}">画布比例</label>
+                        <select id="batchPromptImageAspectRatio-{{ batch_type }}"
+                                data-batch-prompt-image-aspect-ratio
+                                lay-ignore>
+                            {% for ratio in batch_prompt_aspect_ratio_options|default(["1:1", "2.44:1", "3:2", "2:3", "4:3", "3:4", "5:4", "4:5", "16:9", "9:16", "2:1", "1:2", "21:9", "9:21"], true) %}
+                            <option value="{{ ratio }}"
+                                    {% if ratio == (batch_prompt_default_aspect_ratio|default("2.44:1", true)) %}selected{% endif %}>{{ ratio }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="studio-field-help">作为每个版本的默认画布比例；版本末尾明确写出的系统预设比例会优先使用。</div>
+                    </div>
+                    <div class="studio-field"
+                         data-batch-prompt-image-quality-field>
+                        <label class="studio-field-label"
+                               for="batchPromptImageQuality-{{ batch_type }}">图片质量</label>
+                        <select id="batchPromptImageQuality-{{ batch_type }}"
+                                data-batch-prompt-image-quality
+                                lay-ignore>
+                            <option value="1k">1K</option>
+                            <option value="2k" selected>2K</option>
+                            <option value="4k">4K</option>
+                        </select>
+                        <div class="studio-field-help">用于批量图片处理时映射到快跑 AI 的图片模型，默认 2K。</div>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <div class="studio-field studio-batch-prompt-requirement">
+                    <div class="studio-field-label-row">
+                        <label class="studio-field-label"
+                               for="batchPromptCreative-{{ batch_type }}">批量创作要求</label>
+                        <span class="studio-field-optional">可选</span>
+                    </div>
+                    <textarea id="batchPromptCreative-{{ batch_type }}"
+                              class="layui-textarea"
+                              data-batch-prompt-creative
+                              rows="5"
+                              placeholder="例如：围绕不同使用场景生成多套电商详情图提示词，保持产品外观、颜色和配件完全一致"></textarea>
+                    <div class="studio-field-help">可以只选择产品或 Skill；未填写时由模型根据已选内容生成。</div>
+                </div>
+
+                <div class="studio-field">
+                    <div class="studio-field-label-row">
+                        <label class="studio-field-label"
+                               for="batchPromptStyle-{{ batch_type }}">创作风格</label>
+                        <span class="studio-field-optional">可选</span>
+                    </div>
+                    <select id="batchPromptStyle-{{ batch_type }}"
+                            data-batch-prompt-style
+                            lay-ignore>
+                        {% for option in batch_prompt_style_options|default([], true) %}
+                        <option value="{{ option.value }}">{{ option.label }}</option>
+                        {% endfor %}
+                    </select>
+                    <input type="text"
+                           class="layui-input studio-batch-prompt-custom-style"
+                           data-batch-prompt-custom-style
+                           maxlength="160"
+                           placeholder="输入自定义创作风格"
+                           hidden>
+                    <div class="studio-field-help">风格只约束视觉表达；如果创作要求中明确指定风格，以创作要求为准。</div>
+                </div>
+
+                <div class="studio-setting-card studio-batch-prompt-count-card">
+                    <div class="studio-field-label-row">
+                        <span class="studio-field-label">生成版本数量</span>
+                        <span class="studio-field-optional">滑块 0-10，右侧可输入更大数量</span>
+                    </div>
+                    <div class="studio-range-control studio-range-control-wide">
+                        <input type="range"
+                               min="0"
+                               max="10"
+                               step="1"
+                               value="0"
+                               data-batch-prompt-range
+                               aria-label="批量创作数量滑块">
+                        <output class="studio-range-value"
+                                data-batch-prompt-count-label>0 个版本（默认生成 10 个）</output>
+                        <input type="number"
+                               min="0"
+                               max="50"
+                               step="1"
+                               value="0"
+                               class="layui-input studio-range-number"
+                               data-batch-prompt-count
+                               aria-label="批量创作数量">
+                    </div>
+                    <div class="studio-field-help">数量为 0 时提交会生成 10 个版本；输入 1-50 时按实际数量生成，每个版本不能超过 5000 字节。</div>
+                </div>
+
+                <div class="studio-form-message" data-batch-prompt-message></div>
+                <div class="studio-form-actions studio-form-actions-inline">
+                    <button type="submit"
+                            class="layui-btn studio-btn-primary"
+                            data-batch-prompt-submit>生成提示词</button>
+                    <button type="button"
+                            class="layui-btn studio-btn-quiet"
+                            data-batch-prompt-cancel>取消</button>
+                </div>
+            </form>
+        </section>
+    </div>
+</div>

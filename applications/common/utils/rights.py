@@ -1,26 +1,22 @@
 from collections import OrderedDict
 from functools import wraps
-from io import BytesIO
 
-from flask import abort, current_app, jsonify, make_response, request, session
+from flask import abort, current_app, jsonify, request, session
 from flask_login import current_user
 
 from applications.common.admin_log import admin_log
-from applications.common.utils.gen_captcha import gen_captcha
+from applications.common.scope import (
+    effective_permission_codes,
+    has_effective_permission,
+    is_super_admin_user,
+)
 from applications.schemas import PowerOutSchema
 
 
 def is_super_admin():
-    """Return whether the current account owns the built-in admin role."""
+    """Return whether the current account owns the built-in super role."""
 
-    if not current_user.is_authenticated:
-        return False
-    return any(
-        role
-        and role.enable == 1
-        and role.code == "admin"
-        for role in current_user.role
-    )
+    return is_super_admin_user()
 
 
 def authorize(power, log=False):
@@ -30,7 +26,7 @@ def authorize(power, log=False):
         @login_required
         @wraps(func)
         def wrapper(*args, **kwargs):
-            if power not in session.get("permissions", []):
+            if not has_effective_permission(power):
                 if log:
                     admin_log(request=request, is_access=False)
                 if request.method == "GET":
@@ -46,28 +42,38 @@ def authorize(power, log=False):
 
 
 def add_auth_session():
-    permissions = []
-    for role in current_user.role:
-        if role.enable == 0:
-            continue
-        for power in role.power:
-            if power.enable == 0:
-                continue
-            if power.code:
-                permissions.append(power.code)
-    session["permissions"] = list(dict.fromkeys(permissions))
+    session["permissions"] = sorted(effective_permission_codes())
 
 
 def make_menu_tree():
+    allowed_codes = effective_permission_codes()
     powers = []
     for role in current_user.role:
         if role.enable == 0:
             continue
         for power in role.power:
-            if power.enable == 0:
-                continue
-            if int(power.type) in (0, 1):
+            if (
+                (
+                    is_super_admin_user()
+                    or getattr(role, "code", "") != "admin"
+                )
+                and
+                power.enable != 0
+                and int(power.type) in (0, 1)
+                and power.code in allowed_codes
+            ):
                 powers.append(power)
+
+    # ``admin`` is a reserved account, not a role assignment.  Include all
+    # enabled menu powers even if an old database row lost its role relation.
+    if is_super_admin_user():
+        from applications.models import Power
+
+        powers = [
+            power
+            for power in Power.query.filter_by(enable=1).all()
+            if int(power.type) in (0, 1)
+        ]
 
     power_dict = PowerOutSchema(many=True).dump(powers)
     unique_powers = OrderedDict()
@@ -92,17 +98,6 @@ def make_menu_tree():
         return children
 
     return build_children(0)
-
-
-def get_captcha():
-    code, image = gen_captcha()
-    out = BytesIO()
-    session["code"] = code
-    image.save(out, "png")
-    out.seek(0)
-    response = make_response(out.read())
-    response.content_type = "image/png"
-    return response, code
 
 
 def get_render_config():

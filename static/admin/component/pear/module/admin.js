@@ -22,6 +22,33 @@ layui.define(['message', 'table', 'jquery', 'element', 'yaml', 'form', 'tab', 'm
 
 		var body = $('body');
 
+		function notifyActiveTab(id) {
+			var iframe = $("#content .layui-tab-content .layui-show").find("iframe")[0];
+			if (!iframe || !iframe.contentWindow) return;
+
+			var message = {
+				type: "pear-tab-activated",
+				id: id
+			};
+			var send = function() {
+				try {
+					if (iframe.contentWindow) {
+						iframe.contentWindow.postMessage(message, window.location.origin);
+					}
+				} catch (error) {
+					// Ignore frames that are no longer available while tabs switch.
+				}
+			};
+			if (iframe.addEventListener) {
+				var onLoad = function() {
+					send();
+					iframe.removeEventListener("load", onLoad, false);
+				};
+				iframe.addEventListener("load", onLoad, false);
+			}
+			send();
+		}
+
 		var pearAdmin = new function() {
 
 			var configType = 'yml';
@@ -129,6 +156,7 @@ layui.define(['message', 'table', 'jquery', 'element', 'yaml', 'form', 'tab', 'm
 								setTimeout(function() {
 									sideMenu.selectItem(id);
 									bodyTab.positionTab();
+									notifyActiveTab(id);
 								}, 500)
 							}
 						}
@@ -140,6 +168,7 @@ layui.define(['message', 'table', 'jquery', 'element', 'yaml', 'form', 'tab', 'm
 						}
 						bodyTab.positionTab();
 						sideMenu.selectItem(id);
+						notifyActiveTab(id);
 					})
 
 					sideMenu.click(function(dom, data) {
@@ -294,7 +323,7 @@ layui.define(['message', 'table', 'jquery', 'element', 'yaml', 'form', 'tab', 'm
 			}
 
 			this.jump = function(id, title, url) {
-				if (isMuiltTab(config)==="true" || isMuiltTab(param) === true) {
+				if (isMuiltTab(config) === "true" || isMuiltTab(config) === true) {
 					bodyTab.addTabOnly({
 						id: id,
 						title: title,

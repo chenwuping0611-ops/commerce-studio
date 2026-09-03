@@ -1,4 +1,5 @@
-from flask import Blueprint, render_template, request, jsonify
+from flask import Blueprint, abort, render_template, request, jsonify
+from flask_login import current_user
 
 from applications.common import curd
 from applications.common.helper import ModelFilter
@@ -8,8 +9,17 @@ from applications.common.utils.validate import xss_escape
 from applications.extensions import db
 from applications.models import DictType, DictData
 from applications.schemas import DictTypeOutSchema, DictDataOutSchema
+from applications.common.scope import is_super_admin_user
 
 admin_dict = Blueprint('adminDict', __name__, url_prefix='/admin/dict')
+
+
+@admin_dict.before_request
+def require_super_admin():
+    # Dictionary rows are global system configuration and have no department
+    # or user owner. Do not expose the unscoped legacy CRUD to normal roles.
+    if current_user.is_authenticated and not is_super_admin_user():
+        abort(403)
 
 
 # 数据字典

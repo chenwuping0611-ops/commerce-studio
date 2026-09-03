@@ -19,3 +19,7 @@ python-dotenv==0.19.1
 webargs==8.0.1
 requests==2.32.4
 cryptography==43.0.3
+gunicorn==20.1.0
+pandas
+openpyxl
+xlrd

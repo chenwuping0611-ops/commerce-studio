@@ -10,6 +10,11 @@ def get_photo(page, limit):
     photo = Photo.query.order_by(desc(Photo.create_time)).paginate(page=page, per_page=limit, error_out=False)
     count = Photo.query.count()
     data = model_to_dicts(schema=PhotoOutSchema, data=photo.items)
+    for item, record in zip(data, photo.items):
+        item["download_url"] = FileService.download_url(
+            record.href or record.storage_path,
+            record.name,
+        )
     return data, count
 
 
@@ -31,15 +36,19 @@ def upload_one(photo, mime):
     )
     db.session.add(photo_record)
     db.session.commit()
-    return {"src": stored.public_url}
+    return {
+        "src": stored.public_url,
+        "download_url": FileService.download_url(stored),
+        "name": stored.original_filename,
+    }
 
 
 def delete_photo_by_id(_id):
     photo_record = Photo.query.filter_by(id=_id).first()
     if not photo_record:
         return 0
-    if photo_record.storage_path:
-        FileService.delete_storage(photo_record.storage_path)
+    if photo_record.storage_path or photo_record.href:
+        FileService.delete_storage(photo_record.storage_path or photo_record.href)
     photo = Photo.query.filter_by(id=_id).delete()
     db.session.commit()
     return photo

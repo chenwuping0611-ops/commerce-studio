@@ -18,15 +18,21 @@ def init_error_views(app):
     @app.errorhandler(422)
     @app.errorhandler(400)
     def handle_error(err):
-        headers = err.data.get("headers", None)
-        messages = err.data.get("messages", ["Invalid request."]).get('json')
-        print(err.data.get("messages"))
-        print(messages.items())
-        msg = ''
+        error_data = getattr(err, "data", {}) or {}
+        headers = error_data.get("headers")
+        message_data = error_data.get("messages") or {}
+        messages = (
+            message_data.get("json")
+            if isinstance(message_data, dict)
+            else None
+        )
+        msg = "请求参数无效"
 
-        for i in messages.items():
-            msg = str(i[0]) + str(i[1][0])
-            break
+        if isinstance(messages, dict):
+            for field, field_messages in messages.items():
+                if field_messages:
+                    msg = str(field) + str(field_messages[0])
+                    break
 
         if headers:
             return jsonify({"success": False, "msg": msg})

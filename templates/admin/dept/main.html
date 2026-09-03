@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>部门新增</title>
+    <title>部门管理</title>
     {% include 'admin/common/header.html' %}
 </head>
 <body class="pear-container">
@@ -33,7 +33,7 @@
 </div>
 
 <script type="text/html" id="dept-toolbar">
-    {% if authorize("admin:dept:edit") %}
+    {% if is_super_admin and authorize("admin:dept:add") %}
         <button class="pear-btn pear-btn-primary pear-btn-md" lay-event="add">
             <i class="layui-icon layui-icon-add-1"></i>
             新增
@@ -48,6 +48,9 @@
 </script>
 
 <script type="text/html" id="dept-bar">
+    {% raw %}{{# if(d.nodeType === 'USER'){ }}{% endraw %}
+        <span class="dept-user-operation">只读</span>
+    {% raw %}{{# } else { }}{% endraw %}
     {% if authorize("admin:dept:edit") %}
         <button class="pear-btn pear-btn-primary pear-btn-sm" lay-event="edit"><i
                 class="layui-icon layui-icon-edit"></i>
@@ -58,12 +61,17 @@
                 class="layui-icon layui-icon-delete"></i>
         </button>
     {% endif %}
+    {% raw %}{{# } }}{% endraw %}
 </script>
 
 <script type="text/html" id="dept-status">
+    {% raw %}{{# if(d.nodeType === 'USER'){ }}{% endraw %}
+    {% raw %}<span class="dept-user-status">{{ d.status }}</span>{% endraw %}
+    {% raw %}{{# } else { }}{% endraw %}
     <input type="checkbox" name="status" value="{{ "{{ d.deptId }}" }}" lay-skin="switch" lay-text="启用|禁用"
            lay-filter="dept-enable"
-            {{ "{{# if(d.status==1){ }} checked {{# } }}" }}>
+            {% raw %}{{# if(d.status==1){ }} checked {{# } }}{% endraw %}>
+    {% raw %}{{# } }}{% endraw %}
 </script>
 
 </body>
@@ -91,16 +99,13 @@
         treeDefaultClose: false,
         toolbar: '#dept-toolbar',
         elem: '#dept-table',
-        url: '/dept/data',
+        url: '/dept/data?include_users=1',
         page: false,
         cols: [
           [
             { type: 'checkbox' },
             { field: 'deptName', minWidth: 200, title: '部门名称' },
             { field: 'leader', title: '负责人' },
-            { field: 'phone', title: '联系方式' },
-            { field: 'email', title: '邮箱' },
-            { field: 'address', title: '详细地址' },
             { field: 'status', title: '状态', templet: '#dept-status' },
             { field: 'sort', title: '排序', width: 100 },
             { title: '操作', templet: '#dept-bar', width: 120, align: 'center' }

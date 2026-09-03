@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Amazon AI{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='admin/component/pear/css/pear.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='admin/component/layui/css/layui.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='amazon_ai/amazon_ai.css', v='20260901-history-scope') }}">
+</head>
+<body class="amazon-page">
+<main class="amazon-content">
+    {% block content %}{% endblock %}
+</main>
+<script src="{{ url_for('static', filename='amazon_ai/amazon_ai.js', v='20260901-history-scope') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

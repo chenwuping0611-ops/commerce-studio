@@ -1,11 +1,21 @@
-from flask import Blueprint, request, render_template, jsonify
+from flask import Blueprint, abort, request, render_template, jsonify
+from flask_login import current_user
 
 from applications.common.utils.http import fail_api, success_api, table_api
 from applications.common.utils.rights import authorize
 from applications.models import Photo
 from applications.common.utils import upload as upload_curd
+from applications.common.scope import is_super_admin_user
 
 admin_file = Blueprint('adminFile', __name__, url_prefix='/admin/file')
+
+
+@admin_file.before_request
+def require_super_admin():
+    # The legacy Photo table has no immutable owner or department snapshot.
+    # Keep this system-level compatibility module away from scoped accounts.
+    if current_user.is_authenticated and not is_super_admin_user():
+        abort(403)
 
 
 #  图片管理

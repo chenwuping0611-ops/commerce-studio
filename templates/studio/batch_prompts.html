@@ -1,0 +1,23 @@
+{% extends "studio/base.html" %}
+{% block title %}批量创作提示词 | Commerce Studio{% endblock %}
+{% block content %}
+<div class="studio-page-header">
+    <div>
+        <div class="studio-eyebrow">提示词规划</div>
+        <h1>批量创作提示词</h1>
+        <p>按产品中心资料和 Skill 生成可用于图片或视频创作的多版本提示词，历史内容支持在线编辑和保存。</p>
+    </div>
+    <div class="studio-toolbar-right">
+        <button type="button"
+                class="layui-btn studio-btn-primary"
+                data-batch-prompt-open>批量创作提示词</button>
+    </div>
+</div>
+
+{% set batch_media_type = "ALL" %}
+{% include "studio/_batch_prompt.html" %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='studio/batch_prompt.js') }}"></script>
+{% endblock %}

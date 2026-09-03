@@ -1,0 +1,58 @@
+{% extends "amazon_ai/base.html" %}
+{% block title %}Amazon AI | 差异化分析{% endblock %}
+{% block content %}
+<section class="amazon-page-title">
+    <div>
+        <div class="amazon-eyebrow">Step 2 · Differentiation</div>
+        <h2>差异化分析</h2>
+        <p>上传西柚、卖家精灵、Helium10 等关键词反查数据，按现货微改、配件搭配和低成本升级 Skill 输出方案。</p>
+    </div>
+</section>
+<section class="amazon-panel">
+    <form id="differentiationForm" class="amazon-form" data-task-type="DIFFERENTIATION_GENERATE" data-upload-url="/amazon-ai/api/differentiation/input-files" data-delete-upload-url="/amazon-ai/api/differentiation/input-files/" data-cleanup-upload-url="/amazon-ai/api/differentiation/input-files/cleanup" data-max-file-bytes="{{ config.AMAZON_AI_MAX_UPLOAD_FILE_BYTES }}">
+        <label>本次使用的 Skill
+            <select name="skill_id" class="amazon-select amazon-option-skill" required>
+                <option value="">加载中</option>
+            </select>
+        </label>
+        <label>引用产品核心卖点
+            <select name="studio_product_id" class="amazon-select amazon-option-product">
+                <option value="">不关联产品核心卖点</option>
+            </select>
+        </label>
+        <label>补充说明
+            <textarea name="context" rows="6" placeholder="可填写产品现货、目标成本、供应链限制、已有配件和不可调整范围"></textarea>
+        </label>
+        <label class="wide">关键词反查、Review 或产品资料文件
+            <span class="amazon-dropzone" data-upload-dropzone>
+                <strong>点击选择文件或将文件拖到这里</strong>
+                <span>支持 Excel、CSV、TXT、MD 等格式，可同时上传多个报告；单个文件最大 512 MB</span>
+                <input type="file" accept=".md,.txt,.csv,.tsv,.xls,.xlsx,.xlsm,.json,.html,.htm" multiple hidden>
+            </span>
+        </label>
+        <div class="amazon-file-list wide" id="differentiationFiles">
+            <span class="amazon-helper">支持 Excel、CSV、TXT、MD 等文件；单个文件最大 512 MB，文件上传后保留 7 天，可同时上传多个报告。</span>
+        </div>
+        <div class="amazon-form-actions">
+            <button type="submit">提交差异化分析</button>
+            <span class="amazon-form-result"></span>
+        </div>
+    </form>
+</section>
+<section class="amazon-panel">
+    <div class="amazon-panel-header"><h3>差异化分析历史</h3></div>
+    <div id="differentiationList" class="amazon-list"></div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    AmazonAI.bindAnalysisForm(
+        "differentiationForm",
+        "/amazon-ai/api/differentiation/analyze",
+        "differentiationList",
+        "differentiation"
+    );
+});
+</script>
+{% endblock %}

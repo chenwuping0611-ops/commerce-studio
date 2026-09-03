@@ -21,10 +21,6 @@
         <input name="password" type="password" placeholder="密码：123456" value="123456" autocomplete="current-password" class="layui-input">
     </div>
     <div class="layui-form-item">
-        <input placeholder="验证码" name="captcha" autocomplete="off" class="code layui-input layui-input-inline">
-        <img src="{{ url_for('passport.get_captcha') }}" class="codeImage" id="captchaImage" alt="验证码">
-    </div>
-    <div class="layui-form-item">
         <input type="checkbox" name="remember-me" title="记住密码" lay-skin="primary">
     </div>
     <div class="layui-form-item">
@@ -39,8 +35,6 @@ layui.use(["form", "jquery", "layer", "button", "popup"], function () {
     var layer = layui.layer;
     var button = layui.button;
     var popup = layui.popup;
-    var captchaPath = "{{ url_for('passport.get_captcha') }}";
-
     form.on("submit(login)", function (data) {
         var loader = layer.load();
         var btn = button.load({elem: ".login"});
@@ -57,9 +51,7 @@ layui.use(["form", "jquery", "layer", "button", "popup"], function () {
                             location.href = "{{ url_for('admin.index') }}";
                         });
                     } else {
-                        popup.failure(result.msg, function () {
-                            document.getElementById("captchaImage").src = captchaPath + "?" + Math.random();
-                        });
+                        popup.failure(result.msg);
                     }
                 });
             }
@@ -67,9 +59,6 @@ layui.use(["form", "jquery", "layer", "button", "popup"], function () {
         return false;
     });
 
-    $("#captchaImage").click(function () {
-        document.getElementById("captchaImage").src = captchaPath + "?" + Math.random();
-    });
 });
 </script>
 </body>

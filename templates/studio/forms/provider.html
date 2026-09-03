@@ -19,6 +19,22 @@
                         <option value="custom">自定义</option>
                     </select>
                 </div>
+                {% if is_super_admin %}
+                <div id="providerDepartmentField">
+                    <label class="studio-field-label">所属部门</label>
+                    <select name="dept_id" id="providerDepartment" class="studio-input-select">
+                        {% for department in departments %}
+                            <option value="{{ department.id }}"
+                                {% if department.id == current_dept_id %}selected{% endif %}>
+                                {{ department.dept_name }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% else %}
+                <input type="hidden" name="dept_id" id="providerDepartment"
+                       value="{{ current_dept_id or '' }}">
+                {% endif %}
                 <div class="studio-field-span-2">
                     <label class="studio-field-label">基础 URL</label>
                     <input name="base_url" id="providerBaseUrl" required class="layui-input" placeholder="https://toapis.com">
@@ -123,9 +139,14 @@ document.addEventListener("DOMContentLoaded", function () {
         setField("providerBalancePath", provider.balance_path || "/v1/user/balance");
         setField("providerTokenBalancePath", provider.token_balance_path || "/v1/balance");
         setField("providerGenerationPath", provider.generation_path || "/v1/images/generations");
-        setField("providerResultPath", provider.result_path || "/v1/images/generations/{task_id}");
+        setField(
+            "providerResultPath",
+            provider.result_path ||
+            (provider.catalog_key === "kuaipao" ? "" : "/v1/images/generations/{task_id}")
+        );
         setField("providerTimeout", provider.timeout || 120);
         setField("providerDescription", provider.description || "");
+        setField("providerDepartment", provider.dept_id || "");
     }
 
     function loadProvider() {
@@ -142,6 +163,13 @@ document.addEventListener("DOMContentLoaded", function () {
             });
             setMessage("");
         });
+    }
+
+    if (!providerId) {
+        var requestedDepartment = query.get("dept_id");
+        if (requestedDepartment) {
+            setField("providerDepartment", requestedDepartment);
+        }
     }
 
     document.getElementById("closeProvider").addEventListener("click", function () {

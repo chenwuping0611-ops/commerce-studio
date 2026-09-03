@@ -5,8 +5,13 @@ from applications.common.utils.rights import authorize
 from applications.models import AdminLog
 from applications.schemas import LogOutSchema
 from applications.common.curd import model_to_dicts
+from applications.common.scope import scope_query
 
 admin_log = Blueprint('adminLog', __name__, url_prefix='/admin/log')
+
+
+def _scoped_log_query():
+    return scope_query(AdminLog.query, AdminLog)
 
 
 # 日志管理
@@ -22,7 +27,9 @@ def index():
 def login_log():
     # orm查询
     # 使用分页获取data需要.items
-    log = AdminLog.query.filter_by(url='/passport/login').order_by(desc(AdminLog.create_time)).layui_paginate()
+    log = _scoped_log_query().filter_by(
+        url='/passport/login'
+    ).order_by(desc(AdminLog.create_time)).layui_paginate()
     count = log.total
     return table_api(data= model_to_dicts(schema=LogOutSchema, data=log.items), count=count)
 
@@ -33,7 +40,7 @@ def login_log():
 def operate_log():
     # orm查询
     # 使用分页获取data需要.items
-    log = AdminLog.query.filter(
+    log = _scoped_log_query().filter(
         AdminLog.url != '/passport/login').order_by(
         desc(AdminLog.create_time)).layui_paginate()
     count = log.total

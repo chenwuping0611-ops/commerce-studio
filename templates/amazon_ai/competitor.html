@@ -1,0 +1,41 @@
+{% extends "amazon_ai/base.html" %}
+{% block title %}Amazon AI | 竞品分析{% endblock %}
+{% block content %}
+<section class="amazon-page-title">
+    <div>
+        <div class="amazon-eyebrow">Step 1 · Analysis</div>
+        <h2>竞品分析</h2>
+        <p>每行输入一个 Amazon 竞品链接，系统按当前竞品分析 Skill 逐条整理页面资料并生成报告。</p>
+    </div>
+</section>
+<section class="amazon-panel">
+    <form id="competitorForm" class="amazon-form" data-task-type="COMPETITOR_ANALYZE" data-upload-url="/amazon-ai/api/competitors/input-files" data-delete-upload-url="/amazon-ai/api/competitors/input-files/" data-cleanup-upload-url="/amazon-ai/api/competitors/input-files/cleanup" data-max-file-bytes="{{ config.AMAZON_AI_MAX_UPLOAD_FILE_BYTES }}">
+        <label class="wide">Amazon 竞品链接
+            <textarea name="product_urls" rows="7" placeholder="每行输入一个 Amazon 竞品链接，按回车分隔"></textarea>
+        </label>
+        <label>本次使用的 Skill
+            <select name="skill_id" class="amazon-select amazon-option-skill" required>
+                <option value="">加载中</option>
+            </select>
+        </label>
+        <label class="amazon-upload-field">上传竞品资料
+            <span class="amazon-dropzone" data-upload-dropzone>
+                <strong>点击选择文件或将文件拖到这里</strong>
+            <span>支持 MD、TXT、CSV、Excel 等格式，可多选；单个文件最大 512 MB</span>
+                <input type="file" accept=".md,.txt,.csv,.tsv,.xls,.xlsx,.xlsm,.json,.html,.htm" multiple hidden>
+            </span>
+        </label>
+        <div class="amazon-file-list wide" id="competitorFiles">
+            <span class="amazon-helper">支持 MD、TXT、CSV、TSV、XLS、XLSX、XLSM、JSON、HTML；单个文件最大 512 MB，上传文件保留 7 天。</span>
+        </div>
+        <div class="amazon-form-actions">
+            <button type="submit">提交分析任务</button>
+            <span class="amazon-form-result"></span>
+        </div>
+    </form>
+</section>
+<section class="amazon-panel"><div class="amazon-panel-header"><h3>竞品分析历史</h3></div><div id="competitorList" class="amazon-list"></div></section>
+{% endblock %}
+{% block scripts %}
+<script>document.addEventListener("DOMContentLoaded", function () { AmazonAI.bindAnalysisForm("competitorForm", "/amazon-ai/api/competitors/analyze", "competitorList", "competitors"); });</script>
+{% endblock %}

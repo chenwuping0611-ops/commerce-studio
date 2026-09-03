@@ -214,8 +214,19 @@ Install:
 MySQL initialization:
 
 ```powershell
-.\.venv\Scripts\python.exe -m flask init
-.\.venv\Scripts\python.exe -m flask studio-init
+.\.venv\Scripts\python.exe -m flask init --fresh --yes --skip-storage
+```
+
+This command is destructive for the configured `MYSQL_DATABASE`: it drops and
+recreates the database, applies the complete Alembic chain, seeds the three
+built-in roles and permissions, creates only the `admin` account, and leaves
+all provider API keys empty. The department table starts empty because the
+reserved `admin` account is not assigned to an ordinary department.
+
+After go-fastdfs is available and configured, upload bundled Skill files with:
+
+```powershell
+.\.venv\Scripts\python.exe -m flask init --seed-storage
 ```
 
 Local MySQL server:
@@ -224,6 +235,17 @@ Local MySQL server:
 .\.venv\Scripts\python.exe -m flask run --host 0.0.0.0 --port 5000
 ```
 
+Production logging:
+
+- Development uses `LOG_DIR`/`APP_LOG_FILE` and may write to the local
+  `logs/` directory.
+- Production uses `PEAR_AI_LOG_DIR` and `PEAR_AI_APP_LOG_FILE`; defaults are
+  `/var/log/pear-ai` and `/var/log/pear-ai/pear-ai.log`.
+- `gunicorn.conf.py` writes `gunicorn-access.log` and `gunicorn-error.log`
+  beside the application log.
+- `deploy/pear-ai.service` sets the production variables explicitly so an old
+  development `.flaskenv` cannot redirect production logs into the checkout.
+
 Default seeded account:
 
 ```text
@@ -231,7 +253,8 @@ username: admin
 password: 123456
 ```
 
-Change this password before any shared or production deployment.
+Set `ADMIN_PASSWORD` in `.flaskenv` before any shared or production deployment;
+the value above is only the fallback for an unconfigured local environment.
 
 ## Change and Verification Workflow
 

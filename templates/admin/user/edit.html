@@ -21,7 +21,8 @@
                     <label class="layui-form-label">账号</label>
                     <div class="layui-input-block">
                         <input type="text" value="{{ user.username }}" name="username" lay-verify="title"
-                               autocomplete="off" placeholder="请输入标题" class="layui-input">
+                               autocomplete="off" placeholder="请输入标题" class="layui-input"
+                               {% if user.username == "admin" %}readonly{% endif %}>
                     </div>
                 </div>
                 <div class="layui-form-item">
@@ -35,7 +36,23 @@
                 <div class="layui-form-item">
                     <label class="layui-form-label">部门</label>
                     <div class="layui-input-block">
-                        <ul id="selectParent" name="deptId" class="dtree" data-id="0"></ul>
+                        {% if user.username == "admin" %}
+                            <input type="hidden" name="deptId" value="{{ user.dept_id or '' }}">
+                            <input type="text" readonly class="layui-input" value="总项目">
+                        {% elif is_super_admin %}
+                            <select name="deptId" lay-verify="required">
+                                {% for department in departments %}
+                                    <option value="{{ department.id }}"
+                                        {% if department.id == user.dept_id %}selected{% endif %}>
+                                        {{ department.dept_name }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        {% else %}
+                            <input type="hidden" name="deptId" value="{{ user.dept_id or '' }}">
+                            <input type="text" readonly class="layui-input"
+                                   value="{% for department in departments if department.id == user.dept_id %}{{ department.dept_name }}{% endfor %}">
+                        {% endif %}
                     </div>
                 </div>
 
@@ -43,13 +60,17 @@
                 <div class="layui-form-item">
                     <label class="layui-form-label">角色</label>
                     <div class="layui-input-block">
-                        {% for role in roles %}
-                            <input{% if role.id in checked_roles %}
-                                checked
-                            {% endif %}
-                                value="{{ role.id }}" title="{{ role.name }}" type="checkbox"
-                                name="roleIds" lay-skin="primary">
-                        {% endfor %}
+                        {% if user.username == "admin" %}
+                            <input type="checkbox" checked disabled title="超级管理员" lay-skin="primary">
+                        {% else %}
+                            {% for role in roles %}
+                                <input{% if role.id in checked_roles %}
+                                    checked
+                                {% endif %}
+                                    value="{{ role.id }}" title="{{ role.name }}" type="checkbox"
+                                    name="roleIds" lay-skin="primary">
+                            {% endfor %}
+                        {% endif %}
                     </div>
                 </div>
             </div>
@@ -71,24 +92,12 @@
 </form>
 {% include 'admin/common/footer.html' %}
 <script>
-  layui.use(['form', 'jquery', 'dtree'], function () {
+  layui.use(['form', 'jquery'], function () {
     let form = layui.form
     let $ = layui.jquery
-    let dtree = layui.dtree
-
-    dtree.renderSelect({
-      elem: '#selectParent',
-      url: '/dept/tree',
-      method: 'get',
-      selectInputName: { nodeId: 'deptId', context: 'deptName' },
-      skin: 'layui',
-      dataFormat: 'list',
-      response: { treeId: 'deptId', parentId: 'parentId', title: 'deptName' },
-      selectInitVal: "{{ user.dept_id }}"
-    })
     form.on('submit(user-update)', function (data) {
       let roleIds = ''
-      $('input[type=checkbox]:checked').each(function () {
+      $('input[name="roleIds"]:checked').each(function () {
         roleIds += $(this).val() + ','
       })
       roleIds = roleIds.substr(0, roleIds.length - 1)

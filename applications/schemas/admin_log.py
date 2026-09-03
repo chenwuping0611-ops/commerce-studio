@@ -6,6 +6,7 @@ class LogOutSchema(ma.Schema):
     id = fields.Integer()
     method = fields.Str()
     uid = fields.Str()
+    dept_id = fields.Integer(allow_none=True)
     url = fields.Str()
     desc = fields.Str()
     ip = fields.Str()

@@ -5,13 +5,14 @@
     <div>
         <div class="studio-eyebrow">视频生成</div>
         <h1>视频创作</h1>
-        <p>视频模型独立配置时长、比例、分辨率、音频和参考素材字段；仅在关联产品或选择 Skill 时调用系统配置的全局语言模型整理创意。</p>
+        <p>视频模型独立配置时长、比例、分辨率、音频和参考素材字段；用户创意优先，产品档案与产品记忆用于约束产品身份，Skill 只补充未定义内容。</p>
     </div>
     <div class="studio-toolbar-right">
         <span id="videoProviderBalance" class="studio-balance-inline">当前供应商余额：未查询</span>
         <span id="videoTaskStatus" class="studio-pill gray">等待任务</span>
         <button type="button" class="layui-btn studio-btn-primary" id="newVideoButton">新建视频</button>
-        <a class="layui-btn studio-btn-quiet" href="/studio/history?media_type=VIDEO">视频历史</a>
+        <a class="layui-btn studio-btn-quiet" href="/studio/history?media_type=VIDEO"
+           data-studio-history-link="VIDEO">视频历史</a>
     </div>
 </div>
 
@@ -39,13 +40,13 @@
                 <div class="layui-form-item">
                     <label class="layui-form-label">产品</label>
                     <div class="layui-input-block">
-                        <select name="product_id" id="videoProduct"><option value="">不关联产品</option></select>
+                        <select name="product_id" id="videoProduct" lay-ignore><option value="">不关联产品</option></select>
                     </div>
                 </div>
                 <div class="layui-form-item">
                     <label class="layui-form-label">Skill</label>
                     <div class="layui-input-block">
-                        <select id="videoSkill"><option value="">不使用 Skill</option></select>
+                        <select id="videoSkill" lay-ignore><option value="">不使用 Skill</option></select>
                     </div>
                 </div>
                 <div class="layui-form-item">
@@ -57,7 +58,7 @@
                 <div class="studio-form-grid">
                     <div>
                         <label class="studio-field-label" for="videoDuration">时长（秒）</label>
-                        <input name="duration" id="videoDuration" value="5" type="number" min="1" max="60" class="layui-input">
+                        <input name="duration" id="videoDuration" value="5" type="number" min="4" max="15" class="layui-input">
                     </div>
                     <div>
                         <label class="studio-field-label" for="videoAspect">画面比例</label>
@@ -71,7 +72,7 @@
                 <div class="layui-form-item">
                     <label class="layui-form-label">参考图片</label>
                     <div class="layui-input-block">
-                        <textarea name="reference_images" id="videoReferenceImageUrls" class="layui-textarea" rows="3" placeholder="上传后会自动填入 go-fastdfs 公网 URL；也可以每行粘贴一个外部 URL"></textarea>
+                        <textarea name="reference_images" id="videoReferenceImageUrls" class="layui-textarea" rows="3" placeholder="上传后会自动填入 go-fastdfs 公网 URL；仅按多模态参考图发送"></textarea>
                         <label class="studio-upload studio-upload-inline" for="videoReferenceImageFiles">
                             <div><strong>上传参考图片</strong><br><span>用户参考图片保留 7 天</span></div>
                             <input id="videoReferenceImageFiles" type="file" multiple accept="image/*" hidden>
@@ -100,7 +101,7 @@
                     <div class="studio-panel-heading">
                         <div>
                             <strong>当前模型参数</strong>
-                            <span>模型配置中未绑定到基础表单的字段会显示在这里</span>
+                            <span>协议参数由供应商目录固定，创作页只保留固定创作选项</span>
                         </div>
                     </div>
                     <div id="videoModelFields" class="studio-dynamic-fields">
@@ -108,7 +109,7 @@
                     </div>
                 </div>
                 <div class="studio-note">
-                    时长、画面比例、分辨率和其他请求字段以“模型供应商 &gt; 编辑模型”中的定义为准；配置了可选值时会自动变为下拉选择，空字段不会发送给上游。Skill 只读取为提示词，不上传原始文件。
+                    时长、画面比例、分辨率、音频和参考素材会按当前模型的代码目录转换成对应供应商请求；模型协议字段不在创作页手动编辑。Skill 只读取为提示词，不上传原始文件。
                 </div>
                 <div class="layui-form-item studio-form-actions">
                     <div class="layui-input-block">
@@ -122,19 +123,30 @@
     </div>
 </div>
 
-<div class="studio-workspace studio-video-workspace">
-    <section class="studio-card studio-preview">
+<div class="studio-image-workspace studio-video-workspace">
+    <section class="studio-card studio-image-feed-card">
         <div class="studio-card-header">
-            <h2>生成预览</h2>
-            <span class="studio-helper">最新任务会自动刷新</span>
-        </div>
-        <div class="studio-preview-body">
-            <div class="studio-preview-placeholder" id="videoPreviewPlaceholder">
-                <div><strong>尚未生成视频</strong><span>视频任务可能需要几分钟，请在历史中查看状态</span></div>
+            <div>
+                <h2>生成视频</h2>
+                <div class="studio-card-subtitle">最新任务在上方，向下滚动查看历史视频</div>
             </div>
-            <div id="videoPreview" style="display:none;"></div>
-            <div class="studio-section-caption">最近视频</div>
-            <div class="studio-history-grid" id="videoHistory"></div>
+            <button type="button" class="layui-btn studio-btn-quiet studio-refresh-button" id="videoRefresh">刷新</button>
+        </div>
+        <div class="studio-image-feed-toolbar">
+            <span id="videoFeedSummary" class="studio-helper">正在加载视频记录</span>
+            <span class="studio-feed-hint">视频直接播放；任务完成后可复制公网地址</span>
+        </div>
+        <div class="studio-video-feed" id="videoFeed">
+            <div class="studio-feed-empty">
+                <strong>还没有生成视频</strong>
+                <span>提交任务后，最新视频会出现在这里。</span>
+            </div>
+        </div>
+        <div class="studio-history-pagination">
+            <span id="videoHistoryPageInfo" class="studio-helper"></span>
+            <button type="button" class="studio-link-button" id="videoLoadMore" hidden>
+                加载更多历史
+            </button>
         </div>
     </section>
 </div>
@@ -144,19 +156,30 @@
 <script>
 document.addEventListener("DOMContentLoaded", function () {
     var canDeleteHistory = {{ "true" if can_delete_history else "false" }};
+    var isSuperAdmin = {{ "true" if is_super_admin else "false" }};
     var form = document.getElementById("videoForm");
     var modelSelect = document.getElementById("videoModel");
     var productSelect = document.getElementById("videoProduct");
     var skillSelect = document.getElementById("videoSkill");
     var status = document.getElementById("videoTaskStatus");
     var formMessage = document.getElementById("videoFormMessage");
+    var feed = document.getElementById("videoFeed");
+    var feedSummary = document.getElementById("videoFeedSummary");
     var modelData = [];
     var skillData = [];
     var referenceImageAssets = [];
     var referenceVideoAssets = [];
+    var historyData = [];
+    var historyPage = 1;
+    var historyHasMore = false;
+    var historyLoading = false;
+    var latestTask = null;
     var pollTimer = null;
+    var optimisticProgressTimer = null;
     var lastModelValue = null;
     var composerOverlay = document.getElementById("videoComposerOverlay");
+    var submitButton = form.querySelector("[lay-submit]");
+    var productData = [];
 
     function openComposer() {
         composerOverlay.classList.add("is-open");
@@ -223,28 +246,26 @@ document.addEventListener("DOMContentLoaded", function () {
     function loadOptions() {
         return Studio.request("/studio/api/options?media_type=VIDEO").then(function (result) {
             modelData = result.data.models;
+            productData = result.data.products || [];
             skillData = result.data.skills.filter(function (item) {
                 return item.media_type === "BOTH" || item.media_type === "VIDEO";
             });
             modelSelect.innerHTML = modelData.length ? modelData.map(function (item) {
                 return '<option value="' + item.id + '">' +
-                    Studio.escapeHtml(item.name) + ' · ' + Studio.escapeHtml(item.provider_name) + '</option>';
+                    Studio.escapeHtml(item.name) + ' · ' +
+                    Studio.escapeHtml(item.provider_name) +
+                    (item.dept_name ? " · " + Studio.escapeHtml(item.dept_name) : "") +
+                    '</option>';
             }).join("") : '<option value="">暂无可用视频模型</option>';
             if (modelData.length) {
                 var preferred = modelData.find(function (item) {
-                    return String(item.model_code).toLowerCase() === "seedance-2";
+                    return String(item.model_code).toLowerCase() === "seedance-2-mini";
                 }) || modelData[0];
                 modelSelect.value = String(preferred.id);
             } else {
                 modelSelect.value = "";
             }
-            productSelect.innerHTML = '<option value="">不关联产品</option>' + result.data.products.map(function (item) {
-                return '<option value="' + item.id + '">' +
-                    Studio.escapeHtml(item.name) + ' · ' + Studio.escapeHtml(item.code) + '</option>';
-            }).join("");
-            skillSelect.innerHTML = '<option value="">不使用 Skill</option>' + skillData.map(function (item) {
-                return '<option value="' + item.id + '">' + Studio.escapeHtml(item.name) + '</option>';
-            }).join("");
+            renderScopedReferenceOptions();
             layui.use("form", function () {
                 layui.form.render("select");
             });
@@ -257,6 +278,60 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
+    function renderScopedReferenceOptions() {
+        var model = modelData.find(function (item) {
+            return item.id === Number(modelSelect.value);
+        });
+        var departmentId = model && model.dept_id;
+        var currentProductId = productSelect.value;
+        var currentSkillId = skillSelect.value;
+        var products = isSuperAdmin
+            ? productData
+            : (departmentId == null
+                ? []
+                : productData.filter(function (item) {
+                    return String(item.dept_id) === String(departmentId);
+                }));
+        var skills = isSuperAdmin
+            ? skillData
+            : (departmentId == null
+                ? []
+                : skillData.filter(function (item) {
+                    return item.is_builtin ||
+                        String(item.dept_id) === String(departmentId);
+                }));
+
+        productSelect.innerHTML = '<option value="">不关联产品</option>' +
+            products.map(function (item) {
+                return '<option value="' + item.id + '">' +
+                    Studio.escapeHtml(item.name) + ' · ' +
+                    Studio.escapeHtml(item.code) +
+                    (isSuperAdmin && item.dept_name
+                        ? ' · ' + Studio.escapeHtml(item.dept_name)
+                        : '') +
+                    '</option>';
+            }).join("");
+        skillSelect.innerHTML = '<option value="">不使用 Skill</option>' +
+            skills.map(function (item) {
+                return '<option value="' + item.id + '">' +
+                    Studio.escapeHtml(item.name) + '</option>';
+            }).join("");
+
+        if (products.some(function (item) {
+            return String(item.id) === String(currentProductId);
+        })) {
+            productSelect.value = currentProductId;
+        }
+        if (skills.some(function (item) {
+            return String(item.id) === String(currentSkillId);
+        })) {
+            skillSelect.value = currentSkillId;
+        }
+        layui.use("form", function () {
+            layui.form.render("select");
+        });
+    }
+
     function renderModelFields() {
         var model = modelData.find(function (item) {
             return item.id === Number(modelSelect.value);
@@ -265,49 +340,355 @@ document.addEventListener("DOMContentLoaded", function () {
             document.getElementById("videoModelFields"),
             model ? model.parameter_schema : [],
             ["model", "prompt", "duration", "aspect_ratio", "resolution",
-                "image_with_roles", "video_with_roles", "generate_audio"]
+                "image_with_roles", "video_with_roles", "audio_with_roles",
+                "image_urls", "generate_audio", "return_last_frame",
+                "tools", "seed", "callback_url", "trace_id",
+                "client_business_id"]
         );
+    }
+
+    function statusLabelFor(item) {
+        if (item && item.ui_stage === "ANALYZING") return "模型分析中";
+        if (item && item.ui_stage === "SUBMITTING") return "正在提交";
+        if (item && item.ui_stage === "GENERATING") return "生成中";
+        return Studio.statusText(item && item.status);
+    }
+
+    function statusProgressFor(item) {
+        if (!item || item.ui_stage === "ANALYZING" || item.ui_stage === "SUBMITTING") {
+            return "";
+        }
+        return item.progress && item.status !== "SUCCEEDED"
+            ? " " + item.progress + "%"
+            : "";
+    }
+
+    function processingDetail(item) {
+        if (item && item.ui_stage === "ANALYZING") {
+            return "，正在整理创意、产品信息与 Skill";
+        }
+        if (item && item.ui_stage === "SUBMITTING") {
+            return "，正在提交上游视频接口";
+        }
+        return item && item.progress
+            ? "，当前进度 " + item.progress + "%"
+            : "";
     }
 
     function setStatus(item) {
         status.className = "studio-pill " + Studio.statusClass(item.status);
-        status.textContent = Studio.statusText(item.status) + (item.progress ? " " + item.progress + "%" : "");
+        status.textContent = statusLabelFor(item) + statusProgressFor(item);
     }
 
-    function renderOutput(item) {
-        var preview = document.getElementById("videoPreview");
-        var placeholder = document.getElementById("videoPreviewPlaceholder");
-        var outputs = (item.output_assets || []).filter(function (asset) {
+    function usableOutputs(item) {
+        var outputs = (item && item.output_assets || []).filter(function (asset) {
             return asset.status === "ACTIVE" && asset.public_url;
         });
-        if (!outputs.length && item.output_url) {
-            outputs = [{public_url: item.output_url}];
+        if (!outputs.length && item && item.output_url) {
+            outputs = [{
+                public_url: item.output_url,
+                download_url: item.output_download_url || "",
+                original_filename: (item.task_code || "commerce-studio") + ".mp4",
+                content_type: "video/mp4",
+                status: "ACTIVE"
+            }];
         }
-        if (!outputs.length) {
-            placeholder.style.display = "grid";
-            placeholder.innerHTML = item.output_expired
-                ? "<div><strong>生成资产已过期</strong><span>视频已按 7 天保留策略清理，可在任务记录中查看编号。</span></div>"
-                : "<div><strong>尚未生成视频</strong><span>视频任务可能需要几分钟，请在历史中查看状态</span></div>";
-            preview.style.display = "none";
+        return outputs;
+    }
+
+    function taskKey(item) {
+        return item && (item.task_code || item.id);
+    }
+
+    function clearOptimisticProgress() {
+        if (optimisticProgressTimer) {
+            clearInterval(optimisticProgressTimer);
+            optimisticProgressTimer = null;
+        }
+    }
+
+    function selectedOptionText(select) {
+        var option = select && select.options[select.selectedIndex];
+        return option ? option.textContent : "";
+    }
+
+    function updateLocalTaskStage(stage, statusValue) {
+        if (!latestTask || String(latestTask.id).indexOf("local-") !== 0) return;
+        latestTask.ui_stage = stage;
+        latestTask.status = statusValue || latestTask.status;
+        if (stage !== "GENERATING") latestTask.progress = 0;
+        setStatus(latestTask);
+        renderFeed(true);
+    }
+
+    function startOptimisticProgress(task, estimatedSeconds) {
+        clearOptimisticProgress();
+        var progressKey = taskKey(task);
+        var startedAt = Date.now();
+        var duration = Math.max(1, Number(estimatedSeconds) || 120) * 1000;
+        if (latestTask && taskKey(latestTask) === progressKey) {
+            latestTask.ui_stage = "GENERATING";
+            latestTask.progress = Math.max(1, Number(latestTask.progress) || 1);
+            setStatus(latestTask);
+            renderFeed(true);
+        }
+        optimisticProgressTimer = window.setInterval(function () {
+            if (!latestTask || taskKey(latestTask) !== progressKey) {
+                clearOptimisticProgress();
+                return;
+            }
+            var elapsed = Date.now() - startedAt;
+            var estimatedProgress = Math.floor((elapsed / duration) * 95);
+            latestTask.ui_stage = "GENERATING";
+            latestTask.progress = Math.min(
+                95,
+                Math.max(Number(latestTask.progress) || 1, estimatedProgress || 1)
+            );
+            setStatus(latestTask);
+            renderFeed(true);
+        }, 1000);
+    }
+
+    function adoptServerTask(item, estimatedSeconds) {
+        var wasGenerating = latestTask &&
+            taskKey(latestTask) === taskKey(item) &&
+            latestTask.ui_stage === "GENERATING";
+        var active = item.status === "PENDING" || item.status === "SUBMITTED" ||
+            item.status === "PROCESSING";
+        if (active) {
+            item.ui_stage = "GENERATING";
+            if (wasGenerating) {
+                item.progress = Math.max(
+                    Number(item.progress) || 0,
+                    Number(latestTask.progress) || 0
+                );
+            }
+        } else {
+            item.ui_stage = "";
+        }
+        latestTask = item;
+        setStatus(item);
+        renderFeed(true);
+        if (active) {
+            if (!optimisticProgressTimer) {
+                startOptimisticProgress(item, estimatedSeconds || 120);
+            }
+        } else {
+            clearOptimisticProgress();
+        }
+    }
+
+    function createOptimisticTask(payload) {
+        clearOptimisticProgress();
+        var task = {
+            id: "local-" + Date.now(),
+            task_code: "NEW",
+            media_type: "VIDEO",
+            product_id: payload.product_id || null,
+            product_name: selectedOptionText(productSelect) || "",
+            model_id: payload.model_id || null,
+            model_name: selectedOptionText(modelSelect) || "未指定模型",
+            skill_id: payload.skill_id || null,
+            skill_name: payload.skill_name || "",
+            provider_id: null,
+            provider_name: "",
+            prompt: payload.prompt || "",
+            final_prompt: "",
+            status: "PROCESSING",
+            progress: 0,
+            ui_stage: "ANALYZING",
+            output_assets: [],
+            output_url: "",
+            output_expired: false,
+            error_message: "",
+            created_at: "刚刚"
+        };
+        latestTask = task;
+        setStatus(task);
+        renderFeed(true);
+        return task;
+    }
+
+    function renderFeed(focusLatest) {
+        var items = [];
+        var seen = {};
+        if (latestTask && taskKey(latestTask)) {
+            items.push(latestTask);
+            seen[taskKey(latestTask)] = true;
+        }
+        historyData.forEach(function (item) {
+            if (!taskKey(item) || seen[taskKey(item)]) return;
+            seen[taskKey(item)] = true;
+            items.push(item);
+        });
+        items = items.filter(function (item) {
+            return usableOutputs(item).length || item.output_expired ||
+                item.status === "SUBMITTED" || item.status === "PROCESSING" ||
+                item.status === "PENDING" || item.status === "FAILED";
+        });
+        feedSummary.textContent = items.length
+            ? "共 " + items.length + " 条视频任务，按最新创建时间排序"
+            : "还没有视频生成记录";
+        if (!items.length) {
+            feed.innerHTML = '<div class="studio-feed-empty"><strong>还没有生成视频</strong>' +
+                '<span>提交任务后，最新视频会出现在这里。</span></div>';
             return;
         }
-        placeholder.style.display = "none";
-        preview.style.display = "block";
-        preview.innerHTML = outputs.map(function (asset) {
-            return '<video class="studio-output-media" controls src="' +
-                Studio.escapeHtml(asset.public_url) + '"></video>';
-        }).join("") +
-            '<div class="studio-output-meta"><span>任务编号：<b>' + Studio.escapeHtml(item.task_code) + '</b></span>' +
-            '<span>输出 ' + outputs.length + ' 个，保留 7 天</span></div>';
+        feed.innerHTML = items.map(renderFeedItem).join("");
+        if (focusLatest) feed.scrollTop = 0;
+    }
+
+    function renderFeedItem(item) {
+        var outputs = usableOutputs(item);
+        var expired = item.output_expired && !outputs.length;
+        var statusLabel = statusLabelFor(item);
+        var product = item.product_name || "";
+        var model = item.model_name || "未指定模型";
+        var meta = [];
+        if (product) meta.push("产品：" + Studio.escapeHtml(product));
+        if (item.skill_name) meta.push("Skill：" + Studio.escapeHtml(item.skill_name));
+        if (model) meta.push("模型：" + Studio.escapeHtml(model));
+        meta.push("输出保留 7 天");
+        var prompt = item.final_prompt || item.prompt || "";
+        var comments = item.comments || [];
+        var media = "";
+        if (outputs.length) {
+            media = '<div class="studio-feed-videos">' + outputs.map(function (asset, index) {
+                var url = Studio.escapeHtml(asset.public_url);
+                var downloadUrl = Studio.escapeHtml(
+                    asset.download_url || item.output_download_url || asset.public_url
+                );
+                var filename = Studio.escapeHtml(
+                    asset.original_filename || ((item.task_code || "video") + "-" + (index + 1) + ".mp4")
+                );
+                return '<div class="studio-feed-video-block">' +
+                    '<video class="studio-feed-video" controls preload="metadata" src="' + url + '"></video>' +
+                    '<div class="studio-feed-image-actions">' +
+                    '<span>视频 ' + (index + 1) + ' · 保留 7 天</span>' +
+                    '<button type="button" class="studio-link-button" data-action="copy-url" ' +
+                    'data-url="' + url + '">复制公网地址</button>' +
+                    '<a class="studio-link-button" target="_blank" rel="noopener" download="' +
+                    filename + '" href="' + downloadUrl + '">下载视频</a>' +
+                    '</div><div class="studio-feed-url">' + url + '</div></div>';
+            }).join("") + '</div>';
+        } else if (expired) {
+            media = '<div class="studio-feed-expired"><strong>视频已过期</strong>' +
+                '<span>生成资产按 7 天保留策略清理，任务记录仍然保留。</span></div>';
+        } else {
+            media = '<div class="studio-feed-processing"><span class="studio-feed-spinner"></span>' +
+                '<div><strong>' + Studio.escapeHtml(statusLabel) + '</strong>' +
+                '<span>任务编号 ' + Studio.escapeHtml(item.task_code || "-") +
+                processingDetail(item) +
+                '</span></div></div>';
+        }
+        var error = item.error_message
+            ? '<div class="studio-feed-error">' + Studio.escapeHtml(item.error_message) + '</div>'
+            : "";
+        var deleteAction = canDeleteHistory && Number(item.id) > 0
+            ? '<button type="button" class="studio-link-button studio-history-delete" data-action="delete-history" data-task-id="' +
+                item.id + '">删除历史</button>'
+            : "";
+        var feedbackAction = outputs.length && item.status === "SUCCEEDED"
+            ? '<button type="button" class="layui-btn layui-btn-xs studio-btn-quiet" data-action="feedback-toggle" ' +
+                'data-task="' + Studio.escapeHtml(item.task_code || "") + '">意见反馈</button>' +
+                '<div class="studio-feedback-editor" data-feedback-editor="' +
+                Studio.escapeHtml(item.task_code || "") + '" hidden>' +
+                '<textarea class="layui-textarea" data-feedback-input="' +
+                Studio.escapeHtml(item.task_code || "") + '" rows="3" ' +
+                'placeholder="' + (item.product_id
+                    ? "请填写本次视频生成中不满意、瑕疵、变形或需要调整的部分"
+                    : "请填写本次视频生成中不满意、瑕疵或需要调整的部分；关联产品后可应用到产品中心") +
+                '"></textarea>' +
+                '<div class="studio-feedback-editor-actions">' +
+                '<button type="button" class="layui-btn layui-btn-xs studio-btn-primary" data-action="feedback-submit" ' +
+                'data-task="' + Studio.escapeHtml(item.task_code || "") + '">提交反馈</button>' +
+                '<button type="button" class="layui-btn layui-btn-xs studio-btn-quiet" data-action="feedback-cancel" ' +
+                'data-task="' + Studio.escapeHtml(item.task_code || "") + '">取消</button>' +
+                '</div></div>'
+            : "";
+        var commentsHtml = comments.length
+            ? '<div class="studio-feed-comments">' + comments.map(function (comment) {
+                var content = comment.content || comment.error_message || "意见反馈失败";
+                var suggested = comment.suggested_updates || {};
+                var updates = suggested.updates || {};
+                var appliedFields = comment.applied_update_fields || [];
+                var updateFields = Object.keys(updates);
+                var modelLabel = comment.model_name || "语言模型";
+                if (comment.model_code) modelLabel += " · " + comment.model_code;
+                var remainingFields = updateFields.filter(function (field) {
+                    return appliedFields.indexOf(field) === -1;
+                });
+                var suggestionsHtml = updateFields.length
+                    ? '<div class="studio-feed-suggestions" data-comment-panel="' +
+                        comment.id + '">' +
+                        '<div class="studio-feed-suggestion-title">产品中心调整建议</div>' +
+                        '<div class="studio-feed-suggestion-help">' +
+                        (appliedFields.length
+                            ? "模型建议已按字段自动写回当前关联产品，下面保留建议内容和判断依据。"
+                            : "模型建议尚未写入产品中心，可勾选字段后手动应用。") +
+                        '</div>' +
+                        '<div class="studio-feed-suggestion-list">' +
+                        updateFields.map(function (field) {
+                            var update = updates[field] || {};
+                            var applied = appliedFields.indexOf(field) !== -1;
+                            var inputId = "video-suggestion-" + comment.id + "-" + field;
+                            return '<label class="studio-feed-suggestion-item' +
+                                (applied ? ' is-applied' : '') + '" for="' + inputId + '">' +
+                                '<span class="studio-feed-suggestion-check">' +
+                                '<input type="checkbox" id="' + inputId +
+                                '" data-update-field="' + Studio.escapeHtml(field) + '"' +
+                                (applied ? " disabled" : "") + '>' +
+                                '</span><span class="studio-feed-suggestion-body">' +
+                                '<strong>' + Studio.escapeHtml(update.label || field) + '</strong>' +
+                                (applied ? '<em>已应用</em>' : '') +
+                                '<span class="studio-feed-suggestion-value">' +
+                                Studio.escapeHtml(update.value || "") +
+                                '</span>' +
+                                (update.reason ? '<span class="studio-feed-suggestion-reason">依据：' +
+                                    Studio.escapeHtml(update.reason) + '</span>' : '') +
+                                '</span></label>';
+                        }).join("") +
+                        '</div><button type="button" class="layui-btn layui-btn-xs studio-btn-quiet" ' +
+                        (remainingFields.length ? "" : "disabled ") +
+                        'data-action="apply-updates" data-task="' +
+                        Studio.escapeHtml(comment.task_code || item.task_code || "") +
+                        '" data-comment="' + comment.id + '">' +
+                        (remainingFields.length ? "应用勾选字段到产品中心" : "已应用全部建议") +
+                        '</button></div>'
+                    : "";
+                return '<div class="studio-feed-comment ' +
+                    (comment.status === "FAILED" ? "is-error" : "") + '">' +
+                    '<div class="studio-feed-comment-head"><strong>意见反馈</strong><span>' +
+                    Studio.escapeHtml(modelLabel) + " · " +
+                    Studio.escapeHtml(comment.created_at || "") + '</span></div>' +
+                    '<div class="studio-feed-comment-content">' +
+                    Studio.escapeHtml(content).replace(/\n/g, "<br>") +
+                    '</div>' + suggestionsHtml + '</div>';
+            }).join("") + '</div>'
+            : "";
+        return '<article class="studio-feed-item">' +
+            '<header class="studio-feed-item-header">' +
+            '<div><strong>' + Studio.escapeHtml(item.task_code || "-") + '</strong>' +
+            '<span>' + Studio.escapeHtml(item.created_at || "") + '</span></div>' +
+            '<div class="studio-feed-item-header-right"><span class="studio-pill ' +
+            Studio.statusClass(item.status) + '">' +
+            Studio.escapeHtml(statusLabel) + statusProgressFor(item) +
+            '</span>' + deleteAction + '</div></header>' +
+            media +
+            '<div class="studio-feed-item-meta">' + meta.join(" · ") + '</div>' +
+            (prompt ? '<div class="studio-feed-prompt">' + Studio.escapeHtml(prompt) + '</div>' : "") +
+            '<div class="studio-feed-actions">' + feedbackAction + '</div>' +
+            commentsHtml +
+            error + '</article>';
     }
 
     function poll(taskCode) {
         clearTimeout(pollTimer);
         Studio.request("/studio/api/tasks/" + taskCode).then(function (result) {
             var item = result.data;
-            setStatus(item);
-            renderOutput(item);
-            if (item.status === "SUBMITTED" || item.status === "PROCESSING") {
+            adoptServerTask(item, 120);
+        if (item.status === "PENDING" || item.status === "SUBMITTED" ||
+            item.status === "PROCESSING") {
                 pollTimer = setTimeout(function () { poll(taskCode); }, 10000);
             } else if (item.status === "FAILED") {
                 refreshProviderBalance(item.provider_id);
@@ -321,40 +702,57 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
-    function loadHistory() {
-        return Studio.request("/studio/api/history?media_type=VIDEO").then(function (result) {
-            var list = result.data.filter(function (item) {
-                return item.output_url || item.output_expired ||
+    function updateHistoryPagination() {
+        var button = document.getElementById("videoLoadMore");
+        var pageInfo = document.getElementById("videoHistoryPageInfo");
+        button.hidden = !historyHasMore;
+        button.disabled = historyLoading;
+        button.textContent = historyLoading ? "加载中..." : "加载更多历史";
+        pageInfo.textContent = historyData.length
+            ? "已加载第 " + historyPage + " 页"
+            : "";
+    }
+
+    function mergeHistoryItems(items) {
+        var seen = {};
+        var merged = [];
+        historyData.concat(items || []).forEach(function (item) {
+            var key = taskKey(item);
+            if (!key || seen[key]) return;
+            seen[key] = true;
+            merged.push(item);
+        });
+        return merged;
+    }
+
+    function loadHistory(reset) {
+        if (historyLoading) return Promise.resolve();
+        reset = reset !== false;
+        if (!reset && !historyHasMore) return Promise.resolve();
+        var page = reset ? 1 : historyPage + 1;
+        historyLoading = true;
+        updateHistoryPagination();
+        return Studio.request(
+            "/studio/api/history?media_type=VIDEO&page=" + page + "&page_size=20"
+        ).then(function (result) {
+            var items = (result.data || []).filter(function (item) {
+                return usableOutputs(item).length || item.output_expired ||
                     item.status === "SUBMITTED" || item.status === "PROCESSING" ||
                     item.status === "PENDING" || item.status === "FAILED";
-            }).slice(0, 6);
-            document.getElementById("videoHistory").innerHTML = list.length ? list.map(function (item) {
-                var expired = item.output_expired && !item.output_url;
-                var hasOutput = Boolean(item.output_url) && !expired;
-                var thumb = expired
-                    ? '<span>资产已过期</span>'
-                    : hasOutput
-                        ? '<video src="' + Studio.escapeHtml(item.output_url) + '" muted></video>'
-                        : '<span>' + Studio.escapeHtml(Studio.statusText(item.status)) + '</span>';
-                var error = item.error_message
-                    ? '<div class="studio-error-text">' + Studio.escapeHtml(item.error_message) + '</div>'
-                    : "";
-                var deleteAction = canDeleteHistory
-                    ? '<button type="button" class="studio-link-button studio-history-delete" data-action="delete-history" data-task-id="' +
-                        item.id + '">删除</button>'
-                    : "";
-                var media = hasOutput
-                    ? '<a class="studio-history-link" target="_blank" rel="noopener" href="' +
-                        Studio.escapeHtml(item.output_url) + '">' +
-                        '<div class="studio-history-thumb">' + thumb + '</div></a>'
-                    : '<div class="studio-history-thumb">' + thumb + '</div>';
-                return '<article class="studio-history-item">' + media +
-                    '<div class="studio-history-info"><div><div class="studio-history-code">' +
-                    Studio.escapeHtml(item.task_code) + '</div>' +
-                    '<div class="studio-history-time">' + Studio.escapeHtml(item.created_at) +
-                    (expired ? " · 保留 7 天" : "") + '</div>' + error + '</div>' +
-                    deleteAction + '</div></article>';
-            }).join("") : '<div class="studio-empty studio-empty-compact">暂无视频输出</div>';
+            });
+            historyData = reset ? items : mergeHistoryItems(items);
+            historyPage = page;
+            historyHasMore = Boolean(result.meta && result.meta.has_more);
+            renderFeed(false);
+            updateHistoryPagination();
+        }, function (error) {
+            historyLoading = false;
+            updateHistoryPagination();
+            throw error;
+        }).then(function (result) {
+            historyLoading = false;
+            updateHistoryPagination();
+            return result;
         });
     }
 
@@ -386,23 +784,176 @@ document.addEventListener("DOMContentLoaded", function () {
     composerOverlay.addEventListener("click", function (event) {
         if (event.target.dataset.composerClose) closeComposer();
     });
-    document.getElementById("videoHistory").addEventListener("click", function (event) {
-        var target = event.target.closest('[data-action="delete-history"]');
-        if (!target || !canDeleteHistory) return;
-        event.preventDefault();
-        if (!window.confirm("确定删除这条生成历史及其生成资产吗？")) return;
-        target.disabled = true;
-        target.textContent = "删除中...";
-        Studio.request("/studio/api/history/" + encodeURIComponent(target.dataset.taskId), {
-            method: "DELETE"
-        }).then(function () {
-            Studio.toast("历史任务已删除");
-            loadHistory();
-        }).catch(function (error) {
-            target.disabled = false;
-            target.textContent = "删除";
+    feed.addEventListener("click", function (event) {
+        var target = event.target.closest("[data-action]");
+        if (!target) return;
+        var action = target.dataset.action;
+        if (action === "delete-history") {
+            if (!canDeleteHistory) return;
+            event.preventDefault();
+            if (!window.confirm("确定删除这条生成历史及其生成资产吗？")) return;
+            target.disabled = true;
+            target.textContent = "删除中...";
+            Studio.request("/studio/api/history/" + encodeURIComponent(target.dataset.taskId), {
+                method: "DELETE"
+            }).then(function () {
+                var taskId = String(target.dataset.taskId);
+                historyData = historyData.filter(function (item) {
+                    return String(item.id) !== taskId;
+                });
+                if (latestTask && String(latestTask.id) === taskId) {
+                    latestTask = null;
+                    clearOptimisticProgress();
+                }
+                renderFeed(false);
+                Studio.toast("历史任务已删除");
+            }).catch(function (error) {
+                target.disabled = false;
+                target.textContent = "删除历史";
+                Studio.toast(error.message, "error");
+            });
+        } else if (action === "copy-url") {
+            var url = target.dataset.url || "";
+            if (!url) return;
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(url).then(function () {
+                    Studio.toast("视频公网地址已复制");
+                }).catch(function () {
+                    window.prompt("复制视频公网地址", url);
+                });
+            } else {
+                window.prompt("复制视频公网地址", url);
+            }
+        } else if (action === "feedback-toggle") {
+            var editor = feed.querySelector(
+                '[data-feedback-editor="' + CSS.escape(target.dataset.task || "") + '"]'
+            );
+            if (editor) {
+                editor.hidden = !editor.hidden;
+                if (!editor.hidden) {
+                    var input = editor.querySelector("[data-feedback-input]");
+                    if (input) input.focus();
+                }
+            }
+        } else if (action === "feedback-cancel") {
+            var cancelEditor = feed.querySelector(
+                '[data-feedback-editor="' + CSS.escape(target.dataset.task || "") + '"]'
+            );
+            if (cancelEditor) {
+                cancelEditor.hidden = true;
+                var cancelInput = cancelEditor.querySelector("[data-feedback-input]");
+                if (cancelInput) cancelInput.value = "";
+            }
+        } else if (action === "feedback-submit") {
+            var taskCode = target.dataset.task;
+            var feedbackEditor = feed.querySelector(
+                '[data-feedback-editor="' + CSS.escape(taskCode || "") + '"]'
+            );
+            var feedbackInput = feedbackEditor
+                ? feedbackEditor.querySelector("[data-feedback-input]")
+                : null;
+            var feedback = feedbackInput ? feedbackInput.value.trim() : "";
+            if (!feedback) {
+                Studio.toast("请先填写本次视频生成中不满意、瑕疵或变形说明", "error");
+                if (feedbackInput) feedbackInput.focus();
+                return;
+            }
+            target.disabled = true;
+            target.textContent = "分析中...";
+            Studio.request("/studio/api/tasks/" + encodeURIComponent(taskCode) +
+                "/comments/analyze", {
+                    method: "POST",
+                    body: JSON.stringify({feedback: feedback})
+                }).then(function (result) {
+                    var comment = result.data;
+                    var task = historyData.find(function (item) {
+                        return String(item.task_code) === String(taskCode);
+                    });
+                    if (latestTask && String(latestTask.task_code) === String(taskCode)) {
+                        latestTask.comments = (latestTask.comments || []).concat([comment]);
+                    }
+                    if (task) {
+                        task.comments = (task.comments || []).concat([comment]);
+                        renderFeed(false);
+                    } else {
+                        loadHistory();
+                    }
+                    Studio.toast("视频意见反馈已完成");
+                }).catch(function (error) {
+                    target.disabled = false;
+                    target.textContent = "提交反馈";
+                    Studio.toast(error.message, "error");
+                });
+        } else if (action === "apply-updates") {
+            var panel = target.closest("[data-comment-panel]");
+            var fields = panel
+                ? Array.prototype.map.call(
+                    panel.querySelectorAll("input[data-update-field]:checked"),
+                    function (input) { return input.dataset.updateField; }
+                )
+                : [];
+            if (!fields.length) {
+                Studio.toast("请先勾选要应用的产品字段", "error");
+                return;
+            }
+            var taskCodeForUpdate = target.dataset.task;
+            var commentId = target.dataset.comment;
+            target.disabled = true;
+            target.textContent = "正在应用...";
+            Studio.request(
+                "/studio/api/tasks/" + encodeURIComponent(taskCodeForUpdate) +
+                "/comments/" + encodeURIComponent(commentId) +
+                "/apply-product-updates",
+                {
+                    method: "POST",
+                    body: JSON.stringify({fields: fields})
+                }
+            ).then(function (result) {
+                var updatedComment = result.data.comment;
+                var task = historyData.find(function (item) {
+                    return String(item.task_code) === String(taskCodeForUpdate);
+                });
+                function replaceComment(targetTask) {
+                    if (!targetTask) return;
+                    targetTask.comments = (targetTask.comments || []).map(function (comment) {
+                        return String(comment.id) === String(updatedComment.id)
+                            ? updatedComment
+                            : comment;
+                    });
+                }
+                replaceComment(latestTask &&
+                    String(latestTask.task_code) === String(taskCodeForUpdate)
+                    ? latestTask : null);
+                replaceComment(task);
+                renderFeed(false);
+                Studio.toast("已应用到产品中心");
+            }).catch(function (error) {
+                target.disabled = false;
+                target.textContent = "应用勾选字段到产品中心";
+                Studio.toast(error.message, "error");
+            });
+        }
+    });
+    document.getElementById("videoRefresh").addEventListener("click", function () {
+        loadHistory(true).catch(function (error) {
             Studio.toast(error.message, "error");
         });
+    });
+    document.getElementById("videoLoadMore").addEventListener("click", function () {
+        loadHistory(false).catch(function (error) {
+            Studio.toast(error.message, "error");
+        });
+    });
+    document.querySelector("[data-studio-history-link]").addEventListener("click", function (event) {
+        event.preventDefault();
+        var url = this.href;
+        var parentAdmin = window.parent && window.parent.layui &&
+            window.parent.layui.admin;
+        if (parentAdmin && typeof parentAdmin.jump === "function") {
+            parentAdmin.jump("studio:history", "生成历史", url);
+        } else {
+            window.location.href = url;
+        }
     });
     document.addEventListener("keydown", function (event) {
         if (event.key === "Escape" && composerOverlay.classList.contains("is-open")) {
@@ -445,6 +996,7 @@ document.addEventListener("DOMContentLoaded", function () {
     function handleModelChange() {
         if (lastModelValue === modelSelect.value) return;
         lastModelValue = modelSelect.value;
+        renderScopedReferenceOptions();
         renderModelFields();
         renderModelConstraints();
         var model = modelData.find(function (item) {
@@ -470,7 +1022,7 @@ document.addEventListener("DOMContentLoaded", function () {
     function needsPromptPlanning(payload) {
         return Boolean(
             String(payload.product_id || "").trim() ||
-            String(payload.skill_prompt || "").trim()
+            String(payload.skill_id || "").trim()
         );
     }
 
@@ -484,8 +1036,11 @@ document.addEventListener("DOMContentLoaded", function () {
             method: "POST",
             body: JSON.stringify({
                 media_type: "VIDEO",
+                department_id: payload.department_id,
                 product_id: payload.product_id,
                 prompt: payload.prompt,
+                skill_id: payload.skill_id,
+                skill_name: payload.skill_name,
                 skill_prompt: payload.skill_prompt,
                 reference_images: payload.reference_images,
                 reference_asset_ids: payload.reference_asset_ids,
@@ -510,9 +1065,14 @@ document.addEventListener("DOMContentLoaded", function () {
             Studio.toast(error.message, "error");
             return;
         }
+        var selectedModel = modelData.find(function (item) {
+            return item.id === Number(data.get("model_id"));
+        });
         var payload = {
             media_type: "VIDEO",
             model_id: data.get("model_id"),
+            department_id: selectedModel ? selectedModel.dept_id : null,
+            provider_owner_type: selectedModel ? selectedModel.owner_type : null,
             product_id: data.get("product_id"),
             prompt: String(data.get("prompt") || "").trim(),
             duration: data.get("duration"),
@@ -523,6 +1083,12 @@ document.addEventListener("DOMContentLoaded", function () {
             reference_videos: data.get("reference_videos"),
             reference_asset_ids: referenceImageAssets.map(function (asset) { return asset.id; }),
             reference_video_asset_ids: referenceVideoAssets.map(function (asset) { return asset.id; }),
+            skill_id: (skillData.find(function (item) {
+                return item.id === Number(skillSelect.value);
+            }) || {}).id || null,
+            skill_name: (skillData.find(function (item) {
+                return item.id === Number(skillSelect.value);
+            }) || {}).name || "",
             skill_prompt: (skillData.find(function (item) {
                 return item.id === Number(skillSelect.value);
             }) || {}).prompt_template || "",
@@ -532,11 +1098,17 @@ document.addEventListener("DOMContentLoaded", function () {
             formMessage.textContent = "请先填写创意描述";
             return;
         }
-        status.className = "studio-pill";
-        status.textContent = "提交中";
+        createOptimisticTask(payload);
+        closeComposer();
+        submitButton.disabled = true;
+        updateLocalTaskStage("ANALYZING", "PROCESSING");
+        formMessage.textContent = needsPromptPlanning(payload)
+            ? "模型分析中：正在整理创意、产品信息与 Skill..."
+            : "正在准备视频任务...";
         prepareVideoPrompt(payload).then(function (preparedPayload) {
+            updateLocalTaskStage("SUBMITTING", "PROCESSING");
             formMessage.textContent = needsPromptPlanning(preparedPayload)
-                ? "全局语言模型整理完成，正在提交视频任务..."
+                ? "模型分析完成，正在提交视频任务..."
                 : "正在提交视频任务...";
             return Studio.request("/studio/api/generate", {
                 method: "POST",
@@ -544,13 +1116,23 @@ document.addEventListener("DOMContentLoaded", function () {
             });
         }).then(function (result) {
             var item = result.data;
-            setStatus(item);
+            adoptServerTask(item, 120);
+            submitButton.disabled = false;
             refreshProviderBalance(item.provider_id);
             poll(item.task_code);
-            closeComposer();
             formMessage.textContent = "任务已提交，编号 " + item.task_code;
             Studio.toast("视频任务已提交");
         }).catch(function (error) {
+            clearOptimisticProgress();
+            if (latestTask && String(latestTask.id).indexOf("local-") === 0) {
+                latestTask.status = "FAILED";
+                latestTask.ui_stage = "";
+                latestTask.progress = 0;
+                latestTask.error_message = error.message;
+                setStatus(latestTask);
+                renderFeed(true);
+            }
+            submitButton.disabled = false;
             status.className = "studio-pill red";
             status.textContent = "提交失败";
             formMessage.textContent = error.message;

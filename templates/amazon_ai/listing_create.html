@@ -1,0 +1,35 @@
+{% extends "amazon_ai/base.html" %}
+{% block title %}Amazon AI | Listing创作{% endblock %}
+{% block content %}
+<section class="amazon-page-title"><div><div class="amazon-eyebrow">Listing</div><h2>Listing 创作</h2></div></section>
+<section class="amazon-panel">
+    <form id="listingForm" class="amazon-form" data-task-type="LISTING_GENERATE" data-upload-url="/amazon-ai/api/listing/input-files" data-delete-upload-url="/amazon-ai/api/listing/input-files/" data-cleanup-upload-url="/amazon-ai/api/listing/input-files/cleanup" data-max-file-bytes="{{ config.AMAZON_AI_MAX_UPLOAD_FILE_BYTES }}">
+        <label>本次使用的 Skill<select name="skill_id" class="amazon-select amazon-option-skill"><option value="">加载中</option></select></label>
+        <label>关联产品核心卖点<select name="studio_product_id" id="listingProductId" class="amazon-select amazon-option-product"><option value="">不关联产品核心卖点</option></select></label>
+        <label>竞品分析任务 ID<select name="competitor_task_code" id="listingCompetitorTaskCode" class="amazon-select"><option value="">不选择竞品分析任务</option></select></label>
+        <label>差异化分析任务 ID<select name="differentiation_task_code" id="listingDifferentiationTaskCode" class="amazon-select"><option value="">不选择差异化分析任务</option></select></label>
+        <label>基础信息修正任务 ID<select name="basic_info_task_code" id="listingBasicInfoTaskCode" class="amazon-select"><option value="">不选择基础信息修正任务</option></select></label>
+        <label class="wide">Listing 创作要求<textarea name="context" rows="6" placeholder="输入目标受众、语言风格、合规限制和其他 Listing 创作要求"></textarea></label>
+        <label class="wide">上传补充文件
+            <span class="amazon-dropzone" data-upload-dropzone>
+                <strong>点击选择文件或将文件拖到这里</strong>
+                <span>支持 MD、TXT、CSV、Excel 等格式，可同时上传多个文件；单个文件最大 512 MB</span>
+                <input type="file" accept=".md,.txt,.csv,.tsv,.xls,.xlsx,.xlsm,.json,.html,.htm" multiple hidden>
+            </span>
+        </label>
+        <div class="amazon-file-list wide" id="listingFiles"><span class="amazon-helper">支持 MD、TXT、CSV、TSV、XLS、XLSX、XLSM、JSON、HTML；单个文件最大 512 MB，上传后保留 7 天</span></div>
+        <div class="amazon-form-actions"><button type="submit">生成 Listing</button><span class="amazon-form-result"></span></div>
+    </form>
+</section>
+<section class="amazon-panel">
+    <div class="amazon-panel-header"><h3>Listing 创作历史</h3></div>
+    <div id="listingList" class="amazon-list"></div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    AmazonAI.bindListingForm("listingForm");
+});
+</script>
+{% endblock %}

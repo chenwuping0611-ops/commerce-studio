@@ -73,6 +73,17 @@
 
         },
         {
+          field: 'download_url',
+          title: '下载',
+          unresize: true,
+          align: 'center',
+          templet: function (d) {
+            if (!d.download_url) return '暂无地址'
+            return '<a class="pear-btn pear-btn-primary pear-btn-sm" target="_blank" rel="noopener" ' +
+              'download="' + (d.name || 'image') + '" href="' + d.download_url + '">下载</a>'
+          }
+        },
+        {
           field: 'mime',
           title: 'mime类型',
           unresize: true,

@@ -2,6 +2,7 @@ import os
 
 from flask import Flask
 
+from applications.common.logging_config import configure_logging
 from applications.common.script import init_script
 from applications.extensions import init_plugs
 from applications.extensions.init_dotenv import init_dotenv
@@ -17,6 +18,7 @@ def create_app(config_name=None):
 
     config_name = config_name or os.getenv("FLASK_CONFIG", "development")
     app.config.from_object(config[config_name])
+    configure_logging(app)
 
     init_plugs(app)
     init_view(app)

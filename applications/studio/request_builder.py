@@ -1,6 +1,53 @@
 import json
+import math
 import re
 from copy import deepcopy
+
+from .provider_catalog import (
+    KUAIPAO_IMAGE_ASPECT_RATIOS,
+    KUAIPAO_IMAGE_MODEL_CODES,
+    KUAIPAO_IMAGE_MODEL_CODE,
+    KUAIPAO_LEGACY_IMAGE_MODEL_CODES,
+    kuaipao_image_api_model_code,
+    model_spec_for,
+    provider_catalog_key,
+)
+
+
+SEEDANCE_MODEL_CODES = frozenset(
+    {
+        "seedance-2-mini",
+        "seedance-2-fast",
+        "seedance-2",
+    }
+)
+SEEDANCE_RESOLUTION_OPTIONS = {
+    "seedance-2-mini": ["480p", "720p"],
+    "seedance-2-fast": ["480p", "720p"],
+    "seedance-2": ["480p", "720p", "1080p", "4k"],
+}
+SEEDANCE_DEFAULT_RESOLUTION = "720p"
+SEEDANCE_IMAGE_REFERENCE_ROLE = "reference_image"
+SEEDANCE_FORBIDDEN_IMAGE_FIELDS = frozenset(
+    {
+        "first_frame",
+        "last_frame",
+        "first_frame_image",
+        "last_frame_image",
+        "input_reference",
+        "input_references",
+        "image",
+        "image_url",
+        "image_urls",
+    }
+)
+
+
+IMAGE_MAX_DIMENSION = 4096
+IMAGE_DIMENSION_ALIGNMENT = 8
+KUAIPAO_IMAGE_ALL_MODEL_CODES = frozenset(
+    KUAIPAO_IMAGE_MODEL_CODES + KUAIPAO_LEGACY_IMAGE_MODEL_CODES
+)
 
 
 IMAGE_DEFAULT_PARAMETERS = [
@@ -79,7 +126,7 @@ VIDEO_DEFAULT_PARAMETERS = [
     {
         "field": "model",
         "label": "模型标识",
-        "value": "seedance-2",
+        "value": "seedance-2-mini",
         "runtime_key": "",
         "value_type": "string",
         "enabled": True,
@@ -101,10 +148,10 @@ VIDEO_DEFAULT_PARAMETERS = [
         "runtime_key": "duration",
         "value_type": "number",
         "enabled": True,
-        "min": 1,
-        "max": 60,
+        "min": 4,
+        "max": 15,
         "step": 1,
-        "hint": "视频秒数",
+        "hint": "Seedance 视频时长为 4-15 秒",
     },
     {
         "field": "aspect_ratio",
@@ -123,8 +170,8 @@ VIDEO_DEFAULT_PARAMETERS = [
         "runtime_key": "resolution",
         "value_type": "string",
         "enabled": True,
-        "options": ["480p", "720p", "1080p"],
-        "hint": "例如 720p、1080p",
+        "options": ["480p", "720p", "1080p", "4k"],
+        "hint": "不同 Seedance 版本支持的分辨率不同",
     },
     {
         "field": "image_with_roles",
@@ -133,7 +180,7 @@ VIDEO_DEFAULT_PARAMETERS = [
         "runtime_key": "reference_images_with_roles",
         "value_type": "json",
         "enabled": True,
-        "hint": "ToAPIs 角色数组",
+        "hint": "仅发送多模态参考图角色 reference_image，不使用首帧或尾帧角色",
     },
     {
         "field": "video_with_roles",
@@ -287,12 +334,138 @@ def default_parameters(media_type):
     return deepcopy(parameters)
 
 
+def is_seedance_model(model_code):
+    return str(model_code or "").strip().lower() in SEEDANCE_MODEL_CODES
+
+
+def seedance_capabilities(model_code):
+    """Return the non-negotiable capabilities for a Seedance model version."""
+
+    code = str(model_code or "").strip().lower()
+    if not is_seedance_model(code):
+        return {}
+    return {
+        "supports_multimodal_reference": True,
+        "image_reference_roles": [SEEDANCE_IMAGE_REFERENCE_ROLE],
+        "max_reference_images": 9,
+        "duration_min": 4,
+        "duration_max": 15,
+        "resolution_options": list(
+            SEEDANCE_RESOLUTION_OPTIONS.get(
+                code,
+                SEEDANCE_RESOLUTION_OPTIONS["seedance-2"],
+            )
+        ),
+    }
+
+
+def seedance_parameters(model_code, existing=None):
+    """Build a safe schema for one Seedance version.
+
+    Existing non-protocol fields are retained so an administrator's harmless
+    custom settings are not discarded, while protocol fields that could select
+    first/last-frame image modes are removed.
+    """
+
+    code = str(model_code or "").strip().lower()
+    if not is_seedance_model(code):
+        return deepcopy(existing or VIDEO_DEFAULT_PARAMETERS)
+
+    base = deepcopy(VIDEO_DEFAULT_PARAMETERS)
+    base_by_field = {item["field"]: item for item in base}
+    current = parse_parameters(existing)
+    current_by_field = {
+        str(item.get("field") or "").strip(): deepcopy(item)
+        for item in current
+        if isinstance(item, dict) and str(item.get("field") or "").strip()
+    }
+    result = []
+
+    for field in (
+        "model",
+        "prompt",
+        "duration",
+        "aspect_ratio",
+        "resolution",
+        "image_with_roles",
+        "video_with_roles",
+        "generate_audio",
+    ):
+        template = deepcopy(base_by_field[field])
+        item = current_by_field.pop(field, template)
+        item.update(
+            {
+                "field": field,
+                "enabled": True,
+                "value_type": template["value_type"],
+                "runtime_key": template["runtime_key"],
+            }
+        )
+        if field == "model":
+            item["value"] = code
+            item["runtime_key"] = ""
+        elif field == "duration":
+            item["min"] = 4
+            item["max"] = 15
+            item["step"] = 1
+            try:
+                value = int(float(item.get("value", 5)))
+            except (TypeError, ValueError):
+                value = 5
+            item["value"] = str(value) if 4 <= value <= 15 else "5"
+            item["hint"] = "Seedance 视频时长为 4-15 秒"
+        elif field == "resolution":
+            options = list(SEEDANCE_RESOLUTION_OPTIONS[code])
+            value = str(item.get("value") or SEEDANCE_DEFAULT_RESOLUTION).strip()
+            item["options"] = options
+            item["value"] = (
+                value if value.lower() in {option.lower() for option in options}
+                else SEEDANCE_DEFAULT_RESOLUTION
+            )
+            item["hint"] = "当前版本支持：" + "、".join(options)
+        elif field == "image_with_roles":
+            item["options"] = []
+            item["value"] = ""
+            item["hint"] = (
+                "仅发送多模态参考图角色 reference_image，不使用首帧或尾帧角色"
+            )
+        elif field == "generate_audio":
+            item["value"] = "false"
+            item["hint"] = "默认关闭生成音频"
+        result.append(item)
+
+    for item in current_by_field.values():
+        field = str(item.get("field") or "").strip()
+        if field and field not in SEEDANCE_FORBIDDEN_IMAGE_FIELDS:
+            result.append(item)
+    return result
+
+
 def default_parameters_for_model(model_code, media_type):
     """Return the starter schema for a known model without changing custom schemas."""
 
+    if is_seedance_model(model_code):
+        return seedance_parameters(model_code)
     if str(model_code or "").strip().lower() == "gemini-3.1-flash-image-preview":
         return deepcopy(NANO_BANANA_IMAGE_PARAMETERS)
     return default_parameters(media_type)
+
+
+def model_parameter_schema(model):
+    """Return the code-owned schema for catalog models.
+
+    Legacy/custom models still fall back to their stored schema so existing
+    department data keeps working while ToAPIs and Kuaipao use immutable
+    provider definitions.
+    """
+
+    spec = model_spec_for(
+        getattr(model, "provider", None),
+        getattr(model, "model_code", ""),
+    )
+    if spec:
+        return spec.parameter_schema()
+    return parse_parameters(getattr(model, "parameter_schema", None))
 
 
 def parse_parameters(raw):
@@ -350,6 +523,100 @@ def is_empty_value(value):
     return value in ("", None, [], {})
 
 
+def is_kuaipao_image_model(model):
+    """Return whether a model uses the Kuaipao multipart image contract."""
+
+    code = str(getattr(model, "model_code", "") or "").strip().lower()
+    if code not in KUAIPAO_IMAGE_ALL_MODEL_CODES:
+        return False
+    provider = getattr(model, "provider", None)
+    return (
+        provider is None
+        or provider_catalog_key(provider) == "kuaipao"
+    )
+
+
+def _canonical_image_aspect_ratio(value):
+    """Return the matching preset ratio and reject unlisted ratios."""
+
+    text = str(value or "").strip().lower()
+    match = re.fullmatch(
+        r"(\d+(?:\.\d+)?)\s*[:x]\s*(\d+(?:\.\d+)?)",
+        text,
+    )
+    if not match:
+        raise ValueError("图片比例必须从预设比例中选择")
+    width_ratio = float(match.group(1))
+    height_ratio = float(match.group(2))
+    if (
+        not math.isfinite(width_ratio)
+        or not math.isfinite(height_ratio)
+        or width_ratio <= 0
+        or height_ratio <= 0
+    ):
+        raise ValueError("图片比例必须是大于 0 的正数宽:高")
+
+    ratio = width_ratio / height_ratio
+    for preset in KUAIPAO_IMAGE_ASPECT_RATIOS:
+        preset_width, preset_height = (
+            float(part) for part in preset.split(":")
+        )
+        if math.isclose(
+            ratio,
+            preset_width / preset_height,
+            rel_tol=1e-9,
+            abs_tol=1e-9,
+        ):
+            return preset
+    raise ValueError("图片比例必须从预设比例中选择")
+
+
+def image_size_for_aspect_ratio(
+    value,
+    *,
+    max_dimension=IMAGE_MAX_DIMENSION,
+    alignment=IMAGE_DIMENSION_ALIGNMENT,
+):
+    """Convert one configured preset ratio into a 4K ``widthxheight`` size.
+
+    Kuaipao accepts the actual pixel size. Use the standard UHD canvas for
+    16:9 and 9:16, and keep the long edge at 4096 for the remaining presets.
+    The quality choice (1K/2K/4K) is mapped to the model name separately.
+    """
+
+    canonical_ratio = _canonical_image_aspect_ratio(value)
+    width_ratio, height_ratio = (
+        float(part) for part in canonical_ratio.split(":")
+    )
+
+    try:
+        max_dimension = int(max_dimension)
+        alignment = max(1, int(alignment))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("图片尺寸配置无效") from exc
+    if max_dimension < 1:
+        raise ValueError("图片最大尺寸配置无效")
+
+    if max_dimension == IMAGE_MAX_DIMENSION:
+        if canonical_ratio == "16:9":
+            return "3840x2160"
+        if canonical_ratio == "9:16":
+            return "2160x3840"
+
+    if width_ratio >= height_ratio:
+        width = max_dimension
+        short_dimension = max_dimension * height_ratio / width_ratio
+        height = int(round(short_dimension / alignment) * alignment)
+    else:
+        height = max_dimension
+        short_dimension = max_dimension * width_ratio / height_ratio
+        width = int(round(short_dimension / alignment) * alignment)
+
+    width = max(alignment, min(max_dimension, width))
+    height = max(alignment, min(max_dimension, height))
+    return f"{width}x{height}"
+
+
 def split_option_tokens(value):
     """Split accidentally concatenated ratio options without changing free text."""
 
@@ -398,7 +665,7 @@ def option_values(parameter):
     return values
 
 
-def _runtime_value(parameter, runtime, model_code):
+def _runtime_value(parameter, runtime, model_code, model=None):
     field = parameter.get("field")
     runtime_key = parameter.get("runtime_key")
     if field == "model":
@@ -417,12 +684,17 @@ def _runtime_value(parameter, runtime, model_code):
         if isinstance(casted, bool)
         else str(casted)
     )
-    allowed_values = (
-        [item.lower() for item in allowed]
-        if isinstance(casted, bool)
-        else allowed
-    )
-    if allowed_values and actual_value not in allowed_values:
+    if isinstance(casted, bool):
+        allowed_values = [item.lower() for item in allowed]
+    elif isinstance(casted, str):
+        allowed_values = [str(item).lower() for item in allowed]
+        actual_value = actual_value.lower()
+    else:
+        allowed_values = allowed
+    if (
+        allowed_values
+        and actual_value not in allowed_values
+    ):
         raise ValueError(
             f"字段 {field} 的值必须是：{', '.join(allowed)}"
         )
@@ -430,17 +702,22 @@ def _runtime_value(parameter, runtime, model_code):
 
 
 def build_request_body(model, runtime, extra_fields=None):
-    """Build the final provider body from the model's configurable schema."""
+    """Build the final provider body from the catalog or legacy schema."""
 
     runtime = runtime or {}
     body = {}
-    for parameter in parse_parameters(model.parameter_schema):
+    for parameter in model_parameter_schema(model):
         if not parameter.get("enabled", True):
             continue
         field = str(parameter.get("field") or "").strip()
         if not field:
             continue
-        value = _runtime_value(parameter, runtime, model.model_code)
+        value = _runtime_value(
+            parameter,
+            runtime,
+            model.model_code,
+            model=model,
+        )
         if not is_empty_value(value):
             _assign_field(body, field, value)
 
@@ -448,26 +725,172 @@ def build_request_body(model, runtime, extra_fields=None):
         field = str(field or "").strip()
         if field and not is_empty_value(value):
             _assign_field(body, field, value)
+    return normalize_provider_request_body(
+        model,
+        body,
+    )
+
+
+def normalize_provider_request_body(model, body):
+    """Apply provider-specific invariants after the generic field builder."""
+
+    model_code = str(getattr(model, "model_code", "") or "").strip().lower()
+    provider = getattr(model, "provider", None)
+    spec = model_spec_for(provider, model_code)
+    if spec:
+        body["model"] = spec.code
+
+    if is_seedance_model(model_code):
+        return normalize_seedance_request_body(model_code, body)
+
+    if is_kuaipao_image_model(model):
+        return normalize_kuaipao_image_request_body(model, body)
+
+    if model_code == "gemini-3.1-flash-image-preview":
+        metadata = body.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+        if body.get("image_urls") in (None, "", []):
+            body.pop("image_urls", None)
+        google_image_search = metadata.get("google_image_search")
+        if google_image_search and not metadata.get("google_search"):
+            metadata.pop("google_image_search", None)
+        if metadata:
+            body["metadata"] = metadata
+        else:
+            body.pop("metadata", None)
+        return body
+
+    if model_code == "gpt-image-2":
+        # The current ToAPIs contract uses reference_images. Accept the old
+        # compatibility field when a legacy caller still supplies it.
+        if body.get("reference_images") in (None, "", []):
+            legacy_urls = body.pop("image_urls", None)
+            if legacy_urls not in (None, "", []):
+                body["reference_images"] = legacy_urls
+        body.setdefault("response_format", "url")
+        return body
+
+    return body
+
+
+def normalize_kuaipao_image_request_body(model, body):
+    """Normalize Kuaipao image fields before JSON or multipart transport."""
+
+    references = body.get("reference_images")
+    if references in (None, "", []):
+        legacy_urls = body.pop("image_urls", None)
+        if legacy_urls not in (None, "", []):
+            body["reference_images"] = legacy_urls
+
+    ratio = body.get("size") or "1:1"
+    body["size"] = image_size_for_aspect_ratio(ratio)
+    model_code = str(
+        getattr(model, "model_code", "") or ""
+    ).strip().lower()
+    if model_code == KUAIPAO_IMAGE_MODEL_CODE:
+        # The database/UI keeps one stable image model identity. Kuaipao
+        # receives the quality-specific model code only at the last step.
+        body["model"] = kuaipao_image_api_model_code(
+            body.get("resolution") or "1k"
+        )
+    elif model_code in KUAIPAO_LEGACY_IMAGE_MODEL_CODES:
+        # Keep old task/request rows readable without exposing them as new
+        # selectable models after studio-init.
+        body["model"] = model_code
+    body.pop("resolution", None)
+    # Kuaipao returns b64_json by default; response_format is not part of its
+    # multipart contract and must not force a URL response.
+    body.pop("response_format", None)
+    return body
+
+
+def normalize_seedance_request_body(model_code, body):
+    """Validate Seedance constraints and normalize its multimodal image roles."""
+
+    if not is_seedance_model(model_code):
+        return body
+
+    code = str(model_code).strip().lower()
+    body["model"] = code
+
+    duration = body.get("duration")
+    if duration not in (None, ""):
+        try:
+            numeric_duration = float(duration)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Seedance 视频时长必须是 4-15 秒的整数") from exc
+        if not numeric_duration.is_integer() or not 4 <= numeric_duration <= 15:
+            raise ValueError("Seedance 视频时长必须是 4-15 秒的整数")
+        body["duration"] = int(numeric_duration)
+
+    resolution = body.get("resolution")
+    allowed_resolutions = SEEDANCE_RESOLUTION_OPTIONS[code]
+    if resolution not in (None, ""):
+        normalized_resolution = str(resolution).strip().lower()
+        matched = next(
+            (
+                option
+                for option in allowed_resolutions
+                if option.lower() == normalized_resolution
+            ),
+            None,
+        )
+        if not matched:
+            raise ValueError(
+                f"{code} 仅支持分辨率：{', '.join(allowed_resolutions)}"
+            )
+        body["resolution"] = matched
+
+    for field in SEEDANCE_FORBIDDEN_IMAGE_FIELDS:
+        body.pop(field, None)
+
+    image_roles = body.get("image_with_roles")
+    if image_roles not in (None, "", []):
+        if isinstance(image_roles, dict):
+            image_roles = [image_roles]
+        if not isinstance(image_roles, list):
+            raise ValueError("Seedance 参考图片必须是 image_with_roles 数组")
+        normalized_roles = []
+        for item in image_roles:
+            url = (
+                item.get("url")
+                if isinstance(item, dict)
+                else item
+            )
+            url = str(url or "").strip()
+            if url:
+                normalized_roles.append(
+                    {
+                        "url": url,
+                        "role": SEEDANCE_IMAGE_REFERENCE_ROLE,
+                    }
+                )
+        if len(normalized_roles) > 9:
+            raise ValueError("Seedance 多模态参考图片最多支持 9 张")
+        if normalized_roles:
+            body["image_with_roles"] = normalized_roles
+        else:
+            body.pop("image_with_roles", None)
     return body
 
 
 def reference_roles(urls, role):
+    """Build the provider-facing reference array.
+
+    Product roles such as ``front`` and ``left`` are useful to the prompt
+    planner, but they are not provider protocol values.  Keep those semantic
+    labels in the final prompt and send the configured API role here so a
+    product reference cannot make a video request invalid.
+    """
+
     result = []
     for item in urls or []:
-        if isinstance(item, dict):
-            url = str(item.get("url") or "").strip()
-            if not url:
-                continue
-            result.append(
-                {
-                    "url": url,
-                    "role": item.get("role") or role,
-                    "label": item.get("label") or "",
-                    "source": item.get("source") or "",
-                }
-            )
-        else:
-            url = str(item or "").strip()
-            if url:
-                result.append({"url": url, "role": role})
+        url = (
+            str(item.get("url") or "").strip()
+            if isinstance(item, dict)
+            else str(item or "").strip()
+        )
+        if url:
+            result.append({"url": url, "role": role})
     return result

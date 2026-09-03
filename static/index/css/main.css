@@ -1990,41 +1990,6 @@ body::-webkit-scrollbar-corner {
 	padding-left: 46px;
 }
 
-.login-captcha-group {
-	padding-right: 130px;
-}
-
-.login-captcha-group>.login-captcha {
-	height: 46px;
-	width: 120px;
-	position: absolute;
-	right: 0;
-	top: 0;
-	border: 1px solid rgba(111, 121, 122, 0.3);
-	box-sizing: border-box;
-	cursor: pointer;
-}
-
-.login-captcha-group>.layui-btn {
-	position: absolute;
-	right: 0;
-	top: 0;
-	height: 46px;
-	line-height: 46px;
-	width: 120px;
-	border: 1px solid rgba(111, 121, 122, 0.3);
-	box-sizing: border-box;
-	color: #727272;
-	background-color: transparent;
-	border-radius: 0;
-
-}
-
-.login-wrapper .layui-form-item.login-captcha-group,
-.layui-form-item.layui-text {
-	margin-bottom: 18px;
-}
-
 .login-wrapper .login-oauth-group {
 	padding: 18px 0 12px 0;
 	text-align: center;

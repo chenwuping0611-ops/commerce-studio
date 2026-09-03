@@ -1,28 +1,41 @@
-from flask import Blueprint, request, render_template
+from flask import Blueprint, abort, request, render_template
+from flask_login import login_required
 from flask_apscheduler.utils import job_to_dict
 
 from applications.common.tasks import tasks
 from applications.common.tasks.tasks import task_list
+from applications.common.scope import is_super_admin_user
 from applications.common.utils.http import table_api, fail_api, success_api
 from applications.extensions.init_apscheduler import scheduler
 
 admin_task = Blueprint('adminTask', __name__, url_prefix='/admin/task')
 
 
+def _require_super_admin():
+    if not is_super_admin_user():
+        abort(403)
+
+
 @admin_task.route('/add_job', methods=['GET'])
+@login_required
 def add_task():
+    _require_super_admin()
     scheduler.add_job(func=tasks.get(), id='4', args=(1, 1), trigger='interval', seconds=3,
                       replace_existing=True)
     return '6'
 
 
 @admin_task.get('/')
+@login_required
 def main():
+    _require_super_admin()
     return render_template('admin/task/main.html')
 
 
 @admin_task.route('/data', methods=['GET'])
+@login_required
 def get_task():  # 获取
+    _require_super_admin()
     jobs = scheduler.get_jobs()
     jobs_list = []
     for job in jobs:
@@ -32,12 +45,16 @@ def get_task():  # 获取
 
 # 增加
 @admin_task.get('/add')
+@login_required
 def add():
+    _require_super_admin()
     return render_template('admin/task/add.html', task_list=task_list)
 
 
 @admin_task.post('/save')
+@login_required
 def save():
+    _require_super_admin()
     _id = request.json.get("id")
     name = request.json.get("id")
     type = request.json.get("type")
@@ -77,7 +94,9 @@ def save():
 
 # 恢复
 @admin_task.put('/enable')
+@login_required
 def enable():
+    _require_super_admin()
     _id = request.json.get('id')
     # print(id)
     if _id:
@@ -88,7 +107,9 @@ def enable():
 
 # 暂停
 @admin_task.put('/disable')
+@login_required
 def dis_enable():
+    _require_super_admin()
     _id = request.json.get('id')
     if _id:
         scheduler.pause_job(str(_id))
@@ -97,7 +118,9 @@ def dis_enable():
 
 
 @admin_task.delete('/remove/<int:_id>')
+@login_required
 def remove_job(_id):  # 移除
+    _require_super_admin()
     scheduler.remove_job(str(_id))
     return success_api(msg="删除成功")
 

@@ -30,6 +30,26 @@
                                class="layui-input">
                     </div>
                 </div>
+                <div class="layui-form-item">
+                    <label class="layui-form-label">部门</label>
+                    <div class="layui-input-block">
+                        {% if is_super_admin %}
+                            <select name="deptId" lay-verify="required">
+                                <option value="">请选择部门</option>
+                                {% for department in departments if department.dept_name != "总项目" %}
+                                    <option value="{{ department.id }}"
+                                        {% if department.id == current_dept_id %}selected{% endif %}>
+                                        {{ department.dept_name }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        {% else %}
+                            <input type="hidden" name="deptId" value="{{ current_dept_id or '' }}">
+                            <input type="text" readonly class="layui-input"
+                                   value="{% for department in departments if department.id == current_dept_id %}{{ department.dept_name }}{% endfor %}">
+                        {% endif %}
+                    </div>
+                </div>
 
                 <div class="layui-form-item">
                     <label class="layui-form-label">角色</label>

@@ -29,8 +29,8 @@
             <div class="studio-product-nav-empty">正在加载产品</div>
         </div>
         <div class="studio-product-sidebar-note">
-            <strong>产品记忆会被持续引用</strong>
-            <span>产品档案、Product Profile、产品记忆和素材会在创作时自动带入请求。</span>
+            <strong>产品约束会被持续引用</strong>
+            <span>核心卖点供 Amazon AI 差异化分析与 Listing 创作引用；产品资料、产品档案、Product Profile、产品记忆、生成规则和禁止修改规则继续用于图片与视频创作。</span>
         </div>
     </aside>
 
@@ -90,6 +90,16 @@ document.addEventListener("DOMContentLoaded", function () {
         return productData.find(function (item) {
             return String(item.id) === String(id);
         });
+    }
+
+    function productName(product) {
+        return String(
+            (product && (product.name || product.code)) || "未命名产品"
+        );
+    }
+
+    function productCode(product) {
+        return String((product && product.code) || "未填写编码");
     }
 
     function assetRole(role, name) {
@@ -270,6 +280,26 @@ document.addEventListener("DOMContentLoaded", function () {
             '<span>' + label + '</span><strong>' + Studio.escapeHtml(value || "暂无") + '</strong></div>';
     }
 
+    function inlineTextPanel(productId, field, label, value, extraClass) {
+        var currentValue = String(value || "");
+        var displayValue = currentValue || "还没有填写，点击此处添加。";
+        return '<article class="studio-product-text-panel studio-inline-editable ' +
+            (extraClass || "") + '" data-inline-field="' + field + '">' +
+            '<div class="studio-inline-heading"><h4>' + Studio.escapeHtml(label) + '</h4>' +
+            '<button type="button" class="studio-link-button" data-action="inline-edit">编辑</button></div>' +
+            '<p data-inline-display>' + Studio.escapeHtml(displayValue) + '</p>' +
+            '<div class="studio-inline-editor" hidden>' +
+            '<textarea class="layui-textarea" data-inline-input rows="5">' +
+            Studio.escapeHtml(currentValue) + '</textarea>' +
+            '<div class="studio-inline-actions">' +
+            '<button type="button" class="layui-btn layui-btn-xs studio-btn-primary" ' +
+            'data-action="inline-save" data-product-id="' + productId +
+            '" data-inline-field="' + field + '">保存</button>' +
+            '<button type="button" class="layui-btn layui-btn-xs studio-btn-quiet" ' +
+            'data-action="inline-cancel">取消</button>' +
+            '</div></div></article>';
+    }
+
     function renderProductDetail(product) {
         var groups = groupedAssets(product);
         var totalAssets = Object.keys(groups).reduce(function (total, key) {
@@ -283,14 +313,14 @@ document.addEventListener("DOMContentLoaded", function () {
         }).length;
 
         document.getElementById("productHeaderHint").textContent =
-            product.name + " · 产品资料与素材维护";
+            productName(product) + " · 产品资料与素材维护";
 
         document.getElementById("productDetail").innerHTML =
             '<div class="studio-product-detail-header">' +
             '<div class="studio-product-detail-heading">' +
             '<div class="studio-product-detail-avatar"><i class="layui-icon layui-icon-app"></i></div>' +
-            '<div><div class="studio-eyebrow">当前产品</div><h2>' + Studio.escapeHtml(product.name) + '</h2>' +
-            '<div class="studio-product-detail-code">' + Studio.escapeHtml(product.code) +
+            '<div><div class="studio-eyebrow">当前产品</div><h2>' + Studio.escapeHtml(productName(product)) + '</h2>' +
+            '<div class="studio-product-detail-code">' + Studio.escapeHtml(productCode(product)) +
             (product.brand ? " · " + Studio.escapeHtml(product.brand) : "") + '</div></div></div>' +
             '<div class="studio-product-detail-actions">' +
             '<span class="studio-pill green">启用</span>' +
@@ -298,10 +328,13 @@ document.addEventListener("DOMContentLoaded", function () {
             product.id + '"><i class="layui-icon layui-icon-edit"></i> 编辑资料</button>' +
             '<button type="button" class="layui-btn studio-btn-primary" data-action="pick-asset" data-product-id="' +
             product.id + '" data-role="reference" data-asset-type="IMAGE"><i class="layui-icon layui-icon-upload"></i> 添加素材</button>' +
+            '<button type="button" class="layui-btn studio-btn-danger" data-action="delete-product" data-id="' +
+            product.id + '"><i class="layui-icon layui-icon-delete"></i> 删除产品</button>' +
             '</div></div>' +
 
             '<nav class="studio-product-section-nav" aria-label="产品信息导航">' +
             '<button type="button" data-action="jump" data-target="product-overview">产品概览</button>' +
+            '<button type="button" data-action="jump" data-target="product-selling-points">核心卖点</button>' +
             '<button type="button" data-action="jump" data-target="product-archive">产品档案</button>' +
             '<button type="button" data-action="jump" data-target="product-memory">产品记忆</button>' +
             '<button type="button" data-action="jump" data-target="product-assets">图片与视频素材</button>' +
@@ -312,8 +345,8 @@ document.addEventListener("DOMContentLoaded", function () {
             '<h3>产品概览</h3><p>这里是当前产品的基础资料，创作页面会通过产品编码关联到这条记录。</p></div>' +
             '<span class="studio-product-section-count">' + totalAssets + ' 个素材</span></div>' +
             '<div class="studio-product-overview-grid">' +
-            detailField("产品名称", product.name) +
-            detailField("产品编码", product.code) +
+            detailField("产品名称", productName(product)) +
+            detailField("产品编码", productCode(product)) +
             detailField("品牌", product.brand) +
             detailField("状态", product.enabled ? "启用" : "停用") +
             '</div>' +
@@ -322,10 +355,21 @@ document.addEventListener("DOMContentLoaded", function () {
             '<div class="studio-product-stat-row">' +
             '<div><b>' + imageCount + '</b><span>图片素材</span></div>' +
             '<div><b>' + videoCount + '</b><span>视频素材</span></div>' +
+            '<div><b>' + ((product.core_selling_points || "").length ? "已维护" : "待维护") +
+            '</b><span>核心卖点</span></div>' +
             '<div><b>' + ((product.product_profile || "").length ? "已维护" : "待维护") +
             '</b><span>Product Profile</span></div>' +
             '<div><b>' + ((product.product_memory || "").length ? "已维护" : "待维护") +
             '</b><span>产品记忆</span></div></div></section>' +
+
+            '<section class="studio-product-section" id="product-selling-points">' +
+            '<div class="studio-product-section-head"><div><span class="studio-eyebrow">Amazon AI</span>' +
+            '<h3>核心卖点</h3><p>基础信息修正保存后会整体写入这里；差异化分析和 Listing 创作只引用当前内容。</p></div>' +
+            '<button type="button" class="layui-btn layui-btn-xs studio-btn-quiet" data-action="edit-product" data-id="' +
+            product.id + '"><i class="layui-icon layui-icon-edit"></i> 编辑核心卖点</button></div>' +
+            '<div class="studio-product-memory-grid">' +
+            inlineTextPanel(product.id, "core_selling_points", "核心卖点", product.core_selling_points, "is-emphasis") +
+            '</div></section>' +
 
             '<section class="studio-product-section" id="product-archive">' +
             '<div class="studio-product-section-head"><div><span class="studio-eyebrow">产品档案</span>' +
@@ -333,24 +377,19 @@ document.addEventListener("DOMContentLoaded", function () {
             '<button type="button" class="layui-btn layui-btn-xs studio-btn-quiet" data-action="edit-product" data-id="' +
             product.id + '"><i class="layui-icon layui-icon-edit"></i> 编辑档案</button></div>' +
             '<div class="studio-product-memory-grid">' +
-            '<article class="studio-product-text-panel"><h4>产品描述</h4><p>' +
-            Studio.escapeHtml(product.description || "还没有填写产品描述。") + '</p></article>' +
-            '<article class="studio-product-text-panel is-emphasis"><h4>Product Profile</h4><p>' +
-            Studio.escapeHtml(product.product_profile || "还没有填写 Product Profile。") + '</p></article>' +
+            inlineTextPanel(product.id, "description", "产品描述", product.description) +
+            inlineTextPanel(product.id, "product_profile", "Product Profile", product.product_profile, "is-emphasis") +
             '</div></section>' +
 
             '<section class="studio-product-section" id="product-memory">' +
-            '<div class="studio-product-section-head"><div><span class="studio-eyebrow">图片创作</span>' +
-            '<h3>产品记忆</h3><p>图片创作时，用户创意会优先放在前面，以下产品信息会接在后面一起形成最终 Prompt。</p></div>' +
+            '<div class="studio-product-section-head"><div><span class="studio-eyebrow">图片与视频创作</span>' +
+            '<h3>产品记忆</h3><p>图片和视频创作都会读取这些持续维护的产品约束：用户创意优先，产品档案与产品记忆其次，Skill 只作为未定义内容的兜底。</p></div>' +
             '<button type="button" class="layui-btn layui-btn-xs studio-btn-quiet" data-action="edit-product" data-id="' +
             product.id + '"><i class="layui-icon layui-icon-edit"></i> 编辑记忆</button></div>' +
             '<div class="studio-product-memory-grid">' +
-            '<article class="studio-product-text-panel"><h4>产品记忆</h4><p>' +
-            Studio.escapeHtml(product.product_memory || "还没有填写产品记忆。") + '</p></article>' +
-            '<article class="studio-product-text-panel"><h4>生成规则</h4><p>' +
-            Studio.escapeHtml(product.generation_rules || "还没有填写生成规则。") + '</p></article>' +
-            '<article class="studio-product-text-panel is-warning"><h4>禁止修改规则</h4><p>' +
-            Studio.escapeHtml(product.forbidden_rules || "还没有填写禁止修改规则。") + '</p></article>' +
+            inlineTextPanel(product.id, "product_memory", "产品记忆", product.product_memory) +
+            inlineTextPanel(product.id, "generation_rules", "生成规则", product.generation_rules) +
+            inlineTextPanel(product.id, "forbidden_rules", "禁止修改规则", product.forbidden_rules, "is-warning") +
             '</div></section>' +
 
             '<section class="studio-product-section studio-product-assets-section" id="product-assets">' +
@@ -397,14 +436,15 @@ document.addEventListener("DOMContentLoaded", function () {
                 '<button type="button" class="studio-product-nav-select" data-action="select-product" data-id="' +
                 product.id + '">' +
                 '<span class="studio-product-nav-icon"><i class="layui-icon layui-icon-app"></i></span>' +
-                '<span class="studio-product-nav-copy"><strong>' + Studio.escapeHtml(product.name) +
-                '</strong><small>' + Studio.escapeHtml(product.code) + '</small></span>' +
+                '<span class="studio-product-nav-copy"><strong>' + Studio.escapeHtml(productName(product)) +
+                '</strong><small>' + Studio.escapeHtml(productCode(product)) + '</small></span>' +
                 '<em>' + assetCount + '</em></button>' +
                 '<button type="button" class="studio-product-nav-toggle" data-action="toggle-product" data-id="' +
                 product.id + '" aria-expanded="' + (!collapsed) + '" title="' + (collapsed ? "展开产品" : "收起产品") + '">' +
                 '<i class="layui-icon ' + (collapsed ? "layui-icon-down" : "layui-icon-up") + '"></i></button></div>' +
                 '<div class="studio-product-subnav">' +
                 '<button type="button" data-action="jump-product" data-id="' + product.id + '" data-target="product-overview">工作台首页<span>基础资料</span></button>' +
+                '<button type="button" data-action="jump-product" data-id="' + product.id + '" data-target="product-selling-points">核心卖点<span>Amazon AI</span></button>' +
                 '<button type="button" data-action="jump-product" data-id="' + product.id + '" data-target="product-archive">产品档案<span>Product Profile</span></button>' +
                 '<button type="button" data-action="jump-product" data-id="' + product.id + '" data-target="product-memory">图片创作<span>产品记忆</span></button>' +
                 '<button type="button" data-action="jump-product" data-id="' + product.id + '" data-target="product-assets">产品图片<span>六方位与细节</span></button>' +
@@ -449,6 +489,58 @@ document.addEventListener("DOMContentLoaded", function () {
         if (node) node.scrollIntoView({behavior: "smooth", block: "start"});
     }
 
+    function startInlineEdit(panel) {
+        if (!panel) return;
+        if (panel.classList.contains("is-editing")) return;
+        var display = panel.querySelector("[data-inline-display]");
+        var editor = panel.querySelector(".studio-inline-editor");
+        var input = panel.querySelector("[data-inline-input]");
+        if (!display || !editor || !input) return;
+        panel.dataset.inlineOriginal = input.value;
+        panel.classList.add("is-editing");
+        display.hidden = true;
+        editor.hidden = false;
+        input.focus();
+    }
+
+    function cancelInlineEdit(panel) {
+        if (!panel) return;
+        var display = panel.querySelector("[data-inline-display]");
+        var editor = panel.querySelector(".studio-inline-editor");
+        var input = panel.querySelector("[data-inline-input]");
+        if (!display || !editor || !input) return;
+        panel.classList.remove("is-editing");
+        input.value = panel.dataset.inlineOriginal || "";
+        display.hidden = false;
+        editor.hidden = true;
+    }
+
+    function saveInlineEdit(button) {
+        var panel = button.closest(".studio-inline-editable");
+        var input = panel && panel.querySelector("[data-inline-input]");
+        if (!panel || !input) return;
+        var field = button.dataset.inlineField || panel.dataset.inlineField;
+        var productId = button.dataset.productId;
+        button.disabled = true;
+        button.textContent = "保存中...";
+        Studio.request("/studio/api/products/" + encodeURIComponent(productId) + "/inline", {
+            method: "POST",
+            body: JSON.stringify({field: field, value: input.value})
+        }).then(function (result) {
+            var updated = result.data;
+            productData = productData.map(function (item) {
+                return String(item.id) === String(updated.id) ? updated : item;
+            });
+            selectedProductId = updated.id;
+            render();
+            Studio.toast("产品信息已自动保存");
+        }).catch(function (error) {
+            button.disabled = false;
+            button.textContent = "保存";
+            Studio.toast(error.message, "error");
+        });
+    }
+
     document.getElementById("newProduct").addEventListener("click", function () {
         openProductForm("");
     });
@@ -478,7 +570,11 @@ document.addEventListener("DOMContentLoaded", function () {
 
     document.getElementById("productDetail").addEventListener("click", function (event) {
         var target = event.target.closest("[data-action]");
-        if (!target) return;
+        if (!target) {
+            var panel = event.target.closest(".studio-inline-editable");
+            if (panel) startInlineEdit(panel);
+            return;
+        }
         var action = target.dataset.action;
         if (action === "create-product") {
             openProductForm("");
@@ -490,6 +586,28 @@ document.addEventListener("DOMContentLoaded", function () {
             openAssetForm(target.dataset.productId, target.dataset.role, target.dataset.assetType);
         } else if (action === "jump") {
             scrollToSection(target.dataset.target);
+        } else if (action === "inline-edit") {
+            startInlineEdit(target.closest(".studio-inline-editable"));
+        } else if (action === "inline-cancel") {
+            cancelInlineEdit(target.closest(".studio-inline-editable"));
+        } else if (action === "inline-save") {
+            saveInlineEdit(target);
+        } else if (action === "delete-product") {
+            if (!window.confirm("确定要删除这个产品吗？产品素材也会同步从 go-fastdfs 清理。")) return;
+            target.disabled = true;
+            Studio.request("/studio/api/products/" + encodeURIComponent(target.dataset.id), {
+                method: "DELETE"
+            }).then(function () {
+                if (String(selectedProductId) === String(target.dataset.id)) {
+                    selectedProductId = null;
+                }
+                return loadProducts();
+            }).then(function () {
+                Studio.toast("产品已删除");
+            }).catch(function (error) {
+                target.disabled = false;
+                Studio.toast(error.message, "error");
+            });
         } else if (action === "delete-asset") {
             if (!window.confirm("确定要移除这个产品素材吗？文件会同步从 go-fastdfs 清理。")) return;
             Studio.request("/studio/api/products/" + target.dataset.productId +

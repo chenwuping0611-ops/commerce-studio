@@ -14,13 +14,6 @@ def register_passport_views(app):
     app.register_blueprint(passport_bp)
 
 
-@passport_bp.get("/getCaptcha")
-def get_captcha():
-    response, code = index_curd.get_captcha()
-    session["code"] = code
-    return response
-
-
 @passport_bp.get("/login")
 def login():
     if current_user.is_authenticated:
@@ -33,16 +26,8 @@ def login_post():
     req = request.form
     username = req.get("username")
     password = req.get("password")
-    code = str(req.get("captcha") or "").lower()
-
-    if not username or not password or not code:
-        return fail_api(msg="用户名、密码和验证码不能为空")
-    server_code = session.get("code")
-    session["code"] = None
-    if not server_code:
-        return fail_api(msg="验证码已失效，请刷新")
-    if code != str(server_code).lower():
-        return fail_api(msg="验证码错误")
+    if not username or not password:
+        return fail_api(msg="用户名和密码不能为空")
 
     user = User.query.filter_by(username=username).first()
     if user is None:
@@ -52,11 +37,21 @@ def login_post():
 
     if user.validate_password(password):
         login_user(user)
-        login_log(request, uid=user.id, is_access=True)
+        login_log(
+            request,
+            uid=user.id,
+            is_access=True,
+            department_id=user.dept_id,
+        )
         index_curd.add_auth_session()
         return success_api(msg="登录成功")
 
-    login_log(request, uid=user.id, is_access=False)
+    login_log(
+        request,
+        uid=user.id,
+        is_access=False,
+        department_id=user.dept_id,
+    )
     return fail_api(msg="用户名或密码错误")
 
 

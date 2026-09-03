@@ -4,18 +4,39 @@
 <div class="studio-iframe-form">
     <form class="layui-form studio-form" id="productForm">
         <input type="hidden" name="id" id="productId">
+        <div class="studio-modal-section" id="listingImportSection">
+            <div class="studio-modal-section-title">从 Listing 创作历史创建</div>
+            <div class="studio-form-grid">
+                <div class="studio-field-span-2">
+                    <label class="studio-field-label" for="listingHistory">
+                        关联 Listing 创作历史
+                    </label>
+                    <select id="listingHistory" class="layui-input">
+                        <option value="">正在加载 Listing 历史...</option>
+                    </select>
+                    <div class="studio-field-help">
+                        选择后会读取对应 GoFastDFS 全文，调用当前部门全局语言模型并创建一条长期产品资料；无法从历史确认的字段会保持为空。
+                    </div>
+                    <button type="button" class="layui-btn layui-btn-xs studio-btn-quiet"
+                            id="importListingProduct" disabled>
+                        <i class="layui-icon layui-icon-release"></i>
+                        重新分析并创建
+                    </button>
+                </div>
+            </div>
+        </div>
         <div class="studio-modal-section">
             <div class="studio-modal-section-title">基础资料</div>
             <div class="studio-form-grid">
                 <div>
                     <label class="studio-field-label">产品编码</label>
-                    <input name="code" id="productCode" required class="layui-input" placeholder="例如 SKU-CAR-001">
-                    <div class="studio-field-help">产品的唯一业务标识或 SKU，用于精准关联生成任务。</div>
+                    <input name="code" id="productCode" class="layui-input" placeholder="例如 SKU-CAR-001">
+                    <div class="studio-field-help">可选；Listing 历史没有明确编码时保持为空，后续可以手动补充。</div>
                 </div>
                 <div>
                     <label class="studio-field-label">产品名称</label>
-                    <input name="name" id="productName" required class="layui-input" placeholder="例如 智能电动汽车">
-                    <div class="studio-field-help">面向运营人员展示的产品名称，与产品编码属于同一条产品资料。</div>
+                    <input name="name" id="productName" class="layui-input" placeholder="例如 智能电动汽车">
+                    <div class="studio-field-help">可选；模型无法确认时留空，创建后仍可在这里维护。</div>
                 </div>
                 <div>
                     <label class="studio-field-label">品牌</label>
@@ -26,6 +47,18 @@
                     <label class="studio-field-label">产品描述</label>
                     <textarea name="description" id="productDescription" class="layui-textarea" rows="3"
                               placeholder="填写材质、规格、卖点和适用人群"></textarea>
+                </div>
+            </div>
+        </div>
+
+        <div class="studio-modal-section">
+            <div class="studio-modal-section-title">Amazon AI 核心卖点</div>
+            <div class="studio-form-grid">
+                <div class="studio-field-span-2">
+                    <label class="studio-field-label">核心卖点</label>
+                    <textarea name="core_selling_points" id="coreSellingPoints" class="layui-textarea" rows="7"
+                              placeholder="可由基础信息修正保存后自动写入，也可以在这里直接维护"></textarea>
+                    <div class="studio-field-help">差异化分析和 Listing 创作只会引用这里的内容；保存新内容会整体替换原核心卖点。</div>
                 </div>
             </div>
         </div>
@@ -84,6 +117,10 @@ document.addEventListener("DOMContentLoaded", function () {
     var productId = query.get("id") || "";
     var form = document.getElementById("productForm");
     var message = document.getElementById("productMessage");
+    var listingImportSection = document.getElementById("listingImportSection");
+    var listingHistory = document.getElementById("listingHistory");
+    var importListingButton = document.getElementById("importListingProduct");
+    var importingListing = false;
 
     function setMessage(text, isError) {
         message.textContent = text || "";
@@ -112,10 +149,63 @@ document.addEventListener("DOMContentLoaded", function () {
         document.getElementById("productBrand").value = product.brand || "";
         document.getElementById("productDescription").value = product.description || "";
         document.getElementById("productProfile").value = product.product_profile || "";
+        document.getElementById("coreSellingPoints").value = product.core_selling_points || "";
         document.getElementById("productMemory").value = product.product_memory || "";
         document.getElementById("generationRules").value = product.generation_rules || "";
         document.getElementById("forbiddenRules").value = product.forbidden_rules || "";
         document.getElementById("productAssets").value = (product.asset_urls || []).join("\n");
+    }
+
+    function historyLabel(item) {
+        var identity = item.filename || item.title || "Listing创作";
+        return String(item.id || "") + " · " + identity +
+            (item.finished_at ? " · " + item.finished_at : "");
+    }
+
+    function loadListingHistories() {
+        if (productId) {
+            listingImportSection.hidden = true;
+            return Promise.resolve();
+        }
+        return Studio.request("/studio/api/products/listing-histories").then(function (result) {
+            var items = result.data || [];
+            listingHistory.innerHTML = '<option value="">请选择已完成的 Listing 历史</option>' +
+                items.map(function (item) {
+                    return '<option value="' + Studio.escapeHtml(item.id) + '">' +
+                        Studio.escapeHtml(historyLabel(item)) + '</option>';
+                }).join("");
+            importListingButton.disabled = !items.length;
+            if (!items.length) {
+                listingHistory.innerHTML = '<option value="">暂无可用 Listing 历史</option>';
+            }
+            layui.use("form", function () {
+                layui.form.render("select");
+            });
+        });
+    }
+
+    function createProductFromListing() {
+        var taskId = listingHistory.value;
+        if (!taskId || importingListing) return Promise.resolve();
+        importingListing = true;
+        importListingButton.disabled = true;
+        setMessage("正在读取 Listing 全文并分析产品资料，请稍候...");
+        return Studio.request("/studio/api/products/from-listing", {
+            method: "POST",
+            body: JSON.stringify({listing_task_id: taskId})
+        }).then(function (result) {
+            var product = result.data && result.data.product;
+            if (!product) throw new Error("产品提取接口没有返回产品资料");
+            productId = String(product.id || "");
+            fillProduct(product);
+            listingImportSection.hidden = true;
+            setMessage("产品已创建，可继续检查并编辑资料后保存。");
+        }).catch(function (error) {
+            setMessage(error.message, true);
+        }).finally(function () {
+            importingListing = false;
+            if (!productId) importListingButton.disabled = !listingHistory.value;
+        });
     }
 
     function loadProduct() {
@@ -137,6 +227,13 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     });
 
+    listingHistory.addEventListener("change", function () {
+        createProductFromListing();
+    });
+    importListingButton.addEventListener("click", function () {
+        createProductFromListing();
+    });
+
     form.addEventListener("submit", function (event) {
         event.preventDefault();
         setMessage("正在保存...");
@@ -154,7 +251,10 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     });
 
-    loadProduct().catch(function (error) {
+    Promise.all([
+        loadProduct(),
+        loadListingHistories()
+    ]).catch(function (error) {
         setMessage(error.message, true);
     });
 });

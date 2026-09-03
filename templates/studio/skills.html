@@ -9,6 +9,7 @@
     </div>
 </div>
 
+{% if can_manage_skills %}
 <div class="studio-grid-2">
     <section class="studio-card">
         <div class="studio-card-header">
@@ -37,6 +38,7 @@
         </div>
     </section>
 </div>
+{% endif %}
 
 <section class="studio-card studio-section-gap">
     <div class="studio-card-header">
@@ -46,10 +48,10 @@
     <div class="studio-table-wrap">
         <table class="studio-table">
             <thead>
-            <tr><th>名称</th><th>编码</th><th>适用类型</th><th>版本</th><th>文件</th><th>操作</th></tr>
+            <tr><th>名称</th><th>编码</th><th>适用类型</th><th>版本</th><th>所属/上传部门</th><th>文件</th><th>操作</th></tr>
             </thead>
             <tbody id="skillTable">
-            <tr><td colspan="6" class="studio-empty">正在加载 Skill</td></tr>
+            <tr><td colspan="7" class="studio-empty">正在加载 Skill</td></tr>
             </tbody>
         </table>
     </div>
@@ -76,6 +78,44 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
+    function fallbackCopy(text) {
+        var textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        var copied = false;
+        try {
+            copied = document.execCommand("copy");
+        } catch (error) {
+            copied = false;
+        }
+        document.body.removeChild(textarea);
+        if (!copied) window.prompt("请复制 Skill URL", text);
+        return copied;
+    }
+
+    function copySkillUrl(button) {
+        var url = button.dataset.url || "";
+        if (!url) return;
+        var done = function () {
+            var original = button.textContent;
+            button.textContent = "已复制";
+            Studio.toast("Skill URL 已复制");
+            window.setTimeout(function () {
+                button.textContent = original;
+            }, 1200);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(url).then(done).catch(function () {
+                if (fallbackCopy(url)) done();
+            });
+        } else if (fallbackCopy(url)) {
+            done();
+        }
+    }
+
     function loadSkills() {
         return Studio.request("/studio/api/skills").then(function (result) {
             skills = result.data;
@@ -85,22 +125,42 @@ document.addEventListener("DOMContentLoaded", function () {
                 var type = item.media_type === "BOTH"
                     ? "图片 + 视频"
                     : (item.media_type === "IMAGE" ? "图片" : "视频");
+                var department = item.dept_name || "未指定部门";
+                if (item.is_builtin) department += " · 系统内置";
                 return '<tr><td><b>' + Studio.escapeHtml(item.name) + '</b></td>' +
                     '<td class="muted">' + Studio.escapeHtml(item.code) + '</td><td>' + type + '</td>' +
-                    '<td>' + Studio.escapeHtml(item.version) + '</td><td class="muted">' +
+                    '<td>' + Studio.escapeHtml(item.version) + '</td><td>' +
+                    Studio.escapeHtml(department) + '</td><td class="muted">' +
                     Studio.escapeHtml(item.file_name || "手动创建") + '</td>' +
                     '<td><span class="studio-actions">' +
                     (item.download_url
                         ? '<a class="layui-btn layui-btn-xs studio-btn-quiet" target="_blank" rel="noopener" download="' +
                             Studio.escapeHtml(item.file_name || item.code || "skill") + '" href="' +
                             Studio.escapeHtml(item.download_url) + '">下载</a>'
-                        : '<button class="layui-btn layui-btn-xs studio-btn-quiet" disabled>无文件</button>') +
+                        : '<button class="layui-btn layui-btn-xs studio-btn-quiet" disabled title="' +
+                            Studio.escapeHtml(item.file_error || item.file_status_label || "文件不可用") +
+                            '">' +
+                            Studio.escapeHtml(item.file_status_label || "文件不可用") +
+                            '</button>') +
+                    (item.download_url
+                        ? '<button type="button" class="layui-btn layui-btn-xs studio-btn-quiet copy-skill-url" ' +
+                            'title="复制完整 Skill URL" data-url="' +
+                            Studio.escapeHtml(item.download_url) + '">复制 URL</button>'
+                        : '') +
+                    {% if can_manage_skills %}
                     '<button class="layui-btn layui-btn-xs studio-btn-quiet edit-skill" data-id="' +
                     item.id + '">编辑</button>' +
                     '<button class="layui-btn layui-btn-xs layui-btn-danger delete-skill" data-id="' +
-                    item.id + '">停用</button></span></td></tr>';
-            }).join("") : '<tr><td colspan="6" class="studio-empty">暂无 Skill 配置</td></tr>';
+                    item.id + '">删除</button>' +
+                    {% endif %}
+                    '</span></td></tr>';
+            }).join("") : '<tr><td colspan="7" class="studio-empty">暂无 Skill 配置</td></tr>';
 
+            table.querySelectorAll(".copy-skill-url").forEach(function (button) {
+                button.addEventListener("click", function () {
+                    copySkillUrl(button);
+                });
+            });
             table.querySelectorAll(".edit-skill").forEach(function (button) {
                 button.addEventListener("click", function () {
                     openFrame("编辑 Skill", "/studio/forms/skill?id=" +
@@ -109,7 +169,7 @@ document.addEventListener("DOMContentLoaded", function () {
             });
             table.querySelectorAll(".delete-skill").forEach(function (button) {
                 button.addEventListener("click", function () {
-                    if (!window.confirm("确定要停用这个 Skill 吗？")) return;
+                    if (!window.confirm("确定要删除这个 Skill 吗？删除后将停止使用。")) return;
                     Studio.request("/studio/api/skills/" + button.dataset.id, {method: "DELETE"})
                         .then(loadSkills)
                         .catch(function (error) { Studio.toast(error.message, "error"); });
@@ -150,28 +210,33 @@ document.addEventListener("DOMContentLoaded", function () {
         loadSkills().catch(function (error) { Studio.toast(error.message, "error"); });
     });
 
-    document.getElementById("newSkill").addEventListener("click", function () {
-        openFrame("新建 Skill", "/studio/forms/skill", ["760px", "760px"]);
-    });
-    fileInput.addEventListener("change", function (event) {
-        uploadFiles(event.target.files);
-        event.target.value = "";
-    });
-    ["dragenter", "dragover"].forEach(function (eventName) {
-        dropzone.addEventListener(eventName, function (event) {
-            event.preventDefault();
-            dropzone.classList.add("is-dragging");
+    var newSkillButton = document.getElementById("newSkill");
+    if (newSkillButton) {
+        newSkillButton.addEventListener("click", function () {
+            openFrame("新建 Skill", "/studio/forms/skill", ["760px", "760px"]);
         });
-    });
-    ["dragleave", "drop"].forEach(function (eventName) {
-        dropzone.addEventListener(eventName, function (event) {
-            event.preventDefault();
-            dropzone.classList.remove("is-dragging");
+    }
+    if (fileInput && dropzone) {
+        fileInput.addEventListener("change", function (event) {
+            uploadFiles(event.target.files);
+            event.target.value = "";
         });
-    });
-    dropzone.addEventListener("drop", function (event) {
-        uploadFiles(event.dataTransfer.files);
-    });
+        ["dragenter", "dragover"].forEach(function (eventName) {
+            dropzone.addEventListener(eventName, function (event) {
+                event.preventDefault();
+                dropzone.classList.add("is-dragging");
+            });
+        });
+        ["dragleave", "drop"].forEach(function (eventName) {
+            dropzone.addEventListener(eventName, function (event) {
+                event.preventDefault();
+                dropzone.classList.remove("is-dragging");
+            });
+        });
+        dropzone.addEventListener("drop", function (event) {
+            uploadFiles(event.dataTransfer.files);
+        });
+    }
 
     loadSkills().catch(function (error) { Studio.toast(error.message, "error"); });
 });

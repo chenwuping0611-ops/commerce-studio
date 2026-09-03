@@ -5,13 +5,19 @@
     <div>
         <div class="studio-eyebrow">图片生成</div>
         <h1>图片创作</h1>
-        <p>图片模型负责生成；仅在关联产品或选择 Skill 时，才使用系统配置的全局语言模型整理创意。没有产品和 Skill 时直接发送你的创意描述。</p>
+        <p>图片模型负责生成；用户创意优先，产品档案与产品记忆用于约束产品身份，Skill 只补充未定义内容。仅在关联产品或选择 Skill 时调用全局语言模型。</p>
     </div>
     <div class="studio-toolbar-right">
         <span id="imageProviderBalance" class="studio-balance-inline">当前供应商余额：未查询</span>
         <span id="imageTaskStatus" class="studio-pill gray">等待任务</span>
+        {% if can_batch_process %}
+        <button type="button" class="layui-btn studio-btn-quiet" id="imageBatchProcessButton">
+            批量处理提示词
+        </button>
+        {% endif %}
         <button type="button" class="layui-btn studio-btn-primary" id="newImageButton">新建图片</button>
-        <a class="layui-btn studio-btn-quiet" href="/studio/history?media_type=IMAGE">完整历史</a>
+        <a class="layui-btn studio-btn-quiet" href="/studio/history?media_type=IMAGE"
+           data-studio-history-link="IMAGE">完整历史</a>
     </div>
 </div>
 
@@ -37,13 +43,13 @@
                     </div>
                     <div class="studio-field">
                         <label class="studio-field-label" for="imageProduct">产品</label>
-                        <select name="product_id" id="imageProduct">
+                        <select name="product_id" id="imageProduct" lay-ignore>
                             <option value="">不关联产品</option>
                         </select>
                     </div>
                     <div class="studio-field studio-field-span-2">
                         <label class="studio-field-label" for="imageSkill">Skill</label>
-                        <select id="imageSkill">
+                        <select id="imageSkill" lay-ignore>
                             <option value="">不使用 Skill</option>
                         </select>
                         <div class="studio-field-help">Skill 只读取提示词内容，不会把原始文件发送给模型。</div>
@@ -115,6 +121,65 @@
     </div>
 </div>
 
+{% if can_batch_process %}
+<div class="studio-composer-overlay" id="imageBatchProcessOverlay" aria-hidden="true">
+    <div class="studio-composer-backdrop" data-batch-process-close="1"></div>
+    <div class="studio-composer-dialog" role="dialog" aria-modal="true"
+         aria-labelledby="imageBatchProcessTitle">
+        <section class="studio-card studio-image-composer">
+            <div class="studio-card-header">
+                <div>
+                    <h2 id="imageBatchProcessTitle">批量处理提示词</h2>
+                    <div class="studio-card-subtitle">
+                        按历史中的每个版本单独创建图片任务，比例和图片质量自动读取
+                    </div>
+                </div>
+                <div class="studio-toolbar-right">
+                    <button type="button" class="studio-composer-close"
+                            id="imageBatchProcessClose"
+                            aria-label="关闭批量处理提示词">×</button>
+                </div>
+            </div>
+            <form class="layui-form studio-form studio-image-form"
+                  id="imageBatchProcessForm">
+                <div class="studio-composer-grid">
+                    <div class="studio-field studio-field-span-2">
+                        <label class="studio-field-label"
+                               for="imageBatchPromptHistory">批量提示词历史</label>
+                        <select id="imageBatchPromptHistory" lay-ignore required>
+                            <option value="">正在加载历史...</option>
+                        </select>
+                        <div class="studio-field-help">
+                            仅允许处理已完成的图片批量提示词历史；每个版本会生成一张图片。
+                        </div>
+                    </div>
+                    <div class="studio-field studio-field-span-2">
+                        <label class="studio-field-label"
+                               for="imageBatchProcessModel">图片模型</label>
+                        <select id="imageBatchProcessModel" lay-ignore required>
+                            <option value="">正在加载快跑 AI 模型...</option>
+                        </select>
+                        <div class="studio-field-help">
+                            后端只接受快跑 AI 的稳定模型标识 gpt-image2，并按质量映射真实 API 模型。
+                        </div>
+                    </div>
+                </div>
+                    <div class="studio-setting-card" id="imageBatchPromptInfo">
+                    请选择一条批量提示词历史。历史中的每个版本会使用自己的画布比例和图片质量；未写明时使用历史默认值。
+                </div>
+                <div class="studio-form-message" id="imageBatchProcessMessage"></div>
+                <div class="studio-form-actions studio-form-actions-inline">
+                    <button type="submit" class="layui-btn studio-btn-primary"
+                            id="imageBatchProcessSubmit">开始批量生成</button>
+                    <button type="button" class="layui-btn studio-btn-quiet"
+                            id="imageBatchProcessCancel">取消</button>
+                </div>
+            </form>
+        </section>
+    </div>
+</div>
+{% endif %}
+
 <div class="studio-image-workspace">
     <section class="studio-card studio-image-feed-card">
         <div class="studio-card-header">
@@ -134,6 +199,12 @@
                 <span>提交任务后，最新图片会出现在这里。</span>
             </div>
         </div>
+        <div class="studio-history-pagination">
+            <span id="imageHistoryPageInfo" class="studio-helper"></span>
+            <button type="button" class="studio-link-button" id="imageLoadMore" hidden>
+                加载更多历史
+            </button>
+        </div>
     </section>
 </div>
 
@@ -141,7 +212,7 @@
     <div class="studio-image-viewer-backdrop" data-viewer-close="1"></div>
     <div class="studio-image-viewer-layout" role="dialog" aria-modal="true" aria-labelledby="imageViewerTitle">
         <aside class="studio-image-viewer-history" id="imageViewerHistory" aria-label="历史图片"></aside>
-        <main class="studio-image-viewer-stage">
+        <main class="studio-image-viewer-stage" data-viewer-close="1">
             <img id="imageViewerImage" src="" alt="生成图片预览">
         </main>
         <div class="studio-image-viewer-controls">
@@ -160,6 +231,7 @@
 <script>
 document.addEventListener("DOMContentLoaded", function () {
     var canDeleteHistory = {{ "true" if can_delete_history else "false" }};
+    var isSuperAdmin = {{ "true" if is_super_admin else "false" }};
     var form = document.getElementById("imageForm");
     var modelSelect = document.getElementById("imageModel");
     var productSelect = document.getElementById("imageProduct");
@@ -178,10 +250,23 @@ document.addEventListener("DOMContentLoaded", function () {
     var viewerTopKeyHandlerBound = false;
     var viewerResizeBound = false;
     var composerOverlay = document.getElementById("imageComposerOverlay");
+    var batchProcessButton = document.getElementById("imageBatchProcessButton");
+    var batchProcessOverlay = document.getElementById("imageBatchProcessOverlay");
+    var batchProcessForm = document.getElementById("imageBatchProcessForm");
+    var batchPromptHistorySelect = document.getElementById("imageBatchPromptHistory");
+    var batchProcessModelSelect = document.getElementById("imageBatchProcessModel");
+    var batchPromptInfo = document.getElementById("imageBatchPromptInfo");
+    var batchProcessMessage = document.getElementById("imageBatchProcessMessage");
+    var batchProcessSubmit = document.getElementById("imageBatchProcessSubmit");
+    var batchPromptHistoryData = [];
     var modelData = [];
+    var productData = [];
     var skillData = [];
     var referenceAssets = [];
     var historyData = [];
+    var historyPage = 1;
+    var historyHasMore = false;
+    var historyLoading = false;
     var latestTask = null;
     var pollTimer = null;
     var optimisticProgressTimer = null;
@@ -348,36 +433,83 @@ document.addEventListener("DOMContentLoaded", function () {
         configureCount(findParameter(model, ["count", "n"]));
     }
 
+    function renderScopedReferenceOptions() {
+        var model = modelData.find(function (item) {
+            return item.id === Number(modelSelect.value);
+        });
+        var departmentId = model && model.dept_id;
+        var currentProductId = productSelect.value;
+        var currentSkillId = skillSelect.value;
+        var products = isSuperAdmin
+            ? productData
+            : (departmentId == null
+                ? []
+                : productData.filter(function (item) {
+                    return String(item.dept_id) === String(departmentId);
+                }));
+        var skills = isSuperAdmin
+            ? skillData
+            : (departmentId == null
+                ? []
+                : skillData.filter(function (item) {
+                    return item.is_builtin ||
+                        String(item.dept_id) === String(departmentId);
+                }));
+
+        productSelect.innerHTML = '<option value="">不关联产品</option>' +
+            products.map(function (item) {
+                return '<option value="' + item.id + '">' +
+                    Studio.escapeHtml(item.name) + ' · ' +
+                    Studio.escapeHtml(item.code) +
+                    (isSuperAdmin && item.dept_name
+                        ? ' · ' + Studio.escapeHtml(item.dept_name)
+                        : '') +
+                    '</option>';
+            }).join("");
+        skillSelect.innerHTML = '<option value="">不使用 Skill</option>' +
+            skills.map(function (item) {
+                return '<option value="' + item.id + '">' +
+                    Studio.escapeHtml(item.name) + '</option>';
+            }).join("");
+
+        if (products.some(function (item) {
+            return String(item.id) === String(currentProductId);
+        })) {
+            productSelect.value = currentProductId;
+        }
+        if (skills.some(function (item) {
+            return String(item.id) === String(currentSkillId);
+        })) {
+            skillSelect.value = currentSkillId;
+        }
+        layui.use("form", function () {
+            layui.form.render("select");
+        });
+    }
+
     function loadOptions() {
         return Studio.request("/studio/api/options?media_type=IMAGE").then(function (result) {
             modelData = result.data.models || [];
+            productData = result.data.products || [];
             skillData = (result.data.skills || []).filter(function (item) {
                 return item.media_type === "BOTH" || item.media_type === "IMAGE";
             });
             modelSelect.innerHTML = modelData.length ? modelData.map(function (item) {
                 return '<option value="' + item.id + '">' +
                     Studio.escapeHtml(item.name) + " · " +
-                    Studio.escapeHtml(item.provider_name) + '</option>';
+                    Studio.escapeHtml(item.provider_name) +
+                    (item.dept_name ? " · " + Studio.escapeHtml(item.dept_name) : "") +
+                    '</option>';
             }).join("") : '<option value="">暂无可用图片模型</option>';
             if (modelData.length) {
                 var preferred = modelData.find(function (item) {
-                    return String(item.model_code).toLowerCase() === "gpt-image-2";
+                    return String(item.model_code).toLowerCase() === "gpt-image2";
                 }) || modelData[0];
                 modelSelect.value = String(preferred.id);
             } else {
                 modelSelect.value = "";
             }
-            productSelect.innerHTML = '<option value="">不关联产品</option>' +
-                (result.data.products || []).map(function (item) {
-                    return '<option value="' + item.id + '">' +
-                        Studio.escapeHtml(item.name) + " · " +
-                        Studio.escapeHtml(item.code) + '</option>';
-                }).join("");
-            skillSelect.innerHTML = '<option value="">不使用 Skill</option>' +
-                skillData.map(function (item) {
-                    return '<option value="' + item.id + '">' +
-                        Studio.escapeHtml(item.name) + '</option>';
-                }).join("");
+            renderScopedReferenceOptions();
             layui.use("form", function () {
                 layui.form.render("select");
             });
@@ -389,10 +521,326 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
+    function batchImageModels() {
+        return modelData.filter(function (item) {
+            return item.media_type === "IMAGE" &&
+                String(item.model_code || "").toLowerCase() === "gpt-image2" &&
+                String(item.catalog_key || "").toLowerCase() === "kuaipao";
+        });
+    }
+
+    function renderBatchProcessModels() {
+        if (!batchProcessModelSelect) return;
+        var current = batchProcessModelSelect.value;
+        var models = batchImageModels();
+        batchProcessModelSelect.innerHTML = models.length
+            ? models.map(function (item) {
+                var label = item.name || "gpt-image2";
+                if (item.provider_name) label += " · " + item.provider_name;
+                if (item.dept_name) label += " · " + item.dept_name;
+                return '<option value="' + item.id + '">' +
+                    Studio.escapeHtml(label) + "</option>";
+            }).join("")
+            : '<option value="">暂无可用的快跑 AI gpt-image2 模型</option>';
+        if (models.some(function (item) {
+            return String(item.id) === String(current);
+        })) {
+            batchProcessModelSelect.value = current;
+        } else if (models.length) {
+            batchProcessModelSelect.value = String(models[0].id);
+        }
+        layui.use("form", function () {
+            layui.form.render("select");
+        });
+    }
+
+    function renderBatchPromptHistories() {
+        if (!batchPromptHistorySelect) return;
+        var current = batchPromptHistorySelect.value;
+        var histories = batchPromptHistoryData.filter(function (item) {
+            return item.status === "SUCCEEDED" && Boolean(item.content);
+        });
+        batchPromptHistorySelect.innerHTML = histories.length
+            ? '<option value="">请选择一条历史</option>' +
+              histories.map(function (item) {
+                  var label = "提示词 #" + item.id +
+                      " · " + (item.version_count || 0) + " 个版本";
+                  if (item.image_quality) label += " · " + item.image_quality;
+                  if (item.product_name) label += " · " + item.product_name;
+                  if (item.created_at) label += " · " + item.created_at;
+                  return '<option value="' + item.id + '">' +
+                      Studio.escapeHtml(label) + "</option>";
+              }).join("")
+            : '<option value="">暂无可处理的图片批量提示词历史</option>';
+        if (histories.some(function (item) {
+            return String(item.id) === String(current);
+        })) {
+            batchPromptHistorySelect.value = current;
+        }
+        if (batchPromptHistorySelect.value) {
+            updateBatchPromptInfo();
+        } else if (batchPromptInfo) {
+            batchPromptInfo.textContent = "请选择一条批量提示词历史。";
+        }
+        layui.use("form", function () {
+            layui.form.render("select");
+        });
+    }
+
+    function updateBatchPromptInfo() {
+        if (!batchPromptHistorySelect || !batchPromptInfo) return;
+        var item = batchPromptHistoryData.find(function (current) {
+            return String(current.id) === String(batchPromptHistorySelect.value);
+        });
+        if (!item) {
+            batchPromptInfo.textContent = "请选择一条批量提示词历史。";
+            return;
+        }
+        var parts = [
+            "版本数：" + (item.version_count || 0),
+            "图片质量：" + (item.image_quality || "2K"),
+            "默认画布比例：" + (item.image_aspect_ratio || "2.44:1")
+        ];
+        var versionSettings = item.version_settings || [];
+        if (versionSettings.length) {
+            parts.push(
+                "每版参数：" + versionSettings.map(function (version) {
+                    return (version.label || ("第" + version.version + "版")) +
+                        " " + (version.aspect_ratio || "2.44:1") +
+                        "/" + (version.image_quality ||
+                            String(version.resolution || "2k").toUpperCase());
+                }).join("；")
+            );
+        }
+        if (item.product_name) parts.push("产品：" + item.product_name);
+        if (item.skill_name) parts.push("Skill：" + item.skill_name);
+        if (item.created_at) parts.push("创建时间：" + item.created_at);
+        batchPromptInfo.textContent = parts.join(" · ");
+    }
+
+    function loadBatchPromptHistories() {
+        if (!batchPromptHistorySelect) return Promise.resolve();
+        batchPromptHistorySelect.innerHTML =
+            '<option value="">正在加载图片批量提示词历史...</option>';
+        return Studio.request(
+            "/studio/api/batch-prompts?media_type=IMAGE&page=1&page_size=50"
+        ).then(function (result) {
+            batchPromptHistoryData = result.data || [];
+            renderBatchPromptHistories();
+        });
+    }
+
+    function mergeBatchTasks(items) {
+        var byKey = {};
+        (items || []).concat(historyData || []).forEach(function (item) {
+            var key = taskKey(item);
+            if (key && !byKey[key]) byKey[key] = item;
+        });
+        return Object.keys(byKey).map(function (key) {
+            return byKey[key];
+        });
+    }
+
+    function replaceBatchTask(item) {
+        var key = taskKey(item);
+        if (!key) return;
+        var replaced = false;
+        historyData = historyData.map(function (current) {
+            if (taskKey(current) !== key) return current;
+            replaced = true;
+            return item;
+        });
+        if (!replaced) historyData = [item].concat(historyData);
+        renderFeed(false);
+    }
+
+    function pollBatchTask(taskCode) {
+        Studio.request("/studio/api/tasks/" + encodeURIComponent(taskCode))
+            .then(function (result) {
+                var item = result.data;
+                replaceBatchTask(item);
+                if (item.status === "PENDING" ||
+                    item.status === "SUBMITTED" ||
+                    item.status === "PROCESSING") {
+                    window.setTimeout(function () {
+                        pollBatchTask(taskCode);
+                    }, 5000);
+                } else if (item.status === "FAILED") {
+                    Studio.toast(
+                        "批量图片任务 " + taskCode + " 生成失败",
+                        "error"
+                    );
+                }
+            })
+            .catch(function (error) {
+                Studio.toast(
+                    "批量图片任务状态读取失败：" + error.message,
+                    "error"
+                );
+            });
+    }
+
+    function openBatchProcess() {
+        if (!batchProcessOverlay) return;
+        batchProcessOverlay.classList.add("is-open");
+        batchProcessOverlay.setAttribute("aria-hidden", "false");
+        document.body.classList.add("studio-composer-open");
+        if (batchProcessMessage) batchProcessMessage.textContent = "";
+        renderBatchProcessModels();
+        loadBatchPromptHistories().catch(function (error) {
+            if (batchProcessMessage) batchProcessMessage.textContent = error.message;
+            Studio.toast(error.message, "error");
+        });
+        if (!modelData.length) {
+            loadOptions().then(renderBatchProcessModels).catch(function (error) {
+                if (batchProcessMessage) batchProcessMessage.textContent = error.message;
+            });
+        }
+        window.setTimeout(function () {
+            layui.use("form", function () {
+                layui.form.render("select");
+            });
+            if (batchPromptHistorySelect) batchPromptHistorySelect.focus();
+        }, 0);
+    }
+
+    function closeBatchProcess() {
+        if (!batchProcessOverlay) return;
+        batchProcessOverlay.classList.remove("is-open");
+        batchProcessOverlay.setAttribute("aria-hidden", "true");
+        document.body.classList.remove("studio-composer-open");
+    }
+
+    function setupBatchProcess() {
+        if (
+            !batchProcessButton ||
+            !batchProcessOverlay ||
+            !batchProcessForm ||
+            !batchPromptHistorySelect ||
+            !batchProcessModelSelect ||
+            !batchProcessSubmit
+        ) {
+            return;
+        }
+        batchProcessButton.addEventListener("click", openBatchProcess);
+        batchProcessOverlay.querySelectorAll("[data-batch-process-close]").forEach(
+            function (node) {
+                node.addEventListener("click", closeBatchProcess);
+            }
+        );
+        document.getElementById("imageBatchProcessClose").addEventListener(
+            "click",
+            closeBatchProcess
+        );
+        document.getElementById("imageBatchProcessCancel").addEventListener(
+            "click",
+            closeBatchProcess
+        );
+        batchPromptHistorySelect.addEventListener(
+            "change",
+            updateBatchPromptInfo
+        );
+        batchProcessForm.addEventListener("submit", function (event) {
+            event.preventDefault();
+            var batchPromptId = batchPromptHistorySelect.value;
+            var selectedModelId = batchProcessModelSelect.value;
+            if (!batchPromptId) {
+                if (batchProcessMessage) {
+                    batchProcessMessage.textContent = "请选择一条图片批量提示词历史";
+                }
+                return;
+            }
+            if (!selectedModelId) {
+                if (batchProcessMessage) {
+                    batchProcessMessage.textContent = "请选择可用的快跑 AI gpt-image2 模型";
+                }
+                return;
+            }
+            batchProcessSubmit.disabled = true;
+            if (batchProcessMessage) {
+                batchProcessMessage.textContent = "正在按版本并发提交图片任务，请稍候...";
+            }
+            Studio.request("/studio/api/image/batch-process", {
+                method: "POST",
+                body: JSON.stringify({
+                    batch_prompt_id: batchPromptId,
+                    model_id: selectedModelId
+                })
+            }).then(function (result) {
+                var data = result.data || {};
+                var tasks = data.tasks || [];
+                historyData = mergeBatchTasks(tasks);
+                renderFeed(true);
+                closeBatchProcess();
+                tasks.forEach(function (item) {
+                    if (item.status === "PENDING" ||
+                        item.status === "SUBMITTED" ||
+                        item.status === "PROCESSING") {
+                        pollBatchTask(item.task_code);
+                    }
+                });
+                loadHistory(true).then(function () {
+                    // Keep every task returned by the batch request visible
+                    // even when the history endpoint's first page is smaller
+                    // than the selected batch size.
+                    historyData = mergeBatchTasks(tasks);
+                    renderFeed(false);
+                }).catch(function () {});
+                if (data.failed) {
+                    Studio.toast(result.msg, "error");
+                } else {
+                    Studio.toast(result.msg);
+                }
+            }).catch(function (error) {
+                if (batchProcessMessage) {
+                    batchProcessMessage.textContent = error.message;
+                }
+                Studio.toast(error.message, "error");
+            }).then(function () {
+                batchProcessSubmit.disabled = false;
+            });
+        });
+        document.addEventListener("keydown", function (event) {
+            if (
+                event.key === "Escape" &&
+                batchProcessOverlay.classList.contains("is-open")
+            ) {
+                closeBatchProcess();
+            }
+        });
+    }
+
+    function statusLabelFor(item) {
+        if (item && item.ui_stage === "ANALYZING") return "模型分析中";
+        if (item && item.ui_stage === "SUBMITTING") return "正在提交";
+        if (item && item.ui_stage === "GENERATING") return "生成中";
+        return Studio.statusText(item && item.status);
+    }
+
+    function statusProgressFor(item) {
+        if (!item || item.ui_stage === "ANALYZING" || item.ui_stage === "SUBMITTING") {
+            return "";
+        }
+        return item.progress && item.status !== "SUCCEEDED"
+            ? " " + item.progress + "%"
+            : "";
+    }
+
+    function processingDetail(item) {
+        if (item && item.ui_stage === "ANALYZING") {
+            return "，正在整理创意、产品信息与 Skill";
+        }
+        if (item && item.ui_stage === "SUBMITTING") {
+            return "，正在提交上游图片接口";
+        }
+        return item && item.progress
+            ? "，当前进度 " + item.progress + "%"
+            : "";
+    }
+
     function setStatus(item) {
         status.className = "studio-pill " + Studio.statusClass(item.status);
-        status.textContent = Studio.statusText(item.status) +
-            (item.progress && item.status !== "SUCCEEDED" ? " " + item.progress + "%" : "");
+        status.textContent = statusLabelFor(item) + statusProgressFor(item);
     }
 
     function usableOutputs(item) {
@@ -402,6 +850,7 @@ document.addEventListener("DOMContentLoaded", function () {
         if (!outputs.length && item && item.output_url) {
             outputs = [{
                 public_url: item.output_url,
+                download_url: item.output_download_url || "",
                 original_filename: item.task_code + ".png",
                 content_type: "image/png",
                 status: "ACTIVE"
@@ -438,6 +887,72 @@ document.addEventListener("DOMContentLoaded", function () {
         return option ? option.textContent : "";
     }
 
+    function updateLocalTaskStage(stage, statusValue) {
+        if (!latestTask || String(latestTask.id).indexOf("local-") !== 0) return;
+        latestTask.ui_stage = stage;
+        latestTask.status = statusValue || latestTask.status;
+        if (stage !== "GENERATING") latestTask.progress = 0;
+        setStatus(latestTask);
+        renderFeed(true);
+    }
+
+    function startOptimisticProgress(task, estimatedSeconds) {
+        clearOptimisticProgress();
+        var progressKey = taskKey(task);
+        var startedAt = Date.now();
+        var duration = Math.max(1, Number(estimatedSeconds) || 60) * 1000;
+        if (latestTask && taskKey(latestTask) === progressKey) {
+            latestTask.ui_stage = "GENERATING";
+            latestTask.progress = Math.max(1, Number(latestTask.progress) || 1);
+            setStatus(latestTask);
+            renderFeed(true);
+        }
+        optimisticProgressTimer = window.setInterval(function () {
+            if (!latestTask || taskKey(latestTask) !== progressKey) {
+                clearOptimisticProgress();
+                return;
+            }
+            var elapsed = Date.now() - startedAt;
+            var estimatedProgress = Math.floor((elapsed / duration) * 95);
+            latestTask.ui_stage = "GENERATING";
+            latestTask.progress = Math.min(
+                95,
+                Math.max(Number(latestTask.progress) || 1, estimatedProgress || 1)
+            );
+            setStatus(latestTask);
+            renderFeed(true);
+        }, 1000);
+    }
+
+    function adoptServerTask(item, estimatedSeconds) {
+        var wasGenerating = latestTask &&
+            taskKey(latestTask) === taskKey(item) &&
+            latestTask.ui_stage === "GENERATING";
+        var active = item.status === "PENDING" || item.status === "SUBMITTED" ||
+            item.status === "PROCESSING";
+        if (active) {
+            item.ui_stage = "GENERATING";
+            if (wasGenerating) {
+                item.progress = Math.max(
+                    Number(item.progress) || 0,
+                    Number(latestTask.progress) || 0
+                );
+            }
+        } else {
+            item.ui_stage = "";
+        }
+        latestTask = item;
+        setStatus(item);
+        renderFeed(true);
+        if (active) {
+            if (!optimisticProgressTimer) {
+                startOptimisticProgress(item, estimatedSeconds || 60);
+            }
+        } else {
+            clearOptimisticProgress();
+        }
+    }
+
     function createOptimisticTask(payload) {
         clearOptimisticProgress();
         var task = {
@@ -445,15 +960,18 @@ document.addEventListener("DOMContentLoaded", function () {
             task_code: "NEW",
             media_type: "IMAGE",
             product_id: payload.product_id || null,
-            product_name: selectedOptionText(productSelect) || "未关联产品",
+            product_name: selectedOptionText(productSelect) || "",
             model_id: payload.model_id || null,
             model_name: selectedOptionText(modelSelect) || "未指定模型",
+            skill_id: payload.skill_id || null,
+            skill_name: payload.skill_name || "",
             provider_id: null,
             provider_name: "",
             prompt: payload.prompt || "",
             final_prompt: "",
             status: "PROCESSING",
-            progress: 1,
+            progress: 0,
+            ui_stage: "ANALYZING",
             output_assets: [],
             output_url: "",
             output_expired: false,
@@ -463,15 +981,6 @@ document.addEventListener("DOMContentLoaded", function () {
         latestTask = task;
         setStatus(task);
         renderFeed(true);
-        optimisticProgressTimer = window.setInterval(function () {
-            if (!latestTask || latestTask.id !== task.id) {
-                clearOptimisticProgress();
-                return;
-            }
-            latestTask.progress = Math.min(96, Number(latestTask.progress || 1) + 1);
-            setStatus(latestTask);
-            renderFeed(true);
-        }, 750);
         return task;
     }
 
@@ -508,15 +1017,20 @@ document.addEventListener("DOMContentLoaded", function () {
     function renderFeedItem(item) {
         var outputs = usableOutputs(item);
         var expired = item.output_expired && !outputs.length;
-        var statusLabel = Studio.statusText(item.status);
-        var product = item.product_name || "未关联产品";
+        var statusLabel = statusLabelFor(item);
+        var product = item.product_name || "";
         var model = item.model_name || "未指定模型";
+        var meta = [];
+        if (product) meta.push("产品：" + Studio.escapeHtml(product));
+        if (item.skill_name) meta.push("Skill：" + Studio.escapeHtml(item.skill_name));
+        if (model) meta.push("模型：" + Studio.escapeHtml(model));
         var prompt = item.prompt || "";
         var comments = item.comments || [];
         var media = "";
         if (outputs.length) {
             media = '<div class="studio-feed-images">' + outputs.map(function (asset, index) {
                 var url = Studio.escapeHtml(asset.public_url);
+                var downloadUrl = Studio.escapeHtml(asset.download_url || "");
                 var filename = Studio.escapeHtml(
                     asset.original_filename || filenameFor(asset.public_url, item.task_code, index + 1)
                 );
@@ -529,7 +1043,8 @@ document.addEventListener("DOMContentLoaded", function () {
                     '<div class="studio-feed-image-actions">' +
                     '<span>图片 ' + (index + 1) + '</span>' +
                     '<button type="button" class="studio-link-button" data-action="download" ' +
-                    'data-url="' + url + '" data-filename="' + filename + '">下载</button>' +
+                    'data-url="' + url + '" data-download-url="' + downloadUrl +
+                    '" data-filename="' + filename + '">下载</button>' +
                     '</div></div>';
             }).join("") + '</div>';
         } else if (expired) {
@@ -539,8 +1054,7 @@ document.addEventListener("DOMContentLoaded", function () {
             media = '<div class="studio-feed-processing"><span class="studio-feed-spinner"></span>' +
                 '<div><strong>' + Studio.escapeHtml(statusLabel) + '</strong>' +
                 '<span>任务编号 ' + Studio.escapeHtml(item.task_code || "-") +
-                '，正在等待图片输出' +
-                (item.progress ? "，当前进度 " + item.progress + "%" : "") +
+                processingDetail(item) +
                 '</span></div></div>';
         }
         var error = item.error_message
@@ -584,7 +1098,11 @@ document.addEventListener("DOMContentLoaded", function () {
                     ? '<div class="studio-feed-suggestions" data-comment-panel="' +
                         comment.id + '">' +
                         '<div class="studio-feed-suggestion-title">产品中心调整建议</div>' +
-                        '<div class="studio-feed-suggestion-help">模型只提供候选值，勾选后才会写入当前关联产品。</div>' +
+                        '<div class="studio-feed-suggestion-help">' +
+                        (appliedFields.length
+                            ? "模型建议已按字段自动写回当前关联产品，下面保留建议内容和判断依据。"
+                            : "模型建议尚未写入产品中心，可勾选字段后手动应用。") +
+                        '</div>' +
                         '<div class="studio-feed-suggestion-list">' +
                         updateFields.map(function (field) {
                             var update = updates[field] || {};
@@ -630,11 +1148,10 @@ document.addEventListener("DOMContentLoaded", function () {
             '<span>' + Studio.escapeHtml(item.created_at || "") + '</span></div>' +
             '<div class="studio-feed-item-header-right"><span class="studio-pill ' +
             Studio.statusClass(item.status) + '">' +
-            Studio.escapeHtml(statusLabel) + (item.progress && item.status !== "SUCCEEDED"
-                ? " " + item.progress + "%" : "") + '</span>' + deleteAction + '</div></header>' +
+            Studio.escapeHtml(statusLabel) + statusProgressFor(item) +
+            '</span>' + deleteAction + '</div></header>' +
             media +
-            '<div class="studio-feed-item-meta"><span>' + Studio.escapeHtml(product) +
-            '</span><span>' + Studio.escapeHtml(model) + '</span></div>' +
+            '<div class="studio-feed-item-meta">' + meta.join(" · ") + '</div>' +
             '<div class="studio-feed-prompt">' + Studio.escapeHtml(prompt) + '</div>' +
             '<div class="studio-feed-actions">' + feedbackAction + '</div>' +
             commentsHtml +
@@ -643,17 +1160,14 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function renderLatest(item) {
-        clearOptimisticProgress();
-        latestTask = item;
-        setStatus(item);
-        renderFeed(true);
+        adoptServerTask(item, 60);
     }
 
     function poll(taskCode) {
         clearTimeout(pollTimer);
         Studio.request("/studio/api/tasks/" + taskCode).then(function (result) {
             var item = result.data;
-            renderLatest(item);
+            adoptServerTask(item, 60);
             if (item.status === "PENDING" || item.status === "SUBMITTED" ||
                 item.status === "PROCESSING") {
                 pollTimer = setTimeout(function () { poll(taskCode); }, 5000);
@@ -670,14 +1184,57 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
-    function loadHistory() {
-        return Studio.request("/studio/api/history?media_type=IMAGE").then(function (result) {
-            historyData = (result.data || []).filter(function (item) {
+    function updateHistoryPagination() {
+        var button = document.getElementById("imageLoadMore");
+        var pageInfo = document.getElementById("imageHistoryPageInfo");
+        button.hidden = !historyHasMore;
+        button.disabled = historyLoading;
+        button.textContent = historyLoading ? "加载中..." : "加载更多历史";
+        pageInfo.textContent = historyData.length
+            ? "已加载第 " + historyPage + " 页"
+            : "";
+    }
+
+    function mergeHistoryItems(items) {
+        var seen = {};
+        var merged = [];
+        historyData.concat(items || []).forEach(function (item) {
+            var key = taskKey(item);
+            if (!key || seen[key]) return;
+            seen[key] = true;
+            merged.push(item);
+        });
+        return merged;
+    }
+
+    function loadHistory(reset) {
+        if (historyLoading) return Promise.resolve();
+        reset = reset !== false;
+        if (!reset && !historyHasMore) return Promise.resolve();
+        var page = reset ? 1 : historyPage + 1;
+        historyLoading = true;
+        updateHistoryPagination();
+        return Studio.request(
+            "/studio/api/history?media_type=IMAGE&page=" + page + "&page_size=20"
+        ).then(function (result) {
+            var items = (result.data || []).filter(function (item) {
                 return usableOutputs(item).length || item.output_expired ||
                     item.status === "SUBMITTED" || item.status === "PROCESSING" ||
                     item.status === "PENDING" || item.status === "FAILED";
             });
+            historyData = reset ? items : mergeHistoryItems(items);
+            historyPage = page;
+            historyHasMore = Boolean(result.meta && result.meta.has_more);
             renderFeed(false);
+            updateHistoryPagination();
+        }, function (error) {
+            historyLoading = false;
+            updateHistoryPagination();
+            throw error;
+        }).then(function (result) {
+            historyLoading = false;
+            updateHistoryPagination();
+            return result;
         });
     }
 
@@ -727,6 +1284,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 seenUrls[url] = true;
                 entries.push({
                     url: url,
+                    downloadUrl: asset.download_url || "",
                     taskCode: task.task_code || "-",
                     filename: asset.original_filename ||
                         filenameFor(url, task.task_code, index + 1),
@@ -744,6 +1302,7 @@ document.addEventListener("DOMContentLoaded", function () {
             return '<button type="button" class="studio-image-viewer-thumb' +
                 (active ? ' is-active' : '') + '" data-viewer-history="1" ' +
                 'data-url="' + Studio.escapeHtml(entry.url) + '" ' +
+                'data-download-url="' + Studio.escapeHtml(entry.downloadUrl || "") + '" ' +
                 'data-task="' + Studio.escapeHtml(entry.taskCode) + '" ' +
                 'data-filename="' + Studio.escapeHtml(entry.filename) + '" ' +
                 'data-index="' + entry.index + '" aria-label="查看任务 ' +
@@ -753,27 +1312,47 @@ document.addEventListener("DOMContentLoaded", function () {
         }).join("");
     }
 
-    function openViewer(url, taskCode, filename, index) {
+    function displayViewerEntry(entry, entryIndex) {
+        if (!entry) return;
+        var cleanUrl = String(entry.url || "").trim();
+        var imageIndex = Number(entry.index) || 1;
+        viewerState = {
+            url: cleanUrl,
+            downloadUrl: entry.downloadUrl || "",
+            filename: entry.filename || filenameFor(cleanUrl, entry.taskCode, imageIndex),
+            taskCode: entry.taskCode || "-",
+            index: imageIndex,
+            entryIndex: Number(entryIndex)
+        };
+        viewerImage.src = cleanUrl;
+        viewerImage.onload = fitViewerImage;
+        viewerTitle.textContent = "任务 " + (entry.taskCode || "-");
+        viewerMeta.textContent = "图片 " + imageIndex + " · 滚动切换历史图片 · 可下载原图";
+        renderViewerHistory(cleanUrl);
+        window.setTimeout(fitViewerImage, 0);
+    }
+
+    function openViewer(url, taskCode, filename, index, downloadUrl) {
         var cleanUrl = String(url || "").trim();
         var imageIndex = Number(index) || 1;
         mountViewerPortal();
-        viewerState = {
+        var entries = viewerEntries();
+        var entryIndex = entries.findIndex(function (entry) {
+            return entry.url === cleanUrl;
+        });
+        var entry = entries[entryIndex] || {
             url: cleanUrl,
+            downloadUrl: downloadUrl || "",
             filename: filename || filenameFor(cleanUrl, taskCode, imageIndex),
             taskCode: taskCode || "-",
             index: imageIndex
         };
-        viewerImage.src = cleanUrl;
-        viewerImage.onload = fitViewerImage;
-        viewerTitle.textContent = "任务 " + (taskCode || "-");
-        viewerMeta.textContent = "图片 " + imageIndex + " · 可切换历史图片或下载原图";
-        renderViewerHistory(cleanUrl);
+        displayViewerEntry(entry, entryIndex);
         viewer.classList.add("is-open");
         viewer.setAttribute("aria-hidden", "false");
         document.body.classList.add("studio-viewer-open");
         viewerOwnerDocument.body.classList.add("studio-viewer-open");
         viewerOwnerDocument.documentElement.classList.add("studio-viewer-open");
-        window.setTimeout(fitViewerImage, 0);
     }
 
     function closeViewer() {
@@ -792,10 +1371,23 @@ document.addEventListener("DOMContentLoaded", function () {
         viewerOwnerDocument.documentElement.classList.remove("studio-viewer-open");
     }
 
-    function downloadImage(url, filename) {
+    function downloadImage(url, filename, downloadUrl) {
         var finalName = filename || filenameFor(url, "commerce-studio", 1);
+        var browserDownloadUrl = downloadUrl || url;
+        if (!downloadUrl) {
+            try {
+                var parsed = new URL(browserDownloadUrl, window.location.href);
+                parsed.searchParams.set("download", "1");
+                parsed.searchParams.set("name", finalName);
+                browserDownloadUrl = parsed.toString();
+            } catch (error) {
+                var separator = browserDownloadUrl.indexOf("?") === -1 ? "?" : "&";
+                browserDownloadUrl += separator + "download=1&name=" +
+                    encodeURIComponent(finalName);
+            }
+        }
         Studio.toast("正在准备下载...", "info");
-        fetch(url, {credentials: "omit"}).then(function (response) {
+        fetch(browserDownloadUrl, {credentials: "omit"}).then(function (response) {
             if (!response.ok) throw new Error("图片下载失败");
             return response.blob();
         }).then(function (blob) {
@@ -808,8 +1400,7 @@ document.addEventListener("DOMContentLoaded", function () {
             link.remove();
             setTimeout(function () { URL.revokeObjectURL(objectUrl); }, 1000);
         }).catch(function () {
-            var separator = url.indexOf("?") === -1 ? "?" : "&";
-            window.open(url + separator + "download=1", "_blank", "noopener");
+            window.open(browserDownloadUrl, "_blank", "noopener");
         });
     }
 
@@ -948,11 +1539,21 @@ document.addEventListener("DOMContentLoaded", function () {
                 Studio.toast(error.message, "error");
             });
         } else if (action === "preview") {
-            openViewer(target.dataset.url, target.dataset.task, target.dataset.filename, target.dataset.index);
+            openViewer(
+                target.dataset.url,
+                target.dataset.task,
+                target.dataset.filename,
+                target.dataset.index,
+                target.dataset.downloadUrl
+            );
         } else if (action === "download") {
             event.preventDefault();
             event.stopPropagation();
-            downloadImage(target.dataset.url, target.dataset.filename);
+            downloadImage(
+                target.dataset.url,
+                target.dataset.filename,
+                target.dataset.downloadUrl
+            );
         }
     });
 
@@ -964,7 +1565,8 @@ document.addEventListener("DOMContentLoaded", function () {
             target.dataset.url,
             target.dataset.task,
             target.dataset.filename,
-            target.dataset.index
+            target.dataset.index,
+            target.dataset.downloadUrl
         );
     });
     viewer.addEventListener("click", function (event) {
@@ -974,12 +1576,56 @@ document.addEventListener("DOMContentLoaded", function () {
         if (event.key === "Escape" && viewer.classList.contains("is-open")) closeViewer();
     });
     viewerDownload.addEventListener("click", function () {
-        if (viewerState) downloadImage(viewerState.url, viewerState.filename);
+        if (viewerState) {
+            downloadImage(
+                viewerState.url,
+                viewerState.filename,
+                viewerState.downloadUrl
+            );
+        }
     });
+    viewer.addEventListener("wheel", function (event) {
+        if (!viewer.classList.contains("is-open")) return;
+        if (
+            event.target &&
+            event.target.closest &&
+            event.target.closest(".studio-image-viewer-history")
+        ) {
+            return;
+        }
+        var entries = viewerEntries();
+        if (!entries.length || !viewerState) return;
+        event.preventDefault();
+        var currentIndex = Number(viewerState.entryIndex);
+        if (!Number.isFinite(currentIndex) || currentIndex < 0) {
+            currentIndex = entries.findIndex(function (entry) {
+                return entry.url === viewerState.url;
+            });
+        }
+        var nextIndex = currentIndex + (event.deltaY > 0 ? 1 : -1);
+        if (nextIndex < 0 || nextIndex >= entries.length) return;
+        displayViewerEntry(entries[nextIndex], nextIndex);
+    }, {passive: false});
     document.getElementById("imageRefresh").addEventListener("click", function () {
-        loadHistory().catch(function (error) {
+        loadHistory(true).catch(function (error) {
             Studio.toast(error.message, "error");
         });
+    });
+    document.getElementById("imageLoadMore").addEventListener("click", function () {
+        loadHistory(false).catch(function (error) {
+            Studio.toast(error.message, "error");
+        });
+    });
+    document.querySelector("[data-studio-history-link]").addEventListener("click", function (event) {
+        event.preventDefault();
+        var url = this.href;
+        var parentAdmin = window.parent && window.parent.layui &&
+            window.parent.layui.admin;
+        if (parentAdmin && typeof parentAdmin.jump === "function") {
+            parentAdmin.jump("studio:history", "生成历史", url);
+        } else {
+            window.location.href = url;
+        }
     });
     document.getElementById("newImageButton").addEventListener("click", openComposer);
     document.getElementById("imageComposerClose").addEventListener("click", closeComposer);
@@ -1010,6 +1656,7 @@ document.addEventListener("DOMContentLoaded", function () {
     function handleModelChange() {
         if (lastModelValue === modelSelect.value) return;
         lastModelValue = modelSelect.value;
+        renderScopedReferenceOptions();
         renderModelConstraints();
         var model = modelData.find(function (item) {
             return item.id === Number(modelSelect.value);
@@ -1036,7 +1683,7 @@ document.addEventListener("DOMContentLoaded", function () {
     function needsPromptPlanning(payload) {
         return Boolean(
             String(payload.product_id || "").trim() ||
-            String(payload.skill_prompt || "").trim()
+            String(payload.skill_id || "").trim()
         );
     }
 
@@ -1050,10 +1697,13 @@ document.addEventListener("DOMContentLoaded", function () {
             method: "POST",
             body: JSON.stringify({
                 media_type: "IMAGE",
+                department_id: payload.department_id,
                 product_id: payload.product_id,
                 prompt: payload.prompt,
                 reference_images: payload.reference_images,
                 reference_asset_ids: payload.reference_asset_ids,
+                skill_id: payload.skill_id,
+                skill_name: payload.skill_name,
                 skill_prompt: payload.skill_prompt
             })
         }).then(function (result) {
@@ -1075,25 +1725,38 @@ document.addEventListener("DOMContentLoaded", function () {
         var selectedSkill = skillData.find(function (item) {
             return item.id === Number(skillSelect.value);
         });
+        var selectedModel = modelData.find(function (item) {
+            return item.id === Number(data.get("model_id"));
+        });
+        var selectedAspect = String(data.get("aspect_ratio") || "").trim();
         var payload = {
             media_type: "IMAGE",
             model_id: data.get("model_id"),
+            department_id: selectedModel ? selectedModel.dept_id : null,
+            provider_owner_type: selectedModel ? selectedModel.owner_type : null,
             product_id: data.get("product_id"),
             prompt: prompt,
             count: data.get("count"),
-            aspect_ratio: data.get("aspect_ratio"),
+            aspect_ratio: selectedAspect,
             resolution: data.get("resolution"),
             reference_images: data.get("reference_images"),
             reference_asset_ids: referenceAssets.map(function (asset) { return asset.id; }),
+            skill_id: selectedSkill ? selectedSkill.id : null,
+            skill_name: selectedSkill ? (selectedSkill.name || "") : "",
             skill_prompt: selectedSkill ? (selectedSkill.prompt_template || "") : "",
             extra_fields: {}
         };
         createOptimisticTask(payload);
         closeComposer();
         submitButton.disabled = true;
+        updateLocalTaskStage("ANALYZING", "PROCESSING");
+        formMessage.textContent = needsPromptPlanning(payload)
+            ? "模型分析中：正在整理创意、产品信息与 Skill..."
+            : "正在准备图片任务...";
         preparePrompt(payload).then(function (preparedPayload) {
+            updateLocalTaskStage("SUBMITTING", "PROCESSING");
             formMessage.textContent = needsPromptPlanning(preparedPayload)
-                ? "全局语言模型整理完成，正在提交图片任务..."
+                ? "模型分析完成，正在提交图片任务..."
                 : "正在提交图片任务...";
             return Studio.request("/studio/api/generate", {
                 method: "POST",
@@ -1103,7 +1766,7 @@ document.addEventListener("DOMContentLoaded", function () {
             var item = result.data;
             submitButton.disabled = false;
             formMessage.textContent = "任务已提交，编号 " + item.task_code;
-            renderLatest(item);
+            adoptServerTask(item, 60);
             refreshProviderBalance(item.provider_id);
             if (item.status === "PENDING" || item.status === "SUBMITTED" ||
                 item.status === "PROCESSING") {
@@ -1118,7 +1781,8 @@ document.addEventListener("DOMContentLoaded", function () {
             formMessage.textContent = error.message;
             if (latestTask && String(latestTask.id || "").indexOf("local-") === 0) {
                 latestTask.status = "FAILED";
-                latestTask.progress = 1;
+                latestTask.ui_stage = "";
+                latestTask.progress = 0;
                 latestTask.error_message = error.message;
                 setStatus(latestTask);
                 renderFeed(true);
@@ -1140,6 +1804,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }, 0);
     });
 
+    setupBatchProcess();
     loadOptions().then(loadHistory).catch(function (error) {
         feedSummary.textContent = "图片记录加载失败";
         Studio.toast(error.message, "error");

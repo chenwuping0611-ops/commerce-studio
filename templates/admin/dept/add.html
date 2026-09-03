@@ -12,6 +12,7 @@
                 <div class="layui-form-item">
                     <label class="layui-form-label">上级部门</label>
                     <div class="layui-input-block">
+                        <input type="hidden" id="dept-parent-id" name="parentId" value="0">
                         <ul id="selectParent" name="parentId" class="dtree" data-id="0"></ul>
                     </div>
                 </div>
@@ -30,37 +31,17 @@
                     </div>
                 </div>
                 <div class="layui-form-item">
-                    <label class="layui-form-label">邮箱</label>
-                    <div class="layui-input-block">
-                        <input type="text" name="email" lay-verify="title" autocomplete="off" placeholder="请输入标题"
-                               class="layui-input">
-                    </div>
-                </div>
-                <div class="layui-form-item">
-                    <label class="layui-form-label">联系方式</label>
-                    <div class="layui-input-block">
-                        <input type="text" name="phone" lay-verify="title" autocomplete="off" placeholder="请输入标题"
-                               class="layui-input">
-                    </div>
-                </div>
-                <div class="layui-form-item">
                     <label class="layui-form-label">状态</label>
                     <div class="layui-input-block">
-                        <input type="radio" name="status" value="1" title="开启">
-                        <input type="radio" name="status" value="0" title="关闭" checked>
+                        <input type="radio" name="status" value="1" title="开启" checked>
+                        <input type="radio" name="status" value="0" title="关闭">
                     </div>
                 </div>
                 <div class="layui-form-item">
                     <label class="layui-form-label">排序</label>
                     <div class="layui-input-block">
-                        <input type="text" name="sort" lay-verify="title" autocomplete="off" placeholder="请输入标题"
+                        <input type="text" name="sort" value="0" lay-verify="title" autocomplete="off" placeholder="请输入标题"
                                class="layui-input">
-                    </div>
-                </div>
-                <div class="layui-form-item layui-form-text">
-                    <label class="layui-form-label">详细地址</label>
-                    <div class="layui-input-block">
-                        <textarea placeholder="请输入描述" name="address" class="layui-textarea"></textarea>
                     </div>
                 </div>
             </div>
@@ -90,14 +71,24 @@
       elem: '#selectParent',
       url: '/dept/tree',
       method: 'get',
-      selectInputName: { nodeId: 'parentId', context: 'parentName' },
+      selectInputName: { nodeId: 'dtreeParentId', context: 'parentName' },
       skin: 'layui',
       dataFormat: 'list',
       response: { treeId: 'deptId', parentId: 'parentId', title: 'deptName' },
-      selectInitVal: '1'
+      selectInitVal: ''
+    })
+
+    dtree.on("node('selectParent')", function (obj) {
+      let nodeId = obj && obj.param ? obj.param.nodeId : '0'
+      $('#dept-parent-id').val(String(nodeId || '0'))
     })
 
     form.on('submit(dept-save)', function (data) {
+      let parentId = $('#dept-parent-id').val()
+      if (!/^\d+$/.test(String(parentId || ''))) {
+        parentId = '0'
+      }
+      data.field.parentId = String(parseInt(parentId, 10) || 0)
       $.ajax({
         url: '/dept/save',
         data: JSON.stringify(data.field),

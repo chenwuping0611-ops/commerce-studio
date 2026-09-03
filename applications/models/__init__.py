@@ -9,12 +9,22 @@ from .admin_user import User
 from .admin_user_role import user_role
 from .studio import (
     StudioAsset,
+    StudioBatchPrompt,
     StudioGenerationComment,
     StudioGenerationTask,
+    StudioGenerationTaskAsset,
+    StudioGenerationTaskDetail,
     StudioModel,
     StudioProduct,
     StudioProductAsset,
     StudioProvider,
     StudioSetting,
     StudioSkill,
+)
+from .amazon_ai import (
+    AMAZON_TASK_TITLES,
+    AmazonAiTask,
+    AmazonAiTaskAsset,
+    AmazonAiTaskDependency,
+    AmazonAiTaskSource,
 )

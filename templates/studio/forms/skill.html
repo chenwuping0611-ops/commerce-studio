@@ -97,7 +97,10 @@ document.addEventListener("DOMContentLoaded", function () {
     function loadSkill() {
         if (!skillId) return Promise.resolve();
         setMessage("正在加载 Skill...");
-        return Studio.request("/studio/api/skills").then(function (result) {
+        return Studio.request(
+            "/studio/api/skills?include_content=1&id=" +
+            encodeURIComponent(skillId)
+        ).then(function (result) {
             var skill = result.data.find(function (item) {
                 return String(item.id) === String(skillId);
             });

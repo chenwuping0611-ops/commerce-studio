@@ -1,0 +1,37 @@
+[Unit]
+Description=Pear AI Studio Flask service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pear
+Group=pear
+WorkingDirectory=/opt/pear-ai
+EnvironmentFile=/opt/pear-ai/.flaskenv
+Environment=FLASK_APP=app.py
+Environment=FLASK_CONFIG=production
+Environment=PYTHONUNBUFFERED=1
+# Keep production logs out of the project checkout, even if the copied
+# .flaskenv still contains development values such as LOG_DIR=logs.
+Environment=PEAR_AI_LOG_DIR=/var/log/pear-ai
+Environment=PEAR_AI_APP_LOG_FILE=/var/log/pear-ai/pear-ai.log
+Environment=PEAR_AI_LOG_LEVEL=INFO
+Environment=PEAR_AI_LOG_STRICT=true
+Environment=PEAR_AI_LOG_TO_CONSOLE=false
+ExecStart=/opt/pear-ai/.venv/bin/gunicorn -c /opt/pear-ai/gunicorn.conf.py "applications:create_app('production')"
+Restart=always
+RestartSec=5
+KillSignal=SIGQUIT
+TimeoutStopSec=30
+UMask=0027
+NoNewPrivileges=true
+
+# Flask/Alembic application logs go to pear-ai.log.
+# Gunicorn access/error logs go to gunicorn-access.log/gunicorn-error.log.
+# These two files only capture service bootstrap failures and CLI/stdout noise.
+StandardOutput=append:/var/log/pear-ai/systemd.log
+StandardError=append:/var/log/pear-ai/systemd-error.log
+
+[Install]
+WantedBy=multi-user.target
