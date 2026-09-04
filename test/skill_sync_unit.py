@@ -109,9 +109,43 @@ def test_force_replace_switches_asset_when_old_file_is_unreadable():
     assert session.commit.call_count == 2
 
 
+def test_force_replace_skips_identical_readable_asset():
+    old_asset = SimpleNamespace(
+        id=10,
+        purpose="SKILL",
+        status="ACTIVE",
+        original_filename="old.md",
+    )
+    session = MagicMock()
+
+    with patch.object(db, "session", session), patch(
+        "applications.common.skill_storage.FileService.read_text",
+        return_value="same content\n",
+    ), patch(
+        "applications.common.skill_storage.FileService.stage_asset_update",
+    ) as stage_update, patch(
+        "applications.common.skill_storage.FileService.upload_bytes",
+    ) as upload_bytes:
+        skill = _skill(old_asset)
+        result = force_replace_skill_storage(
+            skill,
+            "same content",
+            "skill.md",
+        )
+
+    assert result is old_asset
+    assert skill.storage_asset_id == old_asset.id
+    assert skill.content is None
+    assert skill.prompt_template is None
+    stage_update.assert_not_called()
+    upload_bytes.assert_not_called()
+    assert session.commit.call_count == 1
+
+
 def main():
     test_force_replace_keeps_asset_identity_when_old_file_is_readable()
     test_force_replace_switches_asset_when_old_file_is_unreadable()
+    test_force_replace_skips_identical_readable_asset()
     print("skill sync unit passed")
 
 

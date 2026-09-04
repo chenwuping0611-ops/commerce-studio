@@ -631,11 +631,15 @@ class GoFastDFSClient:
         )
         stored.original_filename = original_filename[:255]
         if old_path and stored.storage_path == old_path:
-            # Never switch a DB asset to a response that still points at the
-            # old object. The caller can keep the old version and retry with
-            # a storage configuration that supports distinct replacements.
-            raise StorageError(
-                "GoFastDFS replacement returned the original storage path"
+            # Some GoFastDFS deployments deduplicate identical content or
+            # update an object in place and therefore return the old path.
+            # Verify the response below and keep the same database identity.
+            logger.info(
+                "GoFastDFS replacement reused storage path path=%s "
+                "old_checksum=%s new_checksum=%s",
+                old_path,
+                info["checksum"],
+                stored.checksum,
             )
         if not self.exists(stored, filename=stored.original_filename):
             try:

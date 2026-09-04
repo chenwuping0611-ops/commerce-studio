@@ -79,7 +79,7 @@ def force_replace_skill_storage(
         getattr(previous_asset, "status", "") or ""
     ).upper() in ("ACTIVE", "DELETE_FAILED"):
         try:
-            FileService.read_text(
+            stored_content = FileService.read_text(
                 previous_asset,
                 filename=previous_asset.original_filename,
                 maximum_size=DEFAULT_MAX_SKILL_BYTES,
@@ -89,6 +89,15 @@ def force_replace_skill_storage(
             # Upload a fresh object and clean the obsolete row afterwards.
             obsolete_asset = previous_asset
         else:
+            # GoFastDFS may return the existing object path when the uploaded
+            # content is identical. Treat that case as an idempotent sync and
+            # avoid an unnecessary replacement request.
+            if str(stored_content or "").strip() == str(content).strip():
+                skill.prompt_template = None
+                skill.content = None
+                db.session.add(skill)
+                db.session.commit()
+                return previous_asset
             pending_update = FileService.stage_asset_update(
                 previous_asset,
                 content=content_bytes,

@@ -90,6 +90,7 @@ class ReplacementSession:
         delete_failure=False,
         verify_statuses=None,
         path_from_filename=False,
+        same_path=False,
     ):
         self.content = content
         self.upload_error = upload_error
@@ -97,6 +98,7 @@ class ReplacementSession:
         self.verify_statuses = list(verify_statuses or [])
         self.delete_failure = delete_failure
         self.path_from_filename = path_from_filename
+        self.same_path = same_path
         self.upload_count = 0
         self.delete_paths = []
         self.get_urls = []
@@ -112,11 +114,15 @@ class ReplacementSession:
             filename = files["file"][0]
             self.upload_filenames.append(filename)
             path = (
-                f"group1/files/{filename}"
-                if self.path_from_filename
+                "group1/files/old-md5-name.md"
+                if self.same_path
                 else (
-                    "group1/files/"
-                    f"revision-{self.upload_count}.md"
+                    f"group1/files/{filename}"
+                    if self.path_from_filename
+                    else (
+                        "group1/files/"
+                        f"revision-{self.upload_count}.md"
+                    )
                 )
             )
             return FakeResponse(
@@ -264,6 +270,24 @@ def test_gofastdfs_replacement_uses_unique_storage_filename():
     assert len(session.upload_filenames) == 1
     assert session.upload_filenames[0] != "old-md5-name.md"
     assert session.delete_paths == ["group1/files/old-md5-name.md"]
+
+
+def test_gofastdfs_replacement_accepts_reused_storage_path():
+    session = ReplacementSession(same_path=True)
+    client = _replacement_client(session)
+
+    stored = client.update(
+        _old_file_info(),
+        content=b"new content",
+        filename="old-md5-name.md",
+        category="files",
+        delete_old=True,
+    )
+
+    assert stored.storage_path == "/group1/files/old-md5-name.md"
+    assert stored.original_filename == "old-md5-name.md"
+    assert session.upload_count == 1
+    assert session.delete_paths == []
 
 
 def test_amazon_legacy_result_cleanup_only_selects_managed_urls():
