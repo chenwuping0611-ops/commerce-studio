@@ -161,6 +161,8 @@ The seeded model set also includes:
 - Nano Banana 2: `gemini-3.1-flash-image-preview`, image-to-image references,
   `metadata.resolution` and the configured image reference limit.
 - GPT-5.5 vision: `gpt-5.5`, used for post-generation image analysis.
+- Interface AI Responses text models: `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`,
+  `gpt-5.6-sol`, `gpt-5.6-terra` and `gpt-5.6-luna`.
 
 Post-generation analysis is synchronous HTTP by default. It is intentionally
 kept independent from the image/video task polling loop; a successful response
@@ -479,8 +481,10 @@ Provider configuration is separate from model identity:
   default endpoint paths.
 - Models own media type, upstream model code, endpoint overrides, capabilities
   and request field schema.
-- `provider_catalog.py` is the protocol source of truth for known ToAPIs and
-  快跑AI models. Database rows preserve department ownership and enabled state.
+- `provider_catalog.py` is the protocol source of truth for known ToAPIs,
+  快跑AI and 接口AI models. The two Responses text providers share one
+  protocol adapter. Database rows preserve department ownership and enabled
+  state.
 - Kuaipao image generation uses one visible `gpt-image2` model and maps the
   selected quality to `gpt-image-2-1k`, `gpt-image-2-2k` or
   `gpt-image-2-4k`. The selected preset aspect ratio is converted to a valid
@@ -657,6 +661,17 @@ inspect the migration and bootstrap code before adding a release command.
 Never run `flask init --fresh`, `flask db downgrade`, test fixture imports or
 database dumps as part of an online code release.
 
+For a release that must refresh every code-owned Skill URL, use the dedicated
+forward-only command:
+
+```bash
+python -m flask sync-skills
+```
+
+It uploads the bundled Amazon AI and shared feedback Skills, commits the new
+GoFastDFS references, then removes the old objects. It does not copy local
+test rows, generated media, custom Skills, provider keys or database fixtures.
+
 ### Development Rules
 
 1. Read the current model, migration, service, route, template and tests before
@@ -759,15 +774,15 @@ Get-FileHash -Algorithm SHA256 $archive
 tar -tzf $archive | Select-Object -First 80
 ```
 
-For the current release requested on September 3, 2026, the exact artifact
-name is `pear-ai-20260903-full-code-sync.tar.gz`. If a previous archive with
+For the current release requested on September 4, 2026, the exact artifact
+name is `pear-ai-20260904-full-code-sync.tar.gz`. If a previous archive with
 the same name exists, regenerate it only after the current release review so
 its checksum matches the committed code.
 
 The full online update procedure is:
 
 ```powershell
-scp "D:\工作空间\AI项目\pear-ai-20260903-full-code-sync.tar.gz" root@<服务器IP>:/tmp/
+scp "D:\工作空间\AI项目\pear-ai-20260904-full-code-sync.tar.gz" root@<服务器IP>:/tmp/
 ```
 
 Run the following on CentOS 9. It preserves the existing `.flaskenv` and
@@ -783,7 +798,7 @@ sudo systemctl stop pear-ai
 
 release_dir="/tmp/pear-ai-release-$(date +%Y%m%d%H%M%S)"
 sudo mkdir -p "$release_dir"
-sudo tar -xzf /tmp/pear-ai-20260903-full-code-sync.tar.gz -C "$release_dir"
+sudo tar -xzf /tmp/pear-ai-20260904-full-code-sync.tar.gz -C "$release_dir"
 
 # The archive contains direct project contents and never contains .flaskenv.
 sudo cp -a "$release_dir"/. /opt/pear-ai/
@@ -803,10 +818,10 @@ python -m flask db current
 python -m flask db upgrade
 python -m flask db current
 
-# These are idempotent, non-fresh bootstrap operations. They do not clear
-# existing provider API keys and update bundled Skill files in GoFastDFS.
-python -m flask studio-init --seed-storage
-python -m flask amazon-ai-init --seed-storage
+# This forward-only operation does not clear existing provider API keys. It
+# reuploads every code-owned Skill, updates the database references, and
+# deletes each old GoFastDFS object after the database commit succeeds.
+python -m flask sync-skills
 
 deactivate
 

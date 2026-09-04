@@ -123,6 +123,14 @@ class BaseConfig:
     STUDIO_HTTP_MAX_RETRIES = int(
         os.getenv("STUDIO_HTTP_MAX_RETRIES") or 2
     )
+    # One provider operation gets its initial request plus this many business
+    # retries. Submission retries reuse the same local task row.
+    STUDIO_PROVIDER_RETRY_COUNT = int(
+        os.getenv("STUDIO_PROVIDER_RETRY_COUNT") or 3
+    )
+    STUDIO_PROVIDER_RETRY_BACKOFF = float(
+        os.getenv("STUDIO_PROVIDER_RETRY_BACKOFF") or 0.5
+    )
     STUDIO_OUTPUT_UPLOAD_ATTEMPTS = max(
         1,
         int(os.getenv("STUDIO_OUTPUT_UPLOAD_ATTEMPTS") or 2),

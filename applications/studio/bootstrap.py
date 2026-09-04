@@ -8,6 +8,7 @@ from applications.common.scope import (
     PROVIDER_OWNER_DEPARTMENT,
     SUPER_ADMIN_ROLE_CODE,
 )
+from applications.common.skill_storage import force_replace_skill_storage
 from applications.common.storage import FileService
 from applications.extensions import db
 from applications.models import (
@@ -487,6 +488,64 @@ def seed_menu():
     db.session.commit()
 
 
+def _sync_catalog_models(provider):
+    """Materialize one provider's code-owned model catalog idempotently."""
+
+    catalog_specs = catalog_for_provider(provider).models()
+    catalog_codes = {spec.code for spec in catalog_specs}
+    for spec in catalog_specs:
+        model = StudioModel.query.filter_by(
+            provider_id=provider.id,
+            model_code=spec.code,
+        ).first()
+        if not model:
+            model = StudioModel(
+                provider_id=provider.id,
+                name=spec.name,
+                model_code=spec.code,
+                media_type=spec.media_type,
+                generation_path=spec.generation_path,
+                result_path=spec.result_path,
+                parameter_schema=json.dumps(
+                    spec.parameter_schema(),
+                    ensure_ascii=False,
+                ),
+                capabilities=json.dumps(
+                    spec.capability_data(),
+                    ensure_ascii=False,
+                ),
+                enabled=1,
+                description=spec.description,
+            )
+            db.session.add(model)
+            continue
+
+        # The catalog is the protocol source of truth. Keep only the
+        # operator-controlled enabled flag in the database.
+        model.name = spec.name
+        model.model_code = spec.code
+        model.media_type = spec.media_type
+        model.generation_path = spec.generation_path
+        model.result_path = spec.result_path
+        model.parameter_schema = json.dumps(
+            spec.parameter_schema(),
+            ensure_ascii=False,
+        )
+        model.capabilities = json.dumps(
+            spec.capability_data(),
+            ensure_ascii=False,
+        )
+        model.description = spec.description
+
+    db.session.flush()
+    for model in StudioModel.query.filter_by(provider_id=provider.id).all():
+        if model.model_code not in catalog_codes:
+            # Keep legacy rows for historical references, but stop exposing
+            # them as active choices after a catalog revision.
+            model.enabled = 0
+    return catalog_specs
+
+
 def seed_provider(
     *,
     seed_credentials=True,
@@ -564,57 +623,7 @@ def seed_provider(
             provider.description or "ToAPIs 图片与视频异步生成接口"
         )
 
-    catalog_specs = catalog_for_provider(provider).models()
-    catalog_codes = {spec.code for spec in catalog_specs}
-    for spec in catalog_specs:
-        model = StudioModel.query.filter_by(
-            provider_id=provider.id,
-            model_code=spec.code,
-        ).first()
-        if not model:
-            model = StudioModel(
-                provider_id=provider.id,
-                name=spec.name,
-                model_code=spec.code,
-                media_type=spec.media_type,
-                generation_path=spec.generation_path,
-                result_path=spec.result_path,
-                parameter_schema=json.dumps(
-                    spec.parameter_schema(),
-                    ensure_ascii=False,
-                ),
-                capabilities=json.dumps(
-                    spec.capability_data(),
-                    ensure_ascii=False,
-                ),
-                enabled=1,
-                description=spec.description,
-            )
-            db.session.add(model)
-        else:
-            # The catalog is the protocol source of truth. Keep only the
-            # operator-controlled enabled flag in the database.
-            model.name = spec.name
-            model.model_code = spec.code
-            model.media_type = spec.media_type
-            model.generation_path = spec.generation_path
-            model.result_path = spec.result_path
-            model.parameter_schema = json.dumps(
-                spec.parameter_schema(),
-                ensure_ascii=False,
-            )
-            model.capabilities = json.dumps(
-                spec.capability_data(),
-                ensure_ascii=False,
-            )
-            model.description = spec.description
-    # Disable database rows from an older or expanded catalog revision. Keep
-    # the rows for historical task references, but do not expose them as
-    # active choices after the catalog has been narrowed.
-    for model in provider.models:
-        if model.model_code not in catalog_codes:
-            model.enabled = 0
-    db.session.flush()
+    _sync_catalog_models(provider)
     chat_model_filters = [
         StudioModel.media_type == "CHAT",
         StudioModel.enabled == 1,
@@ -743,57 +752,113 @@ def seed_kuaipao_provider(
     elif clear_credentials:
         provider.api_key = None
 
-    catalog = catalog_for_provider(provider)
-    catalog_specs = catalog.models()
+    catalog_specs = _sync_catalog_models(provider)
     catalog_codes = {spec.code for spec in catalog_specs}
     last_model = None
-    for spec in catalog_specs:
-        model = StudioModel.query.filter_by(
-            provider_id=provider.id,
-            model_code=spec.code,
-        ).first()
-        if not model:
-            model = StudioModel(
-                provider_id=provider.id,
-                name=spec.name,
-                model_code=spec.code,
-                media_type=spec.media_type,
-                generation_path=spec.generation_path,
-                result_path=spec.result_path,
-                parameter_schema=json.dumps(
-                    spec.parameter_schema(),
-                    ensure_ascii=False,
-                ),
-                capabilities=json.dumps(
-                    spec.capability_data(),
-                    ensure_ascii=False,
-                ),
-                enabled=1,
-                description=spec.description,
-            )
-            db.session.add(model)
+    for model in StudioModel.query.filter_by(
+        provider_id=provider.id,
+    ).order_by(StudioModel.id.asc()).all():
+        if model.model_code in catalog_codes:
             last_model = model
-            continue
-        last_model = model
-        model.name = spec.name
-        model.media_type = spec.media_type
-        model.generation_path = spec.generation_path
-        model.result_path = spec.result_path
-        model.parameter_schema = json.dumps(
-            spec.parameter_schema(),
-            ensure_ascii=False,
-        )
-        model.capabilities = json.dumps(
-            spec.capability_data(),
-            ensure_ascii=False,
-        )
-        model.description = spec.description
-
-    for model in provider.models:
-        if model.model_code not in catalog_codes:
-            model.enabled = 0
     db.session.commit()
     return provider, last_model
+
+
+def seed_jiekou_provider(
+    *,
+    seed_credentials=True,
+    clear_credentials=False,
+    provider_owner_type=None,
+    provider_department_id=_DEFAULT_PROVIDER_DEPARTMENT,
+):
+    """Seed the Interface AI Responses provider without storing secrets in code."""
+
+    default_department = _studio_default_department()
+    owner_type = PROVIDER_OWNER_DEPARTMENT
+    if (
+        provider_department_id is _DEFAULT_PROVIDER_DEPARTMENT
+        or provider_department_id in (None, "")
+    ):
+        provider_department_id = (
+            default_department.id if default_department else None
+        )
+    if provider_department_id is None:
+        return None
+    try:
+        provider_department_id = int(provider_department_id)
+    except (TypeError, ValueError):
+        return None
+
+    default_base_url = (
+        str(
+            os.getenv("JIEKOU_BASE_URL")
+            or "https://api.jiekou.ai/openai/v1"
+        )
+        .strip()
+        .rstrip("/")
+        or "https://api.jiekou.ai/openai/v1"
+    )
+    provider = _find_seed_provider(
+        "接口AI",
+        owner_type,
+        provider_department_id,
+    )
+    if not provider:
+        provider = StudioProvider(
+            name="接口AI",
+            dept_id=provider_department_id,
+            owner_type=owner_type,
+            kind="relay",
+            base_url=default_base_url,
+            generation_path="/responses",
+            result_path=None,
+            balance_path="/v1/user/balance",
+            token_balance_path="/v1/balance",
+            auth_header="Authorization",
+            auth_prefix="Bearer",
+            timeout=max(30, int(os.getenv("JIEKOU_TIMEOUT") or 600)),
+            enabled=1,
+            description=(
+                "接口AI OpenAI 兼容 Responses API，支持 input_file、"
+                "input_image 与 web_search"
+            ),
+        )
+        db.session.add(provider)
+        db.session.flush()
+    else:
+        provider.owner_type = owner_type
+        provider.dept_id = provider_department_id
+        provider.kind = provider.kind or "relay"
+        provider.base_url = (
+            str(provider.base_url or "").strip().rstrip("/")
+            or default_base_url
+        )
+        provider.generation_path = "/responses"
+        provider.result_path = None
+        provider.balance_path = provider.balance_path or "/v1/user/balance"
+        provider.token_balance_path = provider.token_balance_path or "/v1/balance"
+        provider.auth_header = provider.auth_header or "Authorization"
+        provider.auth_prefix = provider.auth_prefix or "Bearer"
+        provider.timeout = max(
+            30,
+            int(os.getenv("JIEKOU_TIMEOUT") or provider.timeout or 600),
+        )
+        provider.enabled = 1 if provider.enabled is None else provider.enabled
+        provider.description = (
+            provider.description
+            or "接口AI OpenAI 兼容 Responses API，支持 input_file、"
+            "input_image 与 web_search"
+        )
+
+    configured_key = str(os.getenv("JIEKOU_API_KEY") or "").strip()
+    if seed_credentials and configured_key:
+        provider.api_key = configured_key
+    elif clear_credentials:
+        provider.api_key = None
+
+    _sync_catalog_models(provider)
+    db.session.commit()
+    return provider
 
 
 def disable_legacy_kuaipao_image_models():
@@ -814,7 +879,7 @@ def disable_legacy_kuaipao_image_models():
 
 
 def ensure_default_provider_configs(department_id=None):
-    """Ensure both built-in providers exist for one ownership scope.
+    """Ensure all built-in providers exist for one ownership scope.
 
     ``None`` denotes the real ``总项目`` department. A positive department id
     denotes an independent department scope. The operation is idempotent,
@@ -849,13 +914,20 @@ def ensure_default_provider_configs(department_id=None):
         provider_owner_type=PROVIDER_OWNER_DEPARTMENT,
         provider_department_id=scoped_department_id,
     )
+    jiekou = seed_jiekou_provider(
+        seed_credentials=False,
+        clear_credentials=False,
+        provider_owner_type=PROVIDER_OWNER_DEPARTMENT,
+        provider_department_id=scoped_department_id,
+    )
     return {
         "toapis": toapis,
         "kuaipao": kuaipao,
+        "jiekou": jiekou,
     }
 
 
-def seed_feedback_skill(seed_storage=True):
+def seed_feedback_skill(seed_storage=True, force_storage_sync=False):
     """Create the built-in feedback Skill and persist its Markdown in storage."""
 
     content = load_feedback_skill_content()
@@ -883,7 +955,7 @@ def seed_feedback_skill(seed_storage=True):
                 ).strip()
             except Exception:
                 stored_content = ""
-            if stored_content:
+            if stored_content and not force_storage_sync:
                 # The GoFastDFS document is canonical. Do not let the
                 # duplicated legacy columns make the Skill appear to have
                 # local content or trigger another upload.
@@ -912,17 +984,19 @@ def seed_feedback_skill(seed_storage=True):
     else:
         # A manually edited built-in Skill keeps its content; only repair a
         # missing storage record so the Skill page can always download it.
-        content = skill.content or content
+        if not force_storage_sync:
+            content = skill.content or content
         skill.name = skill.name or FEEDBACK_SKILL_NAME
         if skill.dept_id is None and default_department:
             skill.dept_id = default_department.id
         skill.media_type = "BOTH"
         skill.file_name = skill.file_name or FEEDBACK_SKILL_FILE_NAME
         skill.file_type = skill.file_type or "md"
-        content = (
-            str(skill.content or skill.prompt_template or "").strip()
-            or content
-        )
+        if not force_storage_sync:
+            content = (
+                str(skill.content or skill.prompt_template or "").strip()
+                or content
+            )
         if not seed_storage:
             skill.prompt_template = content
             skill.content = content
@@ -930,6 +1004,16 @@ def seed_feedback_skill(seed_storage=True):
 
     if not seed_storage:
         db.session.commit()
+        return skill
+
+    if force_storage_sync:
+        force_replace_skill_storage(
+            skill,
+            content,
+            skill.file_name or FEEDBACK_SKILL_FILE_NAME,
+            created_by=skill.created_by,
+            dept_id=skill.dept_id,
+        )
         return skill
 
     stored = None
@@ -1055,6 +1139,7 @@ def initialize_studio(
     seed_credentials=True,
     clear_credentials=False,
     seed_storage=True,
+    force_storage_sync=False,
     provider_owner_type=None,
     provider_department_id=_DEFAULT_PROVIDER_DEPARTMENT,
 ):
@@ -1064,9 +1149,9 @@ def initialize_studio(
 
     db.create_all()
     seed_menu()
-    # Materialize the same provider catalog independently for every real
+    # Materialize the same provider catalogs independently for every real
     # department. ``总项目`` is the admin's department, not a virtual owner
-    # scope, so it receives the same two provider rows as every other
+    # scope, so it receives the same built-in provider rows as every other
     # department.
     scopes = []
     departments = Dept.query.order_by(Dept.sort.asc(), Dept.id.asc()).all()
@@ -1102,5 +1187,14 @@ def initialize_studio(
             provider_owner_type=owner_type,
             provider_department_id=department_id,
         )
+        seed_jiekou_provider(
+            seed_credentials=seed_credentials,
+            clear_credentials=clear_credentials,
+            provider_owner_type=owner_type,
+            provider_department_id=department_id,
+        )
     disable_legacy_kuaipao_image_models()
-    seed_feedback_skill(seed_storage=seed_storage)
+    seed_feedback_skill(
+        seed_storage=seed_storage,
+        force_storage_sync=force_storage_sync,
+    )

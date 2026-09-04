@@ -79,9 +79,6 @@ def main():
             with lock:
                 call_counts[prompt] = call_counts.get(prompt, 0) + 1
                 calls.append(kwargs)
-                attempt = call_counts[prompt]
-            if "版本二产品详情图" in prompt and attempt == 1:
-                raise RuntimeError("模拟第二版首次提交失败")
             task_id = 1000 + len(calls)
             successful_ids.append(task_id)
             return SimpleNamespace(
@@ -166,14 +163,13 @@ def main():
             assert payload["failed"] == 0
             assert len(payload["tasks"]) == 2
             assert call_counts["版本一产品详情图"] == 1
-            assert call_counts["版本二产品详情图"] == 2
+            assert call_counts["版本二产品详情图"] == 1
             actual_pairs = sorted(
                 (call["options"]["aspect_ratio"], call["options"]["resolution"])
                 for call in calls
             )
             assert actual_pairs == [
                 ("16:9", "1k"),
-                ("1:1", "4k"),
                 ("1:1", "4k"),
             ], actual_pairs
             assert all(

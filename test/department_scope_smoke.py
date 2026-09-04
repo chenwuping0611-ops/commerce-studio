@@ -390,7 +390,7 @@ def main():
                 and item["owner_type"] == "DEPARTMENT"
                 for item in department_provider_rows
             )
-            assert {"ToAPIs", "快跑AI"} <= {
+            assert {"ToAPIs", "快跑AI", "接口AI"} <= {
                 item["name"] for item in department_provider_rows
             }
 

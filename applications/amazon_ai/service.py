@@ -54,6 +54,7 @@ from applications.studio.provider_client import (
     ProviderClient,
     extract_chat_content,
     is_responses_path,
+    provider_retry_call,
 )
 from applications.studio.provider_catalog import model_spec_for
 from applications.amazon_ai.file_text import read_assets_text
@@ -2003,15 +2004,22 @@ class AmazonAiService:
                 model.model_code,
                 request_digest,
             )
-            response = ProviderClient(
-                execution_context.provider
-            ).complete(
-                execution_context.model,
-                body,
+            client = ProviderClient(execution_context.provider)
+
+            def complete_once():
+                response = client.complete(
+                    execution_context.model,
+                    body,
+                )
+                content = extract_chat_content(response)
+                if not content:
+                    raise ValueError("全局语言模型没有返回分析内容")
+                return response, content
+
+            response, content = provider_retry_call(
+                complete_once,
+                operation_name=f"amazon ai {task_code}",
             )
-            content = extract_chat_content(response)
-            if not content:
-                raise ValueError("全局语言模型没有返回分析内容")
             response_digest = _hash(response)
             task = AmazonAiTask.query.get(task_id)
             if not task or not can_access_resource(actor, task):

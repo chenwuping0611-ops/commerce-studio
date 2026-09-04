@@ -285,8 +285,8 @@ def save():
     db.session.add(dept)
     db.session.commit()
     try:
-        # Every real department owns an independent ToAPIs and Kuaipao
-        # configuration. The helper is idempotent and never writes a key.
+        # Every real department owns independent built-in provider
+        # configurations. The helper is idempotent and never writes a key.
         from applications.studio.bootstrap import ensure_default_provider_configs
 
         ensure_default_provider_configs(dept.id)

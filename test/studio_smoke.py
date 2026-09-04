@@ -138,6 +138,9 @@ def main():
         assert admin_user is not None
         root_department = Dept.query.filter_by(id=admin_user.dept_id).first()
         assert root_department is not None
+        from applications.studio.bootstrap import ensure_default_provider_configs
+
+        ensure_default_provider_configs(root_department.id)
         toapis = StudioProvider.query.filter_by(
             name="ToAPIs",
             dept_id=root_department.id,
@@ -323,6 +326,68 @@ def main():
             for model in kuaipao_enabled_models
             if model.model_code in kuaipao_image_codes
         )
+        jiekou = StudioProvider.query.filter_by(
+            name="接口AI",
+            dept_id=root_department.id,
+        ).order_by(StudioProvider.id.asc()).first()
+        assert jiekou is not None
+        jiekou_catalog_response = client.get(
+            f"/studio/api/provider-catalog?provider_id={jiekou.id}"
+        )
+        assert jiekou_catalog_response.status_code == 200
+        jiekou_catalog = jiekou_catalog_response.json["data"]
+        assert jiekou_catalog["key"] == "jiekou"
+        assert {
+            item["code"] for item in jiekou_catalog["models"]
+            if item["media_type"] == "CHAT"
+        } == {
+            "gpt-5.5",
+            "gpt-5.4",
+            "gpt-5.4-mini",
+            "gpt-5.6-sol",
+            "gpt-5.6-terra",
+            "gpt-5.6-luna",
+        }
+        assert all(
+            item["media_type"] == "CHAT"
+            and item["generation_path"] == "/responses"
+            and {
+                "model",
+                "input",
+                "tools",
+                "max_output_tokens",
+            } <= {
+                field["field"]
+                for field in item["parameter_schema"]
+            }
+            and item["capabilities"]["supports_input_file"] is True
+            and item["capabilities"]["supports_web_search"] is True
+            for item in jiekou_catalog["models"]
+            if item["media_type"] == "CHAT"
+        )
+        jiekou_image_models = [
+            item
+            for item in jiekou_catalog["models"]
+            if item["media_type"] == "IMAGE"
+        ]
+        assert len(jiekou_image_models) == 1
+        assert jiekou_image_models[0]["code"] == "gpt-image2"
+        assert jiekou_image_models[0]["generation_path"] == (
+            "https://api.jiekou.ai/v3/gpt-image-2-edit"
+        )
+        assert {
+            "prompt",
+            "n",
+            "size",
+            "resolution",
+            "image",
+            "quality",
+            "background",
+            "output_format",
+        } <= {
+            field["field"]
+            for field in jiekou_image_models[0]["parameter_schema"]
+        }
         provider_page = client.get("/studio/providers").get_data(
             as_text=True
         )

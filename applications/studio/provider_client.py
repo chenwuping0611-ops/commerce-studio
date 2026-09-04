@@ -4,6 +4,7 @@ import json
 import mimetypes
 import os
 import threading
+import time
 import uuid
 from types import SimpleNamespace
 from urllib.parse import quote, unquote, urlparse, urlsplit, urlunsplit
@@ -19,6 +20,9 @@ from .provider_catalog import (
     KUAIPAO_IMAGE_API_MODEL_CODES,
     KUAIPAO_IMAGE_MODEL_CODE,
     KUAIPAO_LEGACY_IMAGE_MODEL_CODES,
+    JIEKOU_IMAGE_EDIT_URL,
+    JIEKOU_IMAGE_MODEL_CODE,
+    JiekouCatalog,
     KuaipaoCatalog,
     kuaipao_image_api_model_code,
     provider_catalog_key,
@@ -53,6 +57,7 @@ BALANCE_FIELDS = (
 GPT5_COMPLETION_MODEL_CODES = frozenset(
     {
         "gpt-5.4",
+        "gpt-5.4-mini",
         "gpt-5.5",
         "gpt-5.6-sol",
         "gpt-5.6-terra",
@@ -71,6 +76,7 @@ GPT56_MODEL_CODES = frozenset(
 # GPT-5.x supports up to 128000 output tokens. Responses uses the
 # max_output_tokens field; Chat Completions uses max_completion_tokens.
 GPT_MAX_OUTPUT_TOKENS = 128000
+DEFAULT_PROVIDER_RETRY_COUNT = 3
 
 _SENSITIVE_PAYLOAD_KEYS = frozenset(
     {
@@ -149,6 +155,79 @@ def redact_provider_payload(value):
     return redacted
 
 
+def provider_retry_attempts():
+    """Return total attempts for one provider operation, including the first."""
+
+    config = current_app.config if has_app_context() else {}
+    try:
+        retries = int(
+            config.get("STUDIO_PROVIDER_RETRY_COUNT")
+            or os.getenv("STUDIO_PROVIDER_RETRY_COUNT")
+            or DEFAULT_PROVIDER_RETRY_COUNT
+        )
+    except (TypeError, ValueError, RuntimeError):
+        retries = DEFAULT_PROVIDER_RETRY_COUNT
+    return max(1, retries + 1)
+
+
+def is_retryable_provider_error(error):
+    """Reject deterministic client errors while retrying transient failures."""
+
+    if getattr(error, "do_not_retry", False):
+        return False
+    status_code = getattr(error, "status_code", None)
+    if status_code is None:
+        return True
+    try:
+        status_code = int(status_code)
+    except (TypeError, ValueError):
+        return True
+    return status_code in (408, 409, 425, 429) or status_code >= 500
+
+
+def provider_retry_call(operation, *, operation_name="provider", attempts=None):
+    """Run one provider operation with three retries by default."""
+
+    total_attempts = (
+        provider_retry_attempts()
+        if attempts is None
+        else max(1, int(attempts))
+    )
+    for attempt in range(1, total_attempts + 1):
+        try:
+            return operation()
+        except Exception as error:
+            if (
+                attempt >= total_attempts
+                or getattr(error, "_upstream_accepted", False)
+                or not is_retryable_provider_error(error)
+            ):
+                raise
+            config = current_app.config if has_app_context() else {}
+            try:
+                backoff = max(
+                    0.0,
+                    float(
+                        config.get("STUDIO_PROVIDER_RETRY_BACKOFF")
+                        or os.getenv("STUDIO_PROVIDER_RETRY_BACKOFF")
+                        or 0.5
+                    ),
+                )
+            except (TypeError, ValueError, RuntimeError):
+                backoff = 0.5
+            if has_app_context():
+                current_app.logger.warning(
+                    "provider operation retry: operation=%s "
+                    "attempt=%s/%s error=%s",
+                    operation_name,
+                    attempt,
+                    total_attempts,
+                    str(error),
+                )
+            if backoff:
+                time.sleep(backoff * (2 ** (attempt - 1)))
+
+
 def _find_balance_object(payload):
     """Find the first response object containing ToAPIs balance fields."""
 
@@ -188,10 +267,60 @@ def normalize_balance(payload):
 
 
 def extract_chat_content(payload):
-    """Extract assistant text from Chat Completions or Responses payloads."""
+    """Extract only the user-visible assistant text from a model response.
+
+    OpenAI's Responses SDK exposes ``response.output_text`` as a convenience
+    property. It is derived only from ``message`` items containing
+    ``output_text`` parts; reasoning summaries, tool calls and annotations are
+    intentionally excluded. Provider clients currently return decoded JSON,
+    so mirror that contract from the wire payload instead of collecting every
+    incidental ``text`` or ``content`` field.
+    """
+
+    direct_output_text = getattr(payload, "output_text", None)
+    if isinstance(direct_output_text, str):
+        return direct_output_text.strip()
 
     if not isinstance(payload, dict):
         return ""
+
+    if "output_text" in payload:
+        value = payload.get("output_text")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    output = payload.get("output")
+    if isinstance(output, list):
+        responses_parts = []
+        has_responses_shape = False
+        for item in output:
+            if not isinstance(item, dict):
+                continue
+            item_type = str(item.get("type") or "").strip().lower()
+            if item_type:
+                has_responses_shape = True
+            if item_type != "message":
+                continue
+            content = item.get("content")
+            if not isinstance(content, list):
+                continue
+            for part in content:
+                if not isinstance(part, dict):
+                    continue
+                if (
+                    str(part.get("type") or "").strip().lower()
+                    != "output_text"
+                ):
+                    continue
+                text = part.get("text")
+                if isinstance(text, str):
+                    responses_parts.append(text)
+        if has_responses_shape:
+            # This is the same concatenation contract as
+            # ``response.output_text``. Do not add tool/reasoning text or
+            # invent separators between output text blocks.
+            return "".join(responses_parts).strip()
+
     choices = payload.get("choices")
     if isinstance(choices, list) and choices:
         choice = choices[0] or {}
@@ -211,33 +340,14 @@ def extract_chat_content(payload):
             return "\n".join(parts).strip()
         if choice.get("text"):
             return str(choice["text"]).strip()
-    for key in ("output_text", "text", "content"):
+
+    # Keep compatibility with simple non-Responses relays that return a
+    # top-level text/content field, but never use these fields for a Responses
+    # payload because they are not equivalent to ``response.output_text``.
+    for key in ("text", "content"):
         value = payload.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
-
-    output = payload.get("output")
-    if isinstance(output, list):
-        parts = []
-        for item in output:
-            if not isinstance(item, dict):
-                continue
-            value = item.get("text")
-            if isinstance(value, str) and value.strip():
-                parts.append(value.strip())
-            content = item.get("content")
-            if isinstance(content, str) and content.strip():
-                parts.append(content.strip())
-            elif isinstance(content, list):
-                for part in content:
-                    if isinstance(part, str) and part.strip():
-                        parts.append(part.strip())
-                    elif isinstance(part, dict):
-                        text = part.get("text") or part.get("value")
-                        if isinstance(text, str) and text.strip():
-                            parts.append(text.strip())
-        if parts:
-            return "\n".join(parts).strip()
     return ""
 
 
@@ -762,16 +872,107 @@ class ToApisClient(ProviderClient):
         return self.chat_completion(model, body)
 
 
-class KuaipaoClient(ProviderClient):
+class ResponsesProviderClient(ProviderClient):
+    """Shared client for providers exposing the native Responses contract."""
+
+    provider_key = None
+    provider_label = "Responses"
+    model_codes = frozenset()
+    default_model_code = "gpt-5.4"
+    responses_path = "/responses"
+
+    def responses_create(self, model, body):
+        """Send one stateless Responses request for a known text model."""
+
+        request_body = dict(body or {})
+        if "input" not in request_body:
+            request_body = self._chat_body_to_responses(request_body)
+        request_body = self._fresh_responses_body(request_body)
+        if (
+            getattr(model, "media_type", "CHAT")
+            and str(getattr(model, "media_type", "CHAT")).upper() != "CHAT"
+        ):
+            raise ProviderRequestError(
+                f"{self.provider_label}当前只支持文本 Responses 模型"
+            )
+        if (
+            request_body.get("max_output_tokens") in (None, "")
+            and request_body.get("max_completion_tokens") not in (None, "")
+        ):
+            request_body["max_output_tokens"] = request_body.pop(
+                "max_completion_tokens"
+            )
+        elif request_body.get("max_output_tokens") in (None, ""):
+            request_body.pop("max_tokens", None)
+        request_body.pop("max_completion_tokens", None)
+        request_body.pop("max_tokens", None)
+        max_output_tokens = request_body.get("max_output_tokens")
+        if max_output_tokens not in (None, ""):
+            try:
+                request_body["max_output_tokens"] = min(
+                    max(int(max_output_tokens), 1),
+                    GPT_MAX_OUTPUT_TOKENS,
+                )
+            except (TypeError, ValueError):
+                request_body.pop("max_output_tokens", None)
+        model_code = str(getattr(model, "model_code", "") or "").strip()
+        request_code = str(request_body.get("model") or "").strip()
+        normalized_model_code = model_code.lower()
+        normalized_request_code = request_code.lower()
+        for code in (normalized_model_code, normalized_request_code):
+            if code and code not in self.model_codes:
+                raise ProviderRequestError(
+                    f"{self.provider_label}当前支持的模型为："
+                    + "、".join(sorted(self.model_codes))
+                )
+        if (
+            normalized_model_code
+            and normalized_request_code
+            and normalized_model_code != normalized_request_code
+        ):
+            raise ProviderRequestError(
+                f"{self.provider_label}请求模型与已选择的模型不一致"
+            )
+        canonical_model_code = (
+            normalized_model_code
+            or normalized_request_code
+            or self.default_model_code
+        )
+        request_body["model"] = canonical_model_code
+        if canonical_model_code in GPT56_MODEL_CODES:
+            # GPT-5.6 reasoning models reject legacy sampling controls even
+            # when the relay accepts the rest of the Responses payload.
+            request_body.pop("temperature", None)
+            request_body.pop("top_p", None)
+            request_body.setdefault("reasoning_effort", "medium")
+        return self._request(
+            "POST",
+            self.responses_path,
+            request_body,
+        )
+
+    def submit_generation(self, model, body):
+        """Reject image/video task submission for text-only Responses relays."""
+
+        raise ProviderRequestError(
+            f"{self.provider_label}当前只支持文本 Responses 模型"
+        )
+
+    def chat_completion(self, model, body):
+        """Accept legacy callers but translate them to Responses JSON."""
+
+        return self.responses_create(model, body)
+
+
+class KuaipaoClient(ResponsesProviderClient):
     """Client for Kuaipao Responses text and multipart image models."""
 
     provider_key = "kuaipao"
+    provider_label = "快跑AI"
     model_codes = frozenset(KuaipaoCatalog.MODEL_CODES)
     image_model_codes = frozenset(KuaipaoCatalog.IMAGE_MODEL_CODES)
     legacy_image_model_codes = frozenset(KUAIPAO_LEGACY_IMAGE_MODEL_CODES)
     all_image_model_codes = image_model_codes | legacy_image_model_codes
-    default_model_code = "gpt-5.4"
-    responses_path = "/responses"
 
     def submit_generation(self, model, body):
         media_type = str(
@@ -927,73 +1128,42 @@ class KuaipaoClient(ProviderClient):
             for handle in handles:
                 handle.close()
 
-    def responses_create(self, model, body):
-        # Always use the native Responses contract. The model row is not
-        # allowed to redirect this provider to ToAPIs Chat Completions.
+    def complete(self, model, body):
+        if str(getattr(model, "media_type", "") or "").upper() == "IMAGE":
+            return self.submit_generation(model, body)
+        return self.responses_create(model, body)
+
+
+class JiekouClient(ResponsesProviderClient):
+    """Client for the Interface AI Responses text and image provider."""
+
+    provider_key = "jiekou"
+    provider_label = "接口AI"
+    model_codes = frozenset(JiekouCatalog.CHAT_MODEL_CODES)
+    image_model_codes = frozenset(JiekouCatalog.IMAGE_MODEL_CODES)
+
+    def submit_generation(self, model, body):
+        """Submit one synchronous Interface AI gpt-image2 JSON request."""
+
+        media_type = str(
+            getattr(model, "media_type", "") or ""
+        ).strip().upper()
+        model_code = str(
+            getattr(model, "model_code", "") or ""
+        ).strip().lower()
+        if media_type != "IMAGE" or model_code not in self.image_model_codes:
+            raise ProviderRequestError(
+                "接口AI当前只支持文本 Responses 模型或图片模型 gpt-image2"
+            )
         request_body = dict(body or {})
-        if "input" not in request_body:
-            request_body = self._chat_body_to_responses(request_body)
-        request_body = self._fresh_responses_body(request_body)
-        if (
-            getattr(model, "media_type", "CHAT")
-            and str(getattr(model, "media_type", "CHAT")).upper() != "CHAT"
-        ):
-            raise ProviderRequestError(
-                "快跑AI当前只支持文本 Responses 模型"
-            )
-        if (
-            request_body.get("max_output_tokens") in (None, "")
-            and request_body.get("max_completion_tokens") not in (None, "")
-        ):
-            request_body["max_output_tokens"] = request_body.pop(
-                "max_completion_tokens"
-            )
-        elif request_body.get("max_output_tokens") in (None, ""):
-            request_body.pop("max_tokens", None)
-        request_body.pop("max_completion_tokens", None)
-        request_body.pop("max_tokens", None)
-        max_output_tokens = request_body.get("max_output_tokens")
-        if max_output_tokens not in (None, ""):
-            try:
-                request_body["max_output_tokens"] = min(
-                    max(int(max_output_tokens), 1),
-                    GPT_MAX_OUTPUT_TOKENS,
-                )
-            except (TypeError, ValueError):
-                request_body.pop("max_output_tokens", None)
-        model_code = str(getattr(model, "model_code", "") or "").strip()
-        if model_code.lower() in GPT56_MODEL_CODES:
-            # GPT-5.6 reasoning models reject legacy sampling controls even
-            # when the relay accepts the rest of the Responses payload.
-            request_body.pop("temperature", None)
-            request_body.pop("top_p", None)
-            request_body.setdefault("reasoning_effort", "medium")
-        request_code = str(request_body.get("model") or "").strip()
-        for code in (model_code, request_code):
-            if code and code not in self.model_codes:
-                raise ProviderRequestError(
-                    "快跑AI当前支持的模型为："
-                    + "、".join(KuaipaoCatalog.MODEL_CODES)
-                )
-        if model_code and request_code and model_code != request_code:
-            raise ProviderRequestError(
-                "快跑AI请求模型与已选择的模型不一致"
-            )
-        request_body["model"] = (
-            model_code
-            or request_code
-            or self.default_model_code
-        )
+        # The image endpoint identifies the model by its path. Sending the
+        # Responses model field would make the request non-portable.
+        request_body.pop("model", None)
         return self._request(
             "POST",
-            self.responses_path,
+            JIEKOU_IMAGE_EDIT_URL,
             request_body,
         )
-
-    def chat_completion(self, model, body):
-        """Accept legacy callers but translate them to native Responses JSON."""
-
-        return self.responses_create(model, body)
 
     def complete(self, model, body):
         if str(getattr(model, "media_type", "") or "").upper() == "IMAGE":
@@ -1009,4 +1179,6 @@ def provider_client_class(provider):
         return ToApisClient
     if key == KuaipaoClient.provider_key:
         return KuaipaoClient
+    if key == JiekouClient.provider_key:
+        return JiekouClient
     return ProviderClient

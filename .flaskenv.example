@@ -57,6 +57,14 @@ KUAIPAO_API_KEY=
 # gpt-5.4, gpt-5.5, gpt-5.6-sol, and gpt-5.6-terra.
 KUAIPAO_TIMEOUT=180
 
+# Optional Interface AI Responses provider seed. Never commit a real API key.
+JIEKOU_BASE_URL=https://api.jiekou.ai/openai/v1
+JIEKOU_API_KEY=
+# The Interface AI catalog exposes:
+# gpt-5.5, gpt-5.4, gpt-5.4-mini, gpt-5.6-sol, gpt-5.6-terra,
+# and gpt-5.6-luna.
+JIEKOU_TIMEOUT=600
+
 GOFASTDFS_INTERNAL_URL=http://127.0.0.1:8080
 GOFASTDFS_PUBLIC_URL=https://your-domain.example/gofastdfs
 GOFASTDFS_GROUP=group1
@@ -72,6 +80,8 @@ STUDIO_CLEANUP_BATCH_SIZE=100
 STUDIO_POLL_BATCH_SIZE=20
 STUDIO_HTTP_POOL_SIZE=10
 STUDIO_HTTP_MAX_RETRIES=2
+STUDIO_PROVIDER_RETRY_COUNT=3
+STUDIO_PROVIDER_RETRY_BACKOFF=0.5
 STUDIO_ASSET_CLEANUP_INTERVAL=3600
 
 AMAZON_AI_MAX_TEXT_BYTES=120000

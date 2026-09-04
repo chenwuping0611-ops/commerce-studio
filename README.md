@@ -59,16 +59,42 @@ Alembic 迁移，创建 Pear Admin、部门、RBAC、Studio、Amazon AI 及全�
 .\.venv\Scripts\python.exe -m flask init --fresh --yes --skip-storage
 ```
 
-初始化会创建 ToAPIs、快跑 AI 的供应商和模型模板，但 API Key 强制为空。
+初始化会创建 ToAPIs、快跑 AI、接口AI 的供应商和模型模板，但 API Key 强制为空。
 部门表默认创建 `总项目`、`三部五组`、`三部二组` 三个组织结构节点，
 `admin` 绑定到 `总项目` 并作为唯一超级管理员；普通用户只能绑定两个业务部门。
 登录后可以在部门管理中继续新增实际业务部门，再为部门配置供应商和 API Key。
+
+接口AI使用 OpenAI 兼容 Responses API。默认 Base URL 为
+`https://api.jiekou.ai/openai/v1`，请求地址为 `/responses`；支持
+`gpt-5.5`、`gpt-5.4`、`gpt-5.4-mini`、`gpt-5.6-sol`、`gpt-5.6-terra`
+和 `gpt-5.6-luna`。
+它与快跑 AI 文本模型共用项目内的 Responses 请求适配，支持 Skill 文件、
+产品图片和 `web_search` 工具。
+接口AI同时提供 `gpt-image2` 图片模型，请求地址为
+`https://api.jiekou.ai/v3/gpt-image-2-edit`。图片请求固定使用
+`size=auto`、`background=opaque`、`output_format=png`，并将 1K、2K、4K
+分别映射为 `quality=low`、`medium`、`high`；所选画面比例和分辨率会自动
+追加到图片 Prompt 的输出规格末尾。接口AI返回的临时图片 URL 会先下载到
+本地临时文件，再统一上传到 GoFastDFS。
+
+供应商模型调用默认采用首次请求加 3 次业务重试。已获得上游任务 ID 或
+同步输出后的存储失败不会重新提交生成请求；同一业务任务只保留一条本地历史。
 
 GoFastDFS 部署完成并配置 `.flaskenv` 后，如需上传内置 Skill 文件，再执行：
 
 ```powershell
 .\.venv\Scripts\python.exe -m flask init --seed-storage
 ```
+
+线上发布时，如果需要把仓库内全部代码内置 Skill 重新上传到 GoFastDFS，
+切换数据库中的新地址并清理旧对象，执行：
+
+```bash
+python -m flask sync-skills
+```
+
+该命令只处理 `applications/amazon_ai/skills/` 和共享反馈 Skill，不会同步
+本地测试数据、产品素材、生成历史、自定义 Skill 或供应商 API Key。
 
 启动本地服务：
 

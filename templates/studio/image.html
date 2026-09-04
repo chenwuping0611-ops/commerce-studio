@@ -157,10 +157,10 @@
                         <label class="studio-field-label"
                                for="imageBatchProcessModel">图片模型</label>
                         <select id="imageBatchProcessModel" lay-ignore required>
-                            <option value="">正在加载快跑 AI 模型...</option>
+                            <option value="">正在加载图片模型...</option>
                         </select>
                         <div class="studio-field-help">
-                            后端只接受快跑 AI 的稳定模型标识 gpt-image2，并按质量映射真实 API 模型。
+                            仅支持快跑AI或接口AI的稳定模型标识 gpt-image2；接口AI按质量和比例追加输出规格。
                         </div>
                     </div>
                 </div>
@@ -270,6 +270,8 @@ document.addEventListener("DOMContentLoaded", function () {
     var latestTask = null;
     var pollTimer = null;
     var optimisticProgressTimer = null;
+    var batchTaskMetaByCode = {};
+    var knownBatchTaskIdentities = {};
     var lastModelValue = null;
     var viewerState = null;
     var submitButton = form.querySelector("[lay-submit]");
@@ -525,7 +527,9 @@ document.addEventListener("DOMContentLoaded", function () {
         return modelData.filter(function (item) {
             return item.media_type === "IMAGE" &&
                 String(item.model_code || "").toLowerCase() === "gpt-image2" &&
-                String(item.catalog_key || "").toLowerCase() === "kuaipao";
+                ["kuaipao", "jiekou"].indexOf(
+                    String(item.catalog_key || "").toLowerCase()
+                ) !== -1;
         });
     }
 
@@ -541,7 +545,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 return '<option value="' + item.id + '">' +
                     Studio.escapeHtml(label) + "</option>";
             }).join("")
-            : '<option value="">暂无可用的快跑 AI gpt-image2 模型</option>';
+            : '<option value="">暂无可用的快跑AI或接口AI gpt-image2 模型</option>';
         if (models.some(function (item) {
             return String(item.id) === String(current);
         })) {
@@ -630,27 +634,200 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
-    function mergeBatchTasks(items) {
-        var byKey = {};
-        (items || []).concat(historyData || []).forEach(function (item) {
-            var key = taskKey(item);
-            if (key && !byKey[key]) byKey[key] = item;
-        });
-        return Object.keys(byKey).map(function (key) {
-            return byKey[key];
-        });
+    function isLocalTask(item) {
+        return Boolean(
+            item &&
+            String(item.id || "").indexOf("local-") === 0
+        );
     }
 
-    function replaceBatchTask(item) {
+    function isActiveTask(item) {
+        return Boolean(
+            item &&
+            ["PENDING", "SUBMITTED", "PROCESSING"].indexOf(
+                item.status
+            ) !== -1
+        );
+    }
+
+    function batchTaskIdentity(item) {
+        if (
+            !item ||
+            item.batch_prompt_id == null ||
+            item.batch_version == null
+        ) {
+            return "";
+        }
+        if (item.batch_run_id) {
+            return "batch-run:" + String(item.batch_run_id) + ":" +
+                String(item.batch_version);
+        }
+        return "batch:" + String(item.batch_prompt_id) + ":" +
+            String(item.batch_version);
+    }
+
+    function rememberBatchIdentity(item) {
+        var identity = batchTaskIdentity(item);
+        if (identity) knownBatchTaskIdentities[identity] = true;
+        return item;
+    }
+
+    function decorateBatchTask(item, batchRunId) {
+        item = Object.assign({}, item || {});
+        var known = item.task_code
+            ? batchTaskMetaByCode[String(item.task_code)]
+            : null;
+        if (known) {
+            if (item.batch_prompt_id == null) {
+                item.batch_prompt_id = known.batch_prompt_id;
+            }
+            if (item.batch_version == null) {
+                item.batch_version = known.batch_version;
+            }
+            if (item.batch_attempts == null) {
+                item.batch_attempts = known.batch_attempts;
+            }
+            if (item.batch_product_name == null) {
+                item.batch_product_name = known.batch_product_name;
+            }
+            if (item.batch_run_id == null) {
+                item.batch_run_id = known.batch_run_id;
+            }
+        }
+        if (
+            batchRunId &&
+            item.batch_prompt_id != null &&
+            item.batch_version != null &&
+            item.batch_run_id == null
+        ) {
+            item.batch_run_id = batchRunId;
+        }
+        var identity = batchTaskIdentity(item);
+        if (item.task_code && identity) {
+            batchTaskMetaByCode[String(item.task_code)] = {
+                batch_prompt_id: item.batch_prompt_id,
+                batch_version: item.batch_version,
+                batch_attempts: item.batch_attempts || 0,
+                batch_product_name: item.batch_product_name || "",
+                batch_run_id: item.batch_run_id || ""
+            };
+        }
+        return rememberBatchIdentity(item);
+    }
+
+    function historyItemIdentity(item) {
+        var batchIdentity = batchTaskIdentity(item);
+        if (batchIdentity) return batchIdentity;
         var key = taskKey(item);
-        if (!key) return;
-        var replaced = false;
-        historyData = historyData.map(function (current) {
-            if (taskKey(current) !== key) return current;
-            replaced = true;
-            return item;
+        return key ? "task:" + String(key) : "";
+    }
+
+    function createOptimisticBatchTasks(batchPrompt, modelId) {
+        var settings = batchPrompt.version_settings || [];
+        var count = Number(batchPrompt.version_count) || settings.length;
+        if (!count) count = 1;
+        var batchStamp = Date.now();
+        var batchRunId = "run-" + batchStamp + "-" +
+            Math.random().toString(36).slice(2, 8);
+        var modelName = selectedOptionText(batchProcessModelSelect) ||
+            "gpt-image2";
+        var productName = batchPrompt.product_name || "";
+
+        return Array.apply(null, Array(count)).map(function (_, index) {
+            var setting = settings[index] || {};
+            var version = index + 1;
+            var taskCode = "local-batch-" + batchStamp + "-" + version;
+            return {
+                id: taskCode,
+                task_code: taskCode,
+                media_type: "IMAGE",
+                batch_prompt_id: batchPrompt.id,
+                batch_version: version,
+                batch_run_id: batchRunId,
+                batch_attempts: 0,
+                batch_product_name: productName,
+                product_id: batchPrompt.product_id || null,
+                product_name: productName,
+                model_id: modelId,
+                model_name: modelName,
+                aspect_ratio: setting.aspect_ratio ||
+                    batchPrompt.image_aspect_ratio || "2.44:1",
+                resolution: setting.resolution ||
+                    batchPrompt.image_resolution || "2k",
+                prompt: "第" + version + "版批量提示词",
+                status: "PROCESSING",
+                ui_stage: "WAITING",
+                progress: 0,
+                output_assets: [],
+                output_url: "",
+                output_expired: false,
+                comments: [],
+                error_message: "",
+                created_at: "刚刚"
+            };
+        }).map(rememberBatchIdentity);
+    }
+
+    function replaceBatchTask(item, batchRunId) {
+        item = decorateBatchTask(item, batchRunId);
+        var identity = batchTaskIdentity(item);
+        var existing = historyData.find(function (current) {
+            return identity &&
+                batchTaskIdentity(current) === identity;
         });
-        if (!replaced) historyData = [item].concat(historyData);
+        if (!existing) {
+            existing = historyData.find(function (current) {
+                return taskKey(current) &&
+                    taskKey(current) === taskKey(item);
+            });
+        }
+        var next = existing
+            ? Object.assign({}, existing, item)
+            : item;
+        next.ui_stage = isActiveTask(next) ? "GENERATING" : "";
+
+        var replaced = false;
+        var nextHistory = [];
+        historyData.forEach(function (current) {
+            var sameIdentity = identity &&
+                historyItemIdentity(current) === identity;
+            var sameTask = taskKey(current) &&
+                taskKey(current) === taskKey(next);
+            if (!sameIdentity && !sameTask) {
+                nextHistory.push(current);
+                return;
+            }
+            if (!replaced) {
+                nextHistory.push(next);
+                replaced = true;
+            }
+        });
+        if (!replaced) nextHistory.unshift(next);
+        historyData = nextHistory;
+        renderFeed(false);
+        return next;
+    }
+
+    function markBatchTaskFailed(
+        batchPromptId,
+        version,
+        errorMessage,
+        batchRunId
+    ) {
+        var identity = batchTaskIdentity({
+            batch_prompt_id: batchPromptId,
+            batch_version: version,
+            batch_run_id: batchRunId
+        });
+        historyData = historyData.map(function (item) {
+            if (batchTaskIdentity(item) !== identity) return item;
+            return Object.assign({}, item, {
+                status: "FAILED",
+                ui_stage: "",
+                progress: 0,
+                error_message: errorMessage || "图片任务提交失败"
+            });
+        });
         renderFeed(false);
     }
 
@@ -744,6 +921,9 @@ document.addEventListener("DOMContentLoaded", function () {
             event.preventDefault();
             var batchPromptId = batchPromptHistorySelect.value;
             var selectedModelId = batchProcessModelSelect.value;
+            var batchPrompt = batchPromptHistoryData.find(function (item) {
+                return String(item.id) === String(batchPromptId);
+            });
             if (!batchPromptId) {
                 if (batchProcessMessage) {
                     batchProcessMessage.textContent = "请选择一条图片批量提示词历史";
@@ -752,14 +932,34 @@ document.addEventListener("DOMContentLoaded", function () {
             }
             if (!selectedModelId) {
                 if (batchProcessMessage) {
-                    batchProcessMessage.textContent = "请选择可用的快跑 AI gpt-image2 模型";
+                    batchProcessMessage.textContent = "请选择可用的快跑AI或接口AI gpt-image2 模型";
                 }
                 return;
             }
+            if (!batchPrompt) {
+                if (batchProcessMessage) {
+                    batchProcessMessage.textContent =
+                        "批量提示词历史加载失败，请刷新后重试";
+                }
+                return;
+            }
+            var optimisticTasks = createOptimisticBatchTasks(
+                batchPrompt,
+                selectedModelId
+            );
+            var batchRunId = optimisticTasks.length
+                ? optimisticTasks[0].batch_run_id
+                : "";
             batchProcessSubmit.disabled = true;
             if (batchProcessMessage) {
                 batchProcessMessage.textContent = "正在按版本并发提交图片任务，请稍候...";
             }
+            historyData = mergeHistoryWithExisting(
+                optimisticTasks,
+                historyData
+            );
+            renderFeed(true);
+            closeBatchProcess();
             Studio.request("/studio/api/image/batch-process", {
                 method: "POST",
                 body: JSON.stringify({
@@ -769,29 +969,54 @@ document.addEventListener("DOMContentLoaded", function () {
             }).then(function (result) {
                 var data = result.data || {};
                 var tasks = data.tasks || [];
-                historyData = mergeBatchTasks(tasks);
-                renderFeed(true);
-                closeBatchProcess();
+                var resolvedVersions = {};
                 tasks.forEach(function (item) {
-                    if (item.status === "PENDING" ||
-                        item.status === "SUBMITTED" ||
-                        item.status === "PROCESSING") {
-                        pollBatchTask(item.task_code);
+                    var next = replaceBatchTask(item, batchRunId);
+                    if (next.batch_version != null) {
+                        resolvedVersions[String(next.batch_version)] = true;
+                    }
+                    if (isActiveTask(next) && next.task_code) {
+                        pollBatchTask(next.task_code);
                     }
                 });
-                loadHistory(true).then(function () {
-                    // Keep every task returned by the batch request visible
-                    // even when the history endpoint's first page is smaller
-                    // than the selected batch size.
-                    historyData = mergeBatchTasks(tasks);
-                    renderFeed(false);
-                }).catch(function () {});
+                (data.failures || []).forEach(function (failure) {
+                    resolvedVersions[String(failure.version)] = true;
+                    markBatchTaskFailed(
+                        batchPromptId,
+                        failure.version,
+                        failure.error || "图片任务提交失败",
+                        batchRunId
+                    );
+                });
+                optimisticTasks.forEach(function (item) {
+                    if (resolvedVersions[String(item.batch_version)]) return;
+                    markBatchTaskFailed(
+                        item.batch_prompt_id,
+                        item.batch_version,
+                        "接口未返回该版本的任务结果",
+                        batchRunId
+                    );
+                });
                 if (data.failed) {
                     Studio.toast(result.msg, "error");
                 } else {
                     Studio.toast(result.msg);
                 }
+                loadHistory(true).catch(function (error) {
+                    Studio.toast(
+                        "图片历史刷新失败：" + error.message,
+                        "error"
+                    );
+                });
             }).catch(function (error) {
+                optimisticTasks.forEach(function (item) {
+                    markBatchTaskFailed(
+                        item.batch_prompt_id,
+                        item.batch_version,
+                        error.message,
+                        item.batch_run_id
+                    );
+                });
                 if (batchProcessMessage) {
                     batchProcessMessage.textContent = error.message;
                 }
@@ -813,12 +1038,18 @@ document.addEventListener("DOMContentLoaded", function () {
     function statusLabelFor(item) {
         if (item && item.ui_stage === "ANALYZING") return "模型分析中";
         if (item && item.ui_stage === "SUBMITTING") return "正在提交";
+        if (item && item.ui_stage === "WAITING") return "等待结果";
         if (item && item.ui_stage === "GENERATING") return "生成中";
         return Studio.statusText(item && item.status);
     }
 
     function statusProgressFor(item) {
-        if (!item || item.ui_stage === "ANALYZING" || item.ui_stage === "SUBMITTING") {
+        if (
+            !item ||
+            item.ui_stage === "ANALYZING" ||
+            item.ui_stage === "SUBMITTING" ||
+            item.ui_stage === "WAITING"
+        ) {
             return "";
         }
         return item.progress && item.status !== "SUCCEEDED"
@@ -832,6 +1063,9 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         if (item && item.ui_stage === "SUBMITTING") {
             return "，正在提交上游图片接口";
+        }
+        if (item && item.ui_stage === "WAITING") {
+            return "，正在等待批量任务返回";
         }
         return item && item.progress
             ? "，当前进度 " + item.progress + "%"
@@ -987,13 +1221,15 @@ document.addEventListener("DOMContentLoaded", function () {
     function renderFeed(focusLatest) {
         var items = [];
         var seen = {};
-        if (latestTask && taskKey(latestTask)) {
+        var latestIdentity = historyItemIdentity(latestTask);
+        if (latestIdentity) {
             items.push(latestTask);
-            seen[taskKey(latestTask)] = true;
+            seen[latestIdentity] = true;
         }
         historyData.forEach(function (item) {
-            if (!taskKey(item) || seen[taskKey(item)]) return;
-            seen[taskKey(item)] = true;
+            var identity = historyItemIdentity(item);
+            if (!identity || seen[identity]) return;
+            seen[identity] = true;
             items.push(item);
         });
         items = items.filter(function (item) {
@@ -1018,9 +1254,21 @@ document.addEventListener("DOMContentLoaded", function () {
         var outputs = usableOutputs(item);
         var expired = item.output_expired && !outputs.length;
         var statusLabel = statusLabelFor(item);
+        var displayTaskCode = isLocalTask(item) ? "NEW" : item.task_code;
         var product = item.product_name || "";
         var model = item.model_name || "未指定模型";
         var meta = [];
+        if (item.batch_version != null) {
+            meta.push("第" + Studio.escapeHtml(item.batch_version) + "版");
+        }
+        if (item.aspect_ratio) {
+            meta.push("比例：" + Studio.escapeHtml(item.aspect_ratio));
+        }
+        if (item.resolution) {
+            meta.push("质量：" + Studio.escapeHtml(
+                String(item.resolution).toUpperCase()
+            ));
+        }
         if (product) meta.push("产品：" + Studio.escapeHtml(product));
         if (item.skill_name) meta.push("Skill：" + Studio.escapeHtml(item.skill_name));
         if (model) meta.push("模型：" + Studio.escapeHtml(model));
@@ -1053,7 +1301,7 @@ document.addEventListener("DOMContentLoaded", function () {
         } else {
             media = '<div class="studio-feed-processing"><span class="studio-feed-spinner"></span>' +
                 '<div><strong>' + Studio.escapeHtml(statusLabel) + '</strong>' +
-                '<span>任务编号 ' + Studio.escapeHtml(item.task_code || "-") +
+                '<span>任务编号 ' + Studio.escapeHtml(displayTaskCode || "-") +
                 processingDetail(item) +
                 '</span></div></div>';
         }
@@ -1144,7 +1392,7 @@ document.addEventListener("DOMContentLoaded", function () {
             : "";
         return '<article class="studio-feed-item">' +
             '<header class="studio-feed-item-header">' +
-            '<div><strong>' + Studio.escapeHtml(item.task_code || "-") + '</strong>' +
+            '<div><strong>' + Studio.escapeHtml(displayTaskCode || "-") + '</strong>' +
             '<span>' + Studio.escapeHtml(item.created_at || "") + '</span></div>' +
             '<div class="studio-feed-item-header-right"><span class="studio-pill ' +
             Studio.statusClass(item.status) + '">' +
@@ -1195,14 +1443,31 @@ document.addEventListener("DOMContentLoaded", function () {
             : "";
     }
 
-    function mergeHistoryItems(items) {
+    function mergeHistoryWithExisting(items, existingItems) {
+        var byKey = {};
+        (existingItems || []).forEach(function (item) {
+            var key = historyItemIdentity(item);
+            if (!key) return;
+            if (!byKey[key]) byKey[key] = item;
+        });
+        (items || []).forEach(function (item) {
+            var key = historyItemIdentity(item);
+            if (!key) return;
+            if (
+                !byKey[key] ||
+                isLocalTask(byKey[key]) ||
+                !isLocalTask(item)
+            ) {
+                byKey[key] = item;
+            }
+        });
         var seen = {};
         var merged = [];
-        historyData.concat(items || []).forEach(function (item) {
-            var key = taskKey(item);
+        (items || []).concat(existingItems || []).forEach(function (item) {
+            var key = historyItemIdentity(item);
             if (!key || seen[key]) return;
             seen[key] = true;
-            merged.push(item);
+            merged.push(byKey[key]);
         });
         return merged;
     }
@@ -1217,12 +1482,24 @@ document.addEventListener("DOMContentLoaded", function () {
         return Studio.request(
             "/studio/api/history?media_type=IMAGE&page=" + page + "&page_size=20"
         ).then(function (result) {
-            var items = (result.data || []).filter(function (item) {
+            var items = (result.data || []).map(decorateBatchTask).filter(function (item) {
                 return usableOutputs(item).length || item.output_expired ||
                     item.status === "SUBMITTED" || item.status === "PROCESSING" ||
                     item.status === "PENDING" || item.status === "FAILED";
             });
-            historyData = reset ? items : mergeHistoryItems(items);
+            historyData = reset
+                ? mergeHistoryWithExisting(
+                    items,
+                    historyData.filter(function (item) {
+                        var identity = batchTaskIdentity(item);
+                        return isLocalTask(item) ||
+                            Boolean(
+                                identity &&
+                                knownBatchTaskIdentities[identity]
+                            );
+                    })
+                )
+                : mergeHistoryWithExisting(items, historyData);
             historyPage = page;
             historyHasMore = Boolean(result.meta && result.meta.has_more);
             renderFeed(false);

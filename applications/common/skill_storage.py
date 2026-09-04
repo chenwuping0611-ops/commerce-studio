@@ -7,12 +7,161 @@ stored file. New callers should use this module instead of reading
 
 import datetime
 
+from applications.common.asset_relations import asset_referenced
 from applications.common.scope import can_access_asset, can_access_skill
 from applications.common.storage import FileService, StorageError
+from applications.extensions import db
 from applications.models import StudioAsset
 
 
 DEFAULT_MAX_SKILL_BYTES = 512000
+
+
+def _linked_skill_asset(skill):
+    """Return the current Skill asset, including rows awaiting cleanup."""
+
+    storage_asset_id = getattr(skill, "storage_asset_id", None)
+    asset = getattr(skill, "storage_asset", None)
+    if asset is None and storage_asset_id:
+        asset = StudioAsset.query.filter_by(
+            id=storage_asset_id,
+            purpose="SKILL",
+        ).first()
+    if not asset or str(getattr(asset, "purpose", "") or "").upper() != "SKILL":
+        return None
+    return asset
+
+
+def _cleanup_replaced_skill_asset(asset):
+    """Delete an obsolete fallback asset after the Skill points elsewhere."""
+
+    if not asset or not getattr(asset, "id", None):
+        return
+    if asset_referenced(asset.id):
+        return
+    deleted = FileService.delete_asset(asset)
+    if deleted:
+        db.session.delete(asset)
+    # A failed delete leaves DELETE_FAILED on the row for the scheduler.
+    db.session.commit()
+
+
+def force_replace_skill_storage(
+    skill,
+    content,
+    filename,
+    *,
+    content_type="text/markdown",
+    created_by=None,
+    dept_id=None,
+):
+    """Upload one built-in Skill again and switch its canonical asset.
+
+    An active, readable asset keeps its database identity and uses the normal
+    replacement protocol. If the old object cannot be read, a new asset is
+    created, the Skill reference is switched, and the old object is deleted
+    only after the database commit succeeds.
+    """
+
+    if not skill:
+        raise StorageError("Skill 记录不存在")
+    content_bytes = str(content or "").encode("utf-8")
+    if not content_bytes:
+        raise StorageError("Skill 内容不能为空")
+
+    previous_asset = _linked_skill_asset(skill)
+    pending_update = None
+    stored = None
+    replacement_asset = None
+    obsolete_asset = None
+
+    if previous_asset and str(
+        getattr(previous_asset, "status", "") or ""
+    ).upper() in ("ACTIVE", "DELETE_FAILED"):
+        try:
+            FileService.read_text(
+                previous_asset,
+                filename=previous_asset.original_filename,
+                maximum_size=DEFAULT_MAX_SKILL_BYTES,
+            )
+        except Exception:
+            # A missing old object cannot be staged through the update API.
+            # Upload a fresh object and clean the obsolete row afterwards.
+            obsolete_asset = previous_asset
+        else:
+            pending_update = FileService.stage_asset_update(
+                previous_asset,
+                content=content_bytes,
+                filename=filename,
+                content_type=content_type,
+                category=FileService.default_category("FILE", "SKILL"),
+            )
+
+    try:
+        if pending_update is None:
+            stored = FileService.upload_bytes(
+                content_bytes,
+                filename,
+                content_type=content_type,
+                asset_type="FILE",
+                purpose="SKILL",
+                retention_policy=FileService.PERMANENT,
+                created_by=(
+                    created_by
+                    if created_by is not None
+                    else getattr(skill, "created_by", None)
+                ),
+                dept_id=(
+                    dept_id
+                    if dept_id is not None
+                    else getattr(skill, "dept_id", None)
+                ),
+                record=False,
+            )
+            replacement_asset = FileService.create_asset_record(
+                stored,
+                asset_type="FILE",
+                purpose="SKILL",
+                retention_policy=FileService.PERMANENT,
+                created_by=(
+                    created_by
+                    if created_by is not None
+                    else getattr(skill, "created_by", None)
+                ),
+                dept_id=(
+                    dept_id
+                    if dept_id is not None
+                    else getattr(skill, "dept_id", None)
+                ),
+            )
+            db.session.add(replacement_asset)
+            db.session.flush()
+            skill.storage_asset_id = replacement_asset.id
+
+        skill.prompt_template = None
+        skill.content = None
+        db.session.add(skill)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        if pending_update:
+            FileService.rollback_asset_update(pending_update)
+        elif stored:
+            try:
+                FileService.delete_storage(
+                    stored.storage_path,
+                    checksum=stored.checksum,
+                )
+            except Exception:
+                pass
+        raise
+
+    if pending_update:
+        FileService.finalize_asset_update(pending_update)
+    elif obsolete_asset and replacement_asset:
+        _cleanup_replaced_skill_asset(obsolete_asset)
+
+    return replacement_asset or previous_asset
 
 
 def _builtin(skill, builtin_codes):

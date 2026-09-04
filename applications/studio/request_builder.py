@@ -4,6 +4,7 @@ import re
 from copy import deepcopy
 
 from .provider_catalog import (
+    JIEKOU_IMAGE_MODEL_CODE,
     KUAIPAO_IMAGE_ASPECT_RATIOS,
     KUAIPAO_IMAGE_MODEL_CODES,
     KUAIPAO_IMAGE_MODEL_CODE,
@@ -45,6 +46,16 @@ SEEDANCE_FORBIDDEN_IMAGE_FIELDS = frozenset(
 
 IMAGE_MAX_DIMENSION = 4096
 IMAGE_DIMENSION_ALIGNMENT = 8
+JIEKOU_IMAGE_QUALITY_BY_RESOLUTION = {
+    "1k": "low",
+    "2k": "medium",
+    "4k": "high",
+}
+JIEKOU_IMAGE_MAX_DIMENSION_BY_RESOLUTION = {
+    "1k": 1024,
+    "2k": 2048,
+    "4k": 4096,
+}
 KUAIPAO_IMAGE_ALL_MODEL_CODES = frozenset(
     KUAIPAO_IMAGE_MODEL_CODES + KUAIPAO_LEGACY_IMAGE_MODEL_CODES
 )
@@ -536,6 +547,18 @@ def is_kuaipao_image_model(model):
     )
 
 
+def is_jiekou_image_model(model):
+    """Return whether a model uses the Interface AI JSON image contract."""
+
+    code = str(getattr(model, "model_code", "") or "").strip().lower()
+    provider = getattr(model, "provider", None)
+    return (
+        code == JIEKOU_IMAGE_MODEL_CODE
+        and provider is not None
+        and provider_catalog_key(provider) == "jiekou"
+    )
+
+
 def _canonical_image_aspect_ratio(value):
     """Return the matching preset ratio and reject unlisted ratios."""
 
@@ -615,6 +638,71 @@ def image_size_for_aspect_ratio(
     width = max(alignment, min(max_dimension, width))
     height = max(alignment, min(max_dimension, height))
     return f"{width}x{height}"
+
+
+def image_dimensions_for_resolution(value, resolution):
+    """Return the requested canvas dimensions for an Interface AI quality."""
+
+    normalized_resolution = (
+        str(resolution or "1k").strip().lower().replace(" ", "")
+    )
+    try:
+        max_dimension = JIEKOU_IMAGE_MAX_DIMENSION_BY_RESOLUTION[
+            normalized_resolution
+        ]
+    except KeyError as exc:
+        raise ValueError("图片分辨率只能选择 1K、2K 或 4K") from exc
+    return image_size_for_aspect_ratio(
+        value,
+        max_dimension=max_dimension,
+    )
+
+
+def _truncate_prompt_utf8(value, max_bytes):
+    text = str(value or "").strip()
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return text
+    return encoded[:max_bytes].decode("utf-8", errors="ignore").rstrip()
+
+
+_JIEKOU_OUTPUT_CONTRACT_RE = re.compile(
+    r"(?:^|\n)\s*输出规格：画布分辨率必须为"
+    r"\d+\s*[xX×]\s*\d+像素，宽高比约为"
+    r"\d+(?:\.\d+)?\s*:\s*\d+(?:\.\d+)?。?\s*",
+    re.IGNORECASE,
+)
+
+
+def append_jiekou_image_output_contract(
+    prompt,
+    aspect_ratio,
+    resolution,
+    *,
+    max_bytes=5000,
+):
+    """Append the selected Interface AI canvas contract to one image prompt."""
+
+    canonical_ratio = _canonical_image_aspect_ratio(aspect_ratio or "1:1")
+    normalized_resolution = (
+        str(resolution or "1k").strip().lower().replace(" ", "")
+    )
+    dimensions = image_dimensions_for_resolution(
+        canonical_ratio,
+        normalized_resolution,
+    ).replace("x", "X")
+    suffix = (
+        f"输出规格：画布分辨率必须为{dimensions}像素，"
+        f"宽高比约为{canonical_ratio}。"
+    )
+    base = _JIEKOU_OUTPUT_CONTRACT_RE.sub("\n", str(prompt or "")).strip()
+    separator = "\n\n" if base else ""
+    suffix_bytes = len((separator + suffix).encode("utf-8"))
+    if suffix_bytes >= max_bytes:
+        raise ValueError("接口AI图片输出规格超过提示词长度限制")
+    available = max_bytes - suffix_bytes
+    base = _truncate_prompt_utf8(base, available)
+    return (base + separator + suffix).strip()
 
 
 def split_option_tokens(value):
@@ -746,6 +834,9 @@ def normalize_provider_request_body(model, body):
     if is_kuaipao_image_model(model):
         return normalize_kuaipao_image_request_body(model, body)
 
+    if is_jiekou_image_model(model):
+        return normalize_jiekou_image_request_body(model, body)
+
     if model_code == "gemini-3.1-flash-image-preview":
         metadata = body.get("metadata")
         if not isinstance(metadata, dict):
@@ -802,6 +893,44 @@ def normalize_kuaipao_image_request_body(model, body):
     # Kuaipao returns b64_json by default; response_format is not part of its
     # multipart contract and must not force a URL response.
     body.pop("response_format", None)
+    return body
+
+
+def normalize_jiekou_image_request_body(model, body):
+    """Normalize Interface AI gpt-image2 into its fixed JSON request body."""
+
+    references = body.get("image")
+    if references in (None, "", []):
+        references = body.pop("reference_images", None)
+    if references in (None, "", []):
+        references = body.pop("image_urls", None)
+    if references not in (None, "", []):
+        body["image"] = references
+    else:
+        body.pop("image", None)
+
+    ratio = body.get("size") or body.get("aspect_ratio") or "1:1"
+    resolution = body.get("resolution") or "1k"
+    body["prompt"] = append_jiekou_image_output_contract(
+        body.get("prompt") or "",
+        ratio,
+        resolution,
+    )
+    body["size"] = "auto"
+    normalized_resolution = (
+        str(resolution).strip().lower().replace(" ", "")
+    )
+    try:
+        body["quality"] = JIEKOU_IMAGE_QUALITY_BY_RESOLUTION[
+            normalized_resolution
+        ]
+    except KeyError as exc:
+        raise ValueError("图片分辨率只能选择 1K、2K 或 4K") from exc
+    body["background"] = "opaque"
+    body["output_format"] = "png"
+    body.pop("model", None)
+    body.pop("aspect_ratio", None)
+    body.pop("resolution", None)
     return body
 
 

@@ -65,6 +65,7 @@ from .product_prompt import (
 from .provider_client import (
     ProviderClient,
     ProviderRequestError,
+    provider_retry_call,
     redact_provider_payload,
 )
 from .provider_catalog import model_spec_for
@@ -363,10 +364,11 @@ def complete_chat(model, body, department_id=None, user=None):
     # The provider call can take minutes. Return the checked-out connection
     # before entering the network operation; snapshots above keep the request
     # independent from SQLAlchemy's session lifecycle.
+    client = ProviderClient(execution_context.provider)
     release_db_connection()
-    return ProviderClient(execution_context.provider).complete(
-        execution_context.model,
-        body,
+    return provider_retry_call(
+        lambda: client.complete(execution_context.model, body),
+        operation_name="studio chat completion",
     )
 
 
@@ -589,7 +591,7 @@ def _extract_outputs(payload):
             }
         )
 
-    def walk(node):
+    def walk(node, allow_scalar=False):
         if isinstance(node, dict):
             output_format = node.get("format") or node.get("mime_type")
             for key in ("output_url", "outputUrl", "image_url", "video_url", "url"):
@@ -606,12 +608,18 @@ def _extract_outputs(payload):
                     )
             for key in ("output", "result", "data", "images", "videos"):
                 if key in node:
-                    walk(node[key])
+                    walk(node[key], allow_scalar=True)
         elif isinstance(node, list):
             for item in node:
-                walk(item)
+                walk(item, allow_scalar=allow_scalar)
+        elif allow_scalar and isinstance(node, str):
+            value = node.strip()
+            if value.startswith(("http://", "https://")):
+                add_output(url=value)
+            elif value.startswith("data:image/"):
+                add_output(encoded=value)
 
-    walk(payload)
+    walk(payload, allow_scalar=False)
     return outputs
 
 
@@ -1324,20 +1332,50 @@ def create_generation(
     uploaded_paths = []
     upstream_accepted = False
     try:
-        response = ProviderClient(
-            execution_context.provider
-        ).submit_generation(
-            execution_context.model,
-            body,
+        client = ProviderClient(execution_context.provider)
+
+        def submit_once():
+            response = client.submit_generation(
+                execution_context.model,
+                body,
+            )
+            provider_task_id = _extract_provider_task_id(response)
+            provider_outputs = _has_provider_outputs(response)
+            state = _provider_status(response)
+            if state == "failed":
+                raise ProviderRequestError(
+                    _provider_error_message(response),
+                    payload=response,
+                )
+            if not (
+                provider_outputs
+                or bool(provider_task_id)
+                or state in ("submitted", "processing", "completed")
+            ):
+                raise ProviderRequestError(
+                    "供应商响应中没有任务 ID 或图片输出",
+                    payload=response,
+                )
+            return (
+                response,
+                provider_task_id,
+                provider_outputs,
+                state,
+            )
+
+        # Release the checked-out database connection before every potentially
+        # long provider request. All retries reuse the one local task row.
+        release_db_connection()
+        (
+            response,
+            provider_task_id,
+            provider_outputs,
+            state,
+        ) = provider_retry_call(
+            submit_once,
+            operation_name=f"studio generation {task_code}",
         )
-        provider_task_id = _extract_provider_task_id(response)
-        provider_outputs = _has_provider_outputs(response)
-        state = _provider_status(response)
-        upstream_accepted = state != "failed" and (
-            provider_outputs
-            or bool(provider_task_id)
-            or state in ("submitted", "processing", "completed")
-        )
+        upstream_accepted = True
         sync_output = provider_outputs and state not in (
             "submitted",
             "processing",
@@ -1354,11 +1392,6 @@ def create_generation(
                     "任务已完成，但没有可持久化的输出资产",
                     payload=response,
                 )
-        elif state == "failed":
-            raise ProviderRequestError(
-                _provider_error_message(response),
-                payload=response,
-            )
         elif not provider_task_id:
             raise ProviderRequestError("供应商响应中没有任务 ID", payload=response)
 
@@ -1502,12 +1535,14 @@ def poll_task(task):
         # The upstream request can take seconds or minutes. Do not keep the
         # SQLAlchemy connection checked out while waiting on that network call.
         release_db_connection()
-        payload = ProviderClient(
-            execution_context.provider
-        ).fetch_generation_result(
-            execution_context.model,
-            provider_task_id,
-            media_type,
+        client = ProviderClient(execution_context.provider)
+        payload = provider_retry_call(
+            lambda: client.fetch_generation_result(
+                execution_context.model,
+                provider_task_id,
+                media_type,
+            ),
+            operation_name=f"studio polling {getattr(original_task, 'task_code', '')}",
         )
         working_task = StudioGenerationTask.query.get(task_id)
         if not working_task:

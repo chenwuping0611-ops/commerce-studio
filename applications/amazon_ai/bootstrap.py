@@ -1,4 +1,5 @@
 from applications.common.storage import FileService
+from applications.common.skill_storage import force_replace_skill_storage
 from applications.extensions import db
 from applications.common.scope import DEPARTMENT_ADMIN_ROLE_CODE
 from applications.models import Dept, Power, Role, StudioAsset, StudioSkill
@@ -129,7 +130,7 @@ def _read_skill_storage_asset(asset):
         return "", False
 
 
-def seed_amazon_skills(seed_storage=True):
+def seed_amazon_skills(seed_storage=True, force_storage_sync=False):
     """Import the bundled Amazon Markdown Skills into the existing Skill system."""
 
     default_department = (
@@ -164,9 +165,12 @@ def seed_amazon_skills(seed_storage=True):
         content = read_skill_content(definition)
         skill = StudioSkill.query.filter_by(code=definition["code"]).first()
         previous_asset = _skill_storage_asset(skill)
-        stored_content, storage_readable = _read_skill_storage_asset(
-            previous_asset
-        )
+        if force_storage_sync:
+            stored_content, storage_readable = "", False
+        else:
+            stored_content, storage_readable = _read_skill_storage_asset(
+                previous_asset
+            )
 
         if not skill:
             skill = StudioSkill(
@@ -212,6 +216,17 @@ def seed_amazon_skills(seed_storage=True):
                 skill.prompt_template = content
                 skill.content = content
             db.session.commit()
+            seeded.append(skill)
+            continue
+
+        if force_storage_sync:
+            force_replace_skill_storage(
+                skill,
+                content,
+                definition["file_name"],
+                created_by=skill.created_by,
+                dept_id=skill.dept_id,
+            )
             seeded.append(skill)
             continue
 
@@ -301,7 +316,11 @@ def seed_amazon_skills(seed_storage=True):
     return seeded
 
 
-def initialize_amazon_ai(seed_storage=True):
+def initialize_amazon_ai(
+    seed_storage=True,
+    force_storage_sync=False,
+    seed_feedback=True,
+):
     """Seed the independent Amazon menu, permissions, and bundled Skills."""
 
     from applications.studio.bootstrap import (
@@ -353,8 +372,15 @@ def initialize_amazon_ai(seed_storage=True):
             ):
                 department_admin_role.power.append(power)
     db.session.commit()
-    skills = seed_amazon_skills(seed_storage=seed_storage)
+    skills = seed_amazon_skills(
+        seed_storage=seed_storage,
+        force_storage_sync=force_storage_sync,
+    )
     # Feedback is used from the shared Studio image/video history. Keep the
     # Amazon-only bootstrap command sufficient to repair that built-in Skill.
-    seed_feedback_skill(seed_storage=seed_storage)
+    if seed_feedback:
+        seed_feedback_skill(
+            seed_storage=seed_storage,
+            force_storage_sync=force_storage_sync,
+        )
     return root, pages, skills

@@ -26,6 +26,8 @@ KUAIPAO_IMAGE_API_MODEL_CODES = {
     "2k": "gpt-image-2-2k",
     "4k": "gpt-image-2-4k",
 }
+JIEKOU_IMAGE_EDIT_URL = "https://api.jiekou.ai/v3/gpt-image-2-edit"
+JIEKOU_IMAGE_MODEL_CODE = "gpt-image2"
 KUAIPAO_IMAGE_ASPECT_RATIOS = (
     "1:1",
     "2.44:1",
@@ -42,6 +44,25 @@ KUAIPAO_IMAGE_ASPECT_RATIOS = (
     "21:9",
     "9:21",
 )
+
+RESPONSES_TEXT_MODEL_CODES = (
+    "gpt-5.5",
+    "gpt-5.4",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
+)
+JIEKOU_RESPONSES_TEXT_MODEL_CODES = RESPONSES_TEXT_MODEL_CODES + (
+    "gpt-5.4-mini",
+)
+RESPONSES_TEXT_MODEL_NAMES = {
+    "gpt-5.4": "GPT-5.4",
+    "gpt-5.4-mini": "GPT-5.4-mini",
+    "gpt-5.5": "GPT-5.5",
+    "gpt-5.6-sol": "GPT-5.6 Sol",
+    "gpt-5.6-terra": "GPT-5.6 Terra",
+    "gpt-5.6-luna": "GPT-5.6 Luna",
+}
 
 
 def kuaipao_image_api_model_code(resolution):
@@ -258,6 +279,56 @@ def _kuaipao_gpt_image_parameters(model_code):
     )
     parameters[4]["hint"] = (
         "1K、2K、4K 只决定实际调用的图片模型质量，画布始终按 4K 比例计算"
+    )
+    return parameters
+
+
+def _jiekou_gpt_image_parameters(model_code):
+    parameters = _image_parameters(
+        model_code,
+        size_options=tuple(KUAIPAO_IMAGE_ASPECT_RATIOS),
+        resolution_options=(
+            {"value": "1k", "label": "1K"},
+            {"value": "2k", "label": "2K"},
+            {"value": "4k", "label": "4K"},
+        ),
+        resolution_value="1k",
+        reference_field="image",
+        reference_hint=(
+            "公开图片 URL 数组；接口AI会按 JSON image 字段接收，"
+            "最多 14 张"
+        ),
+    )
+    parameters[3]["hint"] = (
+        "只支持预设画面比例；比例会写入提示词末尾的输出规格"
+    )
+    parameters[4]["hint"] = (
+        "1K、2K、4K分别映射接口AI quality=low、medium、high"
+    )
+    parameters.extend(
+        [
+            _parameter(
+                "quality",
+                "接口质量",
+                value="low",
+                options=("low", "medium", "high"),
+                hint="由分辨率自动映射，不需要单独修改",
+            ),
+            _parameter(
+                "background",
+                "背景",
+                value="opaque",
+                options=("opaque",),
+                hint="接口AI图片输出使用不透明背景",
+            ),
+            _parameter(
+                "output_format",
+                "输出格式",
+                value="png",
+                options=("png",),
+                hint="接口AI图片结果统一按 PNG 处理",
+            ),
+        ]
     )
     return parameters
 
@@ -567,6 +638,31 @@ class ModelSpec:
         return deepcopy(dict(self.capabilities))
 
 
+def _responses_text_specs(provider_name, model_codes):
+    """Build the shared Responses text-model catalog for a provider."""
+
+    return tuple(
+        ModelSpec(
+            code=code,
+            name=RESPONSES_TEXT_MODEL_NAMES[code],
+            media_type="CHAT",
+            generation_path="/responses",
+            result_path=None,
+            parameters=tuple(_chat_parameters(code, responses=True)),
+            capabilities={
+                "supports_responses": True,
+                "supports_input_file": True,
+                "supports_web_search": True,
+            },
+            description=(
+                f"{provider_name} {RESPONSES_TEXT_MODEL_NAMES[code]} "
+                "Responses API"
+            ),
+        )
+        for code in model_codes
+    )
+
+
 class ProviderCatalog:
     key = "custom"
     display_name = "自定义供应商"
@@ -796,36 +892,19 @@ class KuaipaoCatalog(ProviderCatalog):
     IMAGE_MODEL_CODES = KUAIPAO_IMAGE_MODEL_CODES
     MODEL_CODES = CHAT_MODEL_CODES + IMAGE_MODEL_CODES
     MODEL_NAMES = {
-        "gpt-5.4": "GPT-5.4",
-        "gpt-5.5": "GPT-5.5",
-        "gpt-5.6-sol": "GPT-5.6 Sol",
-        "gpt-5.6-terra": "GPT-5.6 Terra",
+        **{
+            code: RESPONSES_TEXT_MODEL_NAMES[code]
+            for code in CHAT_MODEL_CODES
+        },
         KUAIPAO_IMAGE_MODEL_CODE: "gpt-image2",
     }
 
     def models(self):
         # Keep this catalog code-owned so environment values cannot expose
         # ToAPIs models or unverified Kuaipao model codes in the UI.
-        chat_specs = tuple(
-            ModelSpec(
-                code=code,
-                name=self.MODEL_NAMES[code],
-                media_type="CHAT",
-                generation_path="/responses",
-                result_path=None,
-                parameters=tuple(
-                    _chat_parameters(code, responses=True)
-                ),
-                capabilities={
-                    "supports_responses": True,
-                    "supports_input_file": True,
-                    "supports_web_search": True,
-                },
-                description=(
-                    f"快跑AI {self.MODEL_NAMES[code]} Responses API"
-                ),
-            )
-            for code in self.CHAT_MODEL_CODES
+        chat_specs = _responses_text_specs(
+            self.display_name,
+            self.CHAT_MODEL_CODES,
         )
         image_specs = tuple(
             ModelSpec(
@@ -861,9 +940,60 @@ class KuaipaoCatalog(ProviderCatalog):
         return super().get(model_code)
 
 
+class JiekouCatalog(ProviderCatalog):
+    key = "jiekou"
+    display_name = "接口AI"
+    CHAT_MODEL_CODES = JIEKOU_RESPONSES_TEXT_MODEL_CODES
+    IMAGE_MODEL_CODES = (JIEKOU_IMAGE_MODEL_CODE,)
+    MODEL_CODES = CHAT_MODEL_CODES + IMAGE_MODEL_CODES
+    MODEL_NAMES = {
+        **{
+            code: RESPONSES_TEXT_MODEL_NAMES[code]
+            for code in CHAT_MODEL_CODES
+        },
+        JIEKOU_IMAGE_MODEL_CODE: "gpt-image2",
+    }
+
+    def models(self):
+        chat_specs = _responses_text_specs(
+            self.display_name,
+            self.CHAT_MODEL_CODES,
+        )
+        image_specs = tuple(
+            ModelSpec(
+                code=code,
+                name=self.MODEL_NAMES[code],
+                media_type="IMAGE",
+                generation_path=JIEKOU_IMAGE_EDIT_URL,
+                result_path=None,
+                parameters=tuple(_jiekou_gpt_image_parameters(code)),
+                capabilities={
+                    "supports_reference_images": True,
+                    "supports_image_edits": True,
+                    "supports_sync_result": True,
+                    "max_reference_images": 14,
+                    "image_formats": ["jpg", "jpeg", "png", "webp"],
+                    "input_transport": "json",
+                    "input_field": "image",
+                    "returns_urls": True,
+                    "size_mode": "auto",
+                    "quality_mapping": {
+                        "1k": "low",
+                        "2k": "medium",
+                        "4k": "high",
+                    },
+                },
+                description="接口AI gpt-image2 图片生成/编辑接口",
+            )
+            for code in self.IMAGE_MODEL_CODES
+        )
+        return chat_specs + image_specs
+
+
 CATALOGS = {
     ToApisCatalog.key: ToApisCatalog(),
     KuaipaoCatalog.key: KuaipaoCatalog(),
+    JiekouCatalog.key: JiekouCatalog(),
     ProviderCatalog.key: ProviderCatalog(),
 }
 
@@ -876,6 +1006,8 @@ def provider_catalog_key(provider) -> str:
     value = f"{name} {base_url}"
     if "toapis" in value:
         return ToApisCatalog.key
+    if "jiekou.ai" in value or "接口ai" in value:
+        return JiekouCatalog.key
     if "kuaipao" in value or "快跑" in value:
         return KuaipaoCatalog.key
     return ProviderCatalog.key

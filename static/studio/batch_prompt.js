@@ -243,6 +243,57 @@
             return labels[status] || status || "未知";
         }
 
+        function isLocalHistoryItem(item) {
+            return Boolean(
+                item &&
+                String(item.id || "").indexOf("local-") === 0
+            );
+        }
+
+        function historyItemStatusLabel(item) {
+            if (item && item.ui_stage === "ANALYZING") {
+                return "模型分析中";
+            }
+            return statusLabel(item && item.status);
+        }
+
+        function createOptimisticHistoryItem(payload) {
+            return {
+                id: "local-" + Date.now() + "-" +
+                    Math.random().toString(36).slice(2, 8),
+                media_type: payload.media_type,
+                product_id: payload.product_id || null,
+                product_name: payload.product_name || "",
+                skill_id: payload.skill_id || null,
+                skill_name: payload.skill_name || "",
+                creative_style: payload.creative_style || "",
+                image_aspect_ratio: payload.image_aspect_ratio || "",
+                image_quality: payload.image_quality || "",
+                version_count: payload.version_count || 0,
+                status: "PROCESSING",
+                ui_stage: "ANALYZING",
+                content: "",
+                content_error: "",
+                error_message: "",
+                file_name: "",
+                download_url: "",
+                created_at: "刚刚"
+            };
+        }
+
+        function markHistoryItemFailed(localId, errorMessage) {
+            historyData = historyData.map(function (item) {
+                if (String(item.id) !== String(localId)) return item;
+                return Object.assign({}, item, {
+                    status: "FAILED",
+                    ui_stage: "",
+                    content_error: errorMessage || "批量提示词生成失败",
+                    error_message: errorMessage || "批量提示词生成失败"
+                });
+            });
+            renderHistory();
+        }
+
         function renderHistory() {
             if (!historyData.length) {
                 history.innerHTML =
@@ -265,16 +316,24 @@
                     ].filter(function (value) {
                         return Boolean(value);
                     });
+                    var isAnalyzing = item.ui_stage === "ANALYZING";
                     var content = item.content
                         ? '<pre class="studio-batch-prompt-content">' +
                           Studio.escapeHtml(item.content) + "</pre>"
-                        : '<div class="studio-batch-prompt-error">' +
-                          Studio.escapeHtml(
-                              item.content_error || item.error_message ||
-                              (item.status === "FAILED"
-                                  ? "批量提示词生成失败"
-                                  : "暂时没有可读取的文本内容")
-                          ) + "</div>";
+                        : isAnalyzing
+                            ? '<div class="studio-feed-processing ' +
+                              'studio-batch-prompt-processing">' +
+                              '<span class="studio-feed-spinner"></span>' +
+                              "<div><strong>模型分析中</strong>" +
+                              "<span>正在整理创意、产品信息与 Skill</span>" +
+                              "</div></div>"
+                            : '<div class="studio-batch-prompt-error">' +
+                              Studio.escapeHtml(
+                                  item.content_error || item.error_message ||
+                                  (item.status === "FAILED"
+                                      ? "批量提示词生成失败"
+                                      : "暂时没有可读取的文本内容")
+                              ) + "</div>";
                     var canEdit = item.status === "SUCCEEDED" &&
                         Boolean(item.content);
                     var download = item.download_url
@@ -290,8 +349,12 @@
                         Studio.escapeHtml(item.id) + '">' +
                         '<div class="studio-batch-prompt-item-header">' +
                         "<div>" +
-                        '<strong>批量提示词 #' +
-                        Studio.escapeHtml(item.id) + "</strong>" +
+                        '<strong>' +
+                        (isLocalHistoryItem(item)
+                            ? "批量创作提示词"
+                            : "批量提示词 #" +
+                              Studio.escapeHtml(item.id)) +
+                        "</strong>" +
                         '<div class="studio-batch-prompt-meta">' +
                         meta.map(Studio.escapeHtml).join(" · ") +
                         "</div>" +
@@ -299,7 +362,9 @@
                         '<span class="studio-pill ' +
                         (item.status === "SUCCEEDED" ? "green" :
                             item.status === "FAILED" ? "red" : "gray") +
-                        '">' + Studio.escapeHtml(statusLabel(item.status)) +
+                        '">' + Studio.escapeHtml(
+                            historyItemStatusLabel(item)
+                        ) +
                         "</span>" +
                         "</div>" +
                         '<div data-batch-prompt-display>' + content + "</div>" +
@@ -331,14 +396,28 @@
                 : "加载更多历史";
         }
 
-        function mergeHistory(items) {
+        function mergeHistory(items, existingItems) {
             var byId = {};
-            historyData.concat(items || []).forEach(function (item) {
-                byId[String(item.id)] = item;
-            });
+            (existingItems || historyData).concat(items || []).forEach(
+                function (item) {
+                    var key = String(item.id);
+                    if (
+                        !byId[key] ||
+                        isLocalHistoryItem(byId[key]) ||
+                        !isLocalHistoryItem(item)
+                    ) {
+                        byId[key] = item;
+                    }
+                }
+            );
             return Object.keys(byId).map(function (key) {
                 return byId[key];
             }).sort(function (left, right) {
+                var leftLocal = isLocalHistoryItem(left);
+                var rightLocal = isLocalHistoryItem(right);
+                if (leftLocal !== rightLocal) {
+                    return leftLocal ? -1 : 1;
+                }
                 return String(right.created_at || "").localeCompare(
                     String(left.created_at || "")
                 ) || Number(right.id || 0) - Number(left.id || 0);
@@ -361,8 +440,9 @@
             return Studio.request(
                 "/studio/api/batch-prompts?" + query.toString()
             ).then(function (result) {
+                var localItems = historyData.filter(isLocalHistoryItem);
                 historyData = reset
-                    ? (result.data || [])
+                    ? mergeHistory(result.data || [], localItems)
                     : mergeHistory(result.data);
                 historyPage = page;
                 historyHasMore = Boolean(
@@ -377,12 +457,20 @@
             });
         }
 
-        function replaceHistoryItem(item) {
+        function replaceHistoryItem(item, previousId) {
+            var replaced = false;
             historyData = historyData.map(function (current) {
-                return String(current.id) === String(item.id)
-                    ? item
-                    : current;
+                if (
+                    String(current.id) !== String(
+                        previousId == null ? item.id : previousId
+                    )
+                ) {
+                    return current;
+                }
+                replaced = true;
+                return item;
             });
+            if (!replaced) historyData = [item].concat(historyData);
             renderHistory();
         }
 
@@ -527,50 +615,84 @@
                 return;
             }
             var effectiveCount = count === 0 ? 10 : count;
+            var payload = {
+                media_type: mediaType,
+                product_id: productId,
+                skill_id: skillId,
+                creative_prompt: creativePrompt,
+                creative_style: selectedStyle === "__custom__"
+                    ? "__custom__"
+                    : selectedStyle,
+                custom_style: selectedStyle === "__custom__"
+                    ? customStyle
+                    : "",
+                image_resolution: mediaType === "IMAGE" &&
+                    imageQualitySelect
+                    ? imageQualitySelect.value
+                    : "",
+                image_aspect_ratio: mediaType === "IMAGE" &&
+                    imageAspectRatioSelect
+                    ? imageAspectRatioSelect.value
+                    : "",
+                count: count
+            };
+            var optimisticItem = createOptimisticHistoryItem({
+                media_type: mediaType,
+                product_id: productId,
+                product_name: productSelect.options[
+                    productSelect.selectedIndex
+                ]
+                    ? productSelect.options[
+                        productSelect.selectedIndex
+                    ].textContent
+                    : "",
+                skill_id: skillId,
+                skill_name: skillSelect.options[
+                    skillSelect.selectedIndex
+                ]
+                    ? skillSelect.options[
+                        skillSelect.selectedIndex
+                    ].textContent
+                    : "",
+                creative_style: selectedStyle === "__custom__"
+                    ? customStyle
+                    : selectedStyle,
+                image_aspect_ratio: payload.image_aspect_ratio,
+                image_quality: payload.image_resolution,
+                version_count: effectiveCount
+            });
             submitButton.disabled = true;
             setMessage(
                 "正在调用全局语言模型生成 " + effectiveCount + " 个版本..."
             );
+            historyData = [optimisticItem].concat(historyData);
+            renderHistory();
+            closeComposer();
+            creativeInput.value = "";
+            if (styleSelect) styleSelect.value = "";
+            if (customStyleInput) customStyleInput.value = "";
+            if (imageAspectRatioSelect) {
+                imageAspectRatioSelect.value = "2.44:1";
+            }
+            if (imageQualitySelect) imageQualitySelect.value = "2k";
+            syncCustomStyle();
+            syncImageQualityVisibility();
+            setCount(0, "number");
             Studio.request("/studio/api/batch-prompts", {
                 method: "POST",
-                body: JSON.stringify({
-                    media_type: mediaType,
-                    product_id: productId,
-                    skill_id: skillId,
-                    creative_prompt: creativePrompt,
-                    creative_style: selectedStyle === "__custom__"
-                        ? "__custom__"
-                        : selectedStyle,
-                    custom_style: selectedStyle === "__custom__"
-                        ? customStyle
-                        : "",
-                    image_resolution: mediaType === "IMAGE" &&
-                        imageQualitySelect
-                        ? imageQualitySelect.value
-                        : "",
-                    image_aspect_ratio: mediaType === "IMAGE" &&
-                        imageAspectRatioSelect
-                        ? imageAspectRatioSelect.value
-                        : "",
-                    count: count
-                })
+                body: JSON.stringify(payload)
             }).then(function (result) {
-                closeComposer();
-                creativeInput.value = "";
-                if (styleSelect) styleSelect.value = "";
-                if (customStyleInput) customStyleInput.value = "";
-                if (imageAspectRatioSelect) {
-                    imageAspectRatioSelect.value = "2.44:1";
+                if (!result.data) {
+                    throw new Error("批量提示词接口没有返回有效结果");
                 }
-                if (imageQualitySelect) imageQualitySelect.value = "2k";
-                syncCustomStyle();
-                syncImageQualityVisibility();
-                setCount(0, "number");
-                historyData = [result.data].concat(historyData);
+                replaceHistoryItem(result.data, optimisticItem.id);
                 historyPage = 1;
-                renderHistory();
                 Studio.toast("批量创作提示词已生成");
             }).catch(function (error) {
+                markHistoryItemFailed(
+                    optimisticItem.id,
+                    error.message
+                );
                 setMessage(error.message, true);
                 Studio.toast(error.message, "error");
             }).then(function () {

@@ -130,6 +130,7 @@ from applications.studio.provider_client import (
     extract_chat_content,
     is_responses_path,
     normalize_balance,
+    provider_retry_call,
     redact_provider_payload,
 )
 from applications.studio.provider_catalog import (
@@ -148,7 +149,6 @@ studio_bp = Blueprint("studio", __name__, url_prefix="/studio")
 GLOBAL_CHAT_MODEL_SETTING_KEY = "global_chat_model_id"
 STUDIO_MAX_FINAL_PROMPT_BYTES = 5000
 STUDIO_MAX_PLANNER_CONTEXT_BYTES = 120000
-BATCH_IMAGE_MAX_ATTEMPTS = 2
 _provider_defaults_lock = Lock()
 
 
@@ -2891,18 +2891,26 @@ def _prepare_prompt_request():
     try:
         client = ProviderClient(provider_snapshot)
         release_db_connection()
-        response = client.complete(model_snapshot, body)
-        content = extract_chat_content(response)
-        parsed = _parse_json_object(content)
-        final_prompt = str(
-            parsed.get("final_prompt")
-            or parsed.get("prompt")
-            or content
-            or ""
-        ).strip()
-        final_prompt = _strip_generated_reference_sections(final_prompt)
-        if not final_prompt:
-            raise ValueError("全局语言模型没有返回可用的最终 Prompt")
+
+        def planner_once():
+            response = client.complete(model_snapshot, body)
+            content = extract_chat_content(response)
+            parsed = _parse_json_object(content)
+            final_prompt = str(
+                parsed.get("final_prompt")
+                or parsed.get("prompt")
+                or content
+                or ""
+            ).strip()
+            final_prompt = _strip_generated_reference_sections(final_prompt)
+            if not final_prompt:
+                raise ValueError("全局语言模型没有返回可用的最终 Prompt")
+            return response, parsed, final_prompt
+
+        response, parsed, final_prompt = provider_retry_call(
+            planner_once,
+            operation_name="studio prompt planner",
+        )
         # The planner must not own the reference chapter. Build it once from
         # the validated URLs so model verbosity cannot duplicate it.
         reference_instruction = ordered_reference_context
@@ -3312,7 +3320,10 @@ def process_image_batch_prompt_api():
     if not batch_prompt_id:
         return jsonify(success=False, msg="请选择批量提示词历史"), 400
     if not model_id:
-        return jsonify(success=False, msg="请选择快跑 AI gpt-image2 图片模型"), 400
+        return jsonify(
+            success=False,
+            msg="请选择快跑AI或接口AI的 gpt-image2 图片模型",
+        ), 400
 
     batch_prompt = (
         _scoped_batch_prompt_query("IMAGE")
@@ -3363,11 +3374,11 @@ def process_image_batch_prompt_api():
     if (
         str(model.model_code or "").strip().lower()
         != KUAIPAO_IMAGE_MODEL_CODE
-        or provider_catalog_key(model.provider) != "kuaipao"
+        or provider_catalog_key(model.provider) not in ("kuaipao", "jiekou")
     ):
         return jsonify(
             success=False,
-            msg="批量图片处理只能使用快跑 AI 的 gpt-image2 模型",
+            msg="批量图片处理只能使用快跑AI或接口AI的 gpt-image2 模型",
         ), 400
     provider_department_id = getattr(model.provider, "dept_id", None)
     if provider_department_id is None:
@@ -3390,7 +3401,7 @@ def process_image_batch_prompt_api():
     if not str(model.provider.api_key or "").strip():
         return jsonify(
             success=False,
-            msg="快跑 AI 供应商尚未配置 API Key，请先编辑供应商",
+            msg="当前图片供应商尚未配置 API Key，请先编辑供应商",
         ), 400
 
     product_id = batch_prompt.product_id
@@ -3412,69 +3423,53 @@ def process_image_batch_prompt_api():
     generation_product_id = int(product_id) if product_id else None
 
     def process_one_version(version_number, version):
-        errors = []
-        for attempt in range(1, BATCH_IMAGE_MAX_ATTEMPTS + 1):
-            with app.app_context():
-                try:
-                    acting_user = User.query.get(user_id)
-                    if not acting_user:
-                        raise ValueError("当前用户不存在")
-                    task = create_generation(
-                        user_id=user_id,
-                        media_type="IMAGE",
-                        model_id=model_id,
-                        product_id=generation_product_id,
-                        prompt=version["prompt"],
-                        options={
-                            "count": 1,
-                            "aspect_ratio": version["aspect_ratio"],
-                            "resolution": version["resolution"],
-                            # The version is already the complete prompt from
-                            # the selected batch-prompt history. Do not load
-                            # or append a Skill during image batch processing.
-                            # The product is still passed separately so its
-                            # authorized reference images are resolved.
-                            "prepared_prompt": version["prompt"],
-                            "department_id": generation_department_id,
-                        },
-                        acting_user=acting_user,
-                    )
-                    return {
-                        "version": version_number,
-                        "task_id": task.id,
-                        "attempts": attempt,
-                    }
-                except Exception as exc:
-                    message = str(exc) or "图片任务提交失败"
-                    errors.append(message)
-                    app.logger.warning(
-                        "studio image batch version failed: "
-                        "batch_prompt_id=%s version=%s attempt=%s/%s "
-                        "error=%s",
-                        batch_prompt_id,
-                        version_number,
-                        attempt,
-                        BATCH_IMAGE_MAX_ATTEMPTS,
-                        message,
-                    )
-                    if getattr(exc, "_upstream_accepted", False):
-                        app.logger.warning(
-                            "studio image batch version will not retry because "
-                            "the provider already accepted the request: "
-                            "batch_prompt_id=%s version=%s task_id=%s",
-                            batch_prompt_id,
-                            version_number,
-                            getattr(exc, "_generation_task_id", None),
-                        )
-                        break
-                finally:
-                    db.session.remove()
-        return {
-            "version": version_number,
-            "attempts": len(errors),
-            "error": errors[-1] if errors else "图片任务提交失败",
-            "retry_errors": errors,
-        }
+        with app.app_context():
+            try:
+                acting_user = User.query.get(user_id)
+                if not acting_user:
+                    raise ValueError("当前用户不存在")
+                task = create_generation(
+                    user_id=user_id,
+                    media_type="IMAGE",
+                    model_id=model_id,
+                    product_id=generation_product_id,
+                    prompt=version["prompt"],
+                    options={
+                        "count": 1,
+                        "aspect_ratio": version["aspect_ratio"],
+                        "resolution": version["resolution"],
+                        # The version is already the complete prompt from
+                        # the selected batch-prompt history. Do not load
+                        # or append a Skill during image batch processing.
+                        # The product is still passed separately so its
+                        # authorized reference images are resolved.
+                        "prepared_prompt": version["prompt"],
+                        "department_id": generation_department_id,
+                    },
+                    acting_user=acting_user,
+                )
+                return {
+                    "version": version_number,
+                    "task_id": task.id,
+                    "attempts": 1,
+                }
+            except Exception as exc:
+                message = str(exc) or "图片任务提交失败"
+                app.logger.warning(
+                    "studio image batch version failed: "
+                    "batch_prompt_id=%s version=%s error=%s",
+                    batch_prompt_id,
+                    version_number,
+                    message,
+                )
+                return {
+                    "version": version_number,
+                    "attempts": 1,
+                    "error": message,
+                    "retry_errors": [message],
+                }
+            finally:
+                db.session.remove()
 
     max_workers = min(max(1, len(versions)), 8)
     results = []
@@ -3535,10 +3530,10 @@ def process_image_batch_prompt_api():
     if failed_results and tasks:
         message = (
             f"已提交 {len(tasks)} 个图片版本，"
-            f"{len(failed_results)} 个版本失败并已重试"
+            f"{len(failed_results)} 个版本提交失败"
         )
     elif failed_results:
-        message = "所有图片版本生成失败，失败版本已自动重试"
+        message = "所有图片版本生成失败，失败结果已返回"
     else:
         message = f"已提交 {len(tasks)} 个图片版本"
     return jsonify(
@@ -4011,10 +4006,18 @@ def _analyze_task_feedback(task_code):
     try:
         client = ProviderClient(provider_snapshot)
         release_db_connection()
-        response = client.complete(model_snapshot, body)
-        content = extract_chat_content(response)
-        if not content:
-            raise ValueError("全局语言模型返回了空的意见反馈")
+
+        def feedback_once():
+            response = client.complete(model_snapshot, body)
+            content = extract_chat_content(response)
+            if not content:
+                raise ValueError("全局语言模型返回了空的意见反馈")
+            return response, content
+
+        response, content = provider_retry_call(
+            feedback_once,
+            operation_name=f"studio feedback {task.task_code}",
+        )
         comment = StudioGenerationComment.query.get(comment_id)
         if not comment:
             return jsonify(success=False, msg="意见反馈记录不存在"), 500

@@ -65,6 +65,25 @@ def init_script(app):
         )
         click.echo("Commerce Studio 初始化完成，API Key 不会由命令自动写入。")
 
+    @app.cli.command("sync-skills")
+    def sync_skills():
+        """Reupload every code-owned Skill and replace its storage reference."""
+
+        initialize_studio(
+            seed_credentials=False,
+            seed_storage=True,
+            force_storage_sync=True,
+        )
+        initialize_amazon_ai(
+            seed_storage=True,
+            force_storage_sync=True,
+            seed_feedback=False,
+        )
+        click.echo(
+            "代码内置 Skill 已重新上传到 GoFastDFS，数据库地址已更新，"
+            "旧文件已进入清理流程。"
+        )
+
     @app.cli.command("amazon-ai-init")
     @click.option(
         "--seed-storage/--skip-storage",
