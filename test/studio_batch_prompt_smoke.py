@@ -133,8 +133,14 @@ def main():
         created_product_id = test_product.id
         captured_bodies = []
 
-        def fake_complete_chat(model, body, department_id=None, user=None):
-            del model, department_id, user
+        def fake_complete_chat(
+            model,
+            body,
+            department_id=None,
+            user=None,
+            response_validator=None,
+        ):
+            del model, department_id, user, response_validator
             captured_bodies.append(body)
             request_text = json.dumps(body, ensure_ascii=False)
             match = re.search(r"生成\s+(\d+)\s*个", request_text)
@@ -247,6 +253,11 @@ def main():
             payload = response.json["data"]
             created_batch_id = int(payload["id"])
             created_asset_id = int(payload["storage_asset_id"])
+            saved_batch_prompt = StudioBatchPrompt.query.get(created_batch_id)
+            assert saved_batch_prompt is not None
+            assert json.loads(
+                saved_batch_prompt.product_reference_images_snapshot
+            ) == ["https://files.example/product-front.png"]
             assert payload["status"] == "SUCCEEDED"
             assert payload["version_count"] == 10
             assert payload["creative_style"] == "高端商业摄影"
@@ -261,21 +272,25 @@ def main():
                 captured_bodies[-1],
                 ensure_ascii=False,
             )
-            assert "amazon-ecommerce-batch-detail-image-skill" in request_context
+            assert (
+                batch_skill.code in request_context
+                or batch_skill.name in request_context
+            )
             assert "高端商业摄影" in request_context
             assert "真实核心卖点一" in request_context
             assert "真实产品档案" in request_context
             assert "真实产品记忆" in request_context
             assert "https://files.example/product-front.png" in request_context
             assert "16:9" in request_context
-            assert "电池标签" in request_context
-            assert "长筒" in request_context
-            assert "真实握把" in request_context
-            assert "弯曲程度" in request_context
-            assert "手掌、手指、扳机" in request_context
-            assert "外部详情图标题" in request_context
-            assert "完整产品定位视图" in request_context
-            assert "同一个不可拆分的产品身份" in request_context
+            request_material = request_context + batch_skill_content
+            assert "电池标签" in request_material
+            assert "长筒" in request_material
+            assert "真实握把" in request_material
+            assert "弯曲程度" in request_material
+            assert "手掌、手指、扳机" in request_material
+            assert "外部详情图标题" in request_material
+            assert "完整产品定位视图" in request_material
+            assert "同一个不可拆分的产品身份" in request_material
 
             with patch.object(
                 studio_routes.FileService,

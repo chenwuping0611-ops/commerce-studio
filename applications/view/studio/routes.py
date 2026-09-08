@@ -2152,6 +2152,36 @@ def _batch_prompt_content(batch_prompt):
         return "", "批量提示词文件读取失败"
 
 
+def _batch_prompt_product_reference_snapshot(batch_prompt):
+    """Read product-center image URLs saved with a batch prompt.
+
+    The snapshot is independent from the current Product Center row. Product
+    assets can be replaced, disabled, or removed after a prompt history is
+    created, while the history must continue to use the references selected
+    for that run.
+    """
+
+    raw = getattr(batch_prompt, "product_reference_images_snapshot", None)
+    if raw is None:
+        return None
+    if isinstance(raw, str) and not raw.strip():
+        return []
+    try:
+        values = json.loads(raw) if isinstance(raw, str) else raw
+    except (TypeError, ValueError, json.JSONDecodeError):
+        values = raw
+    if isinstance(values, dict):
+        values = values.get("urls") or values.get("images") or []
+    if not isinstance(values, (list, tuple)):
+        values = [values]
+    urls = []
+    for value in values:
+        url = str(value or "").strip()
+        if url and _is_usable_asset_url(url):
+            urls.append(url)
+    return list(dict.fromkeys(urls))
+
+
 def _batch_prompt_version_settings(batch_prompt, content):
     """Expose the parameters parsed from each image version to the UI."""
 
@@ -3915,6 +3945,14 @@ def create_batch_prompt_api():
             )
         except ValueError as exc:
             return jsonify(success=False, msg=str(exc)), 400
+        if not product_id:
+            return jsonify(
+                success=False,
+                msg=(
+                    "图片批量提示词必须先选择产品中心，"
+                    "才能保存产品参考图并用于批量生成"
+                ),
+            ), 400
     if not creative_prompt and not product_id and not skill_id:
         return jsonify(
             success=False,
@@ -3984,7 +4022,7 @@ def create_batch_prompt_api():
 
     planner_tools = _product_usage_web_search_tools(chat_model, product)
     try:
-        messages, max_tokens, _descriptors = _batch_prompt_context(
+        messages, max_tokens, descriptors = _batch_prompt_context(
             product,
             skill,
             creative_prompt,
@@ -3997,6 +4035,15 @@ def create_batch_prompt_api():
         )
     except (StorageError, ValueError) as exc:
         return jsonify(success=False, msg=str(exc)), 400
+    if media_type == "IMAGE" and not any(
+        item.get("source") == "product"
+        and _is_usable_asset_url(item.get("url"))
+        for item in descriptors
+    ):
+        return jsonify(
+            success=False,
+            msg="关联产品中心没有可用的产品图片，请先上传产品图片",
+        ), 400
     runtime = {
         "messages": messages,
         "max_tokens": max_tokens,
@@ -4012,6 +4059,18 @@ def create_batch_prompt_api():
     else:
         body.pop("tools", None)
 
+    product_reference_images_snapshot = None
+    if product and media_type == "IMAGE":
+        product_reference_images_snapshot = json.dumps(
+            [
+                str(item.get("url") or "").strip()
+                for item in descriptors
+                if item.get("source") == "product"
+                and str(item.get("url") or "").strip()
+            ],
+            ensure_ascii=False,
+        )
+
     planner_model_id = chat_model.id
     planner_model_code = str(chat_model.model_code or "")
     batch_prompt = StudioBatchPrompt(
@@ -4024,6 +4083,7 @@ def create_batch_prompt_api():
         planner_model_id=planner_model_id,
         planner_model_code=planner_model_code,
         product_name_snapshot=product.name if product else None,
+        product_reference_images_snapshot=product_reference_images_snapshot,
         skill_name_snapshot=skill.name if skill else None,
         # The Skill body is a GoFastDFS file. Keep this legacy column empty
         # for new records; old rows may still use it as a compatibility
@@ -4266,28 +4326,46 @@ def process_image_batch_prompt_api():
         ), 400
 
     product_id = batch_prompt.product_id
-    if not product_id:
-        return jsonify(
-            success=False,
-            msg="批量图片处理必须关联产品中心，才能提供产品参考图",
-        ), 400
-    product = _generation_product(
-        product_id,
-        provider_department_id,
+    product_reference_snapshot = _batch_prompt_product_reference_snapshot(
+        batch_prompt,
     )
-    if not product:
-        return jsonify(
-            success=False,
-            msg="批量提示词关联产品不存在、已停用或无权访问",
-        ), 400
-    batch_product_reference_urls = product_reference_urls(
-        product,
-        media_type="IMAGE",
-        asset_filter=lambda asset: _product_asset_is_accessible(
-            asset,
-            current_user,
-        ),
+    has_product_reference_snapshot = (
+        product_reference_snapshot is not None
     )
+    product = (
+        _generation_product(product_id, provider_department_id)
+        if product_id
+        else None
+    )
+    if has_product_reference_snapshot:
+        # New histories use the exact product-center URLs captured when the
+        # prompt was created. Do not silently replace them with current assets.
+        batch_product_reference_urls = product_reference_snapshot
+        if not batch_product_reference_urls:
+            return jsonify(
+                success=False,
+                msg="该批量提示词历史创建时没有保存可用的产品中心图片",
+            ), 400
+    else:
+        # Compatibility path for old histories created before URL snapshots.
+        if not product_id:
+            return jsonify(
+                success=False,
+                msg="批量图片处理必须关联产品中心，才能提供产品参考图",
+            ), 400
+        if not product:
+            return jsonify(
+                success=False,
+                msg="批量提示词关联产品不存在、已停用或无权访问",
+            ), 400
+        batch_product_reference_urls = product_reference_urls(
+            product,
+            media_type="IMAGE",
+            asset_filter=lambda asset: _product_asset_is_accessible(
+                asset,
+                current_user,
+            ),
+        )
     if not batch_product_reference_urls:
         return jsonify(
             success=False,
@@ -4298,7 +4376,7 @@ def process_image_batch_prompt_api():
     user_id = current_user.id
     product_name = batch_prompt.product_name_snapshot or ""
     generation_department_id = int(provider_department_id)
-    generation_product_id = int(product_id) if product_id else None
+    generation_product_id = int(product.id) if product else None
 
     def process_one_version(version_number, version):
         with app.app_context():

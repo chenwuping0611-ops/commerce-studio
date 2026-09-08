@@ -289,6 +289,11 @@ class StudioBatchPrompt(db.Model):
     )
     planner_model_code = db.Column(db.String(160), nullable=True)
     product_name_snapshot = db.Column(db.String(160), nullable=True)
+    product_reference_images_snapshot = db.Column(
+        db.Text,
+        nullable=True,
+        comment="创建批量提示词时使用的产品中心图片 URL 快照",
+    )
     skill_name_snapshot = db.Column(db.String(160), nullable=True)
     skill_prompt_snapshot = db.Column(db.Text, nullable=True)
     creative_prompt = db.Column(db.Text, nullable=True)

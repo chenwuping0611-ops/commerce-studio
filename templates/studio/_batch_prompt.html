@@ -102,7 +102,7 @@
                                     {% if ratio == (batch_prompt_default_aspect_ratio|default("2.44:1", true)) %}selected{% endif %}>{{ ratio }}</option>
                             {% endfor %}
                         </select>
-                        <div class="studio-field-help">作为每个版本的默认画布比例；版本末尾明确写出的系统预设比例会优先使用。</div>
+                        <div class="studio-field-help">作为每个版本的默认画布比例；版本末尾明确写出的系统预设比例会优先使用。图片批量提示词必须选择产品中心。</div>
                     </div>
                     <div class="studio-field"
                          data-batch-prompt-image-quality-field>

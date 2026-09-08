@@ -1,6 +1,6 @@
 Pear AI production release manifest
-Created: 2026-09-08 11:35:02 +08:00
-Source state: current working tree based on baseline 033063f
+Created: 2026-09-08 12:20:00 +08:00
+Source state: current working tree based on baseline a9f3f3b
 Packaging mode: complete runtime source snapshot
 
 This release contains the current production code, templates, static assets,
@@ -30,10 +30,12 @@ Key changes included:
 - Batch prompt style management and page-selected style precedence
 - Batch image processing as independent per-version image tasks
 - Product-center-only reference images for batch image generation
+- Product image URL snapshots for batch prompt histories, with legacy fallback
 - Interface AI image prompt limit of 32000 characters
 - White-background image workflow and related history/binding support
 - Batch prompt and Amazon AI custom-name migrations
 - Current provider, model, task-history, product-asset, and UI updates
+- New image batch prompt histories require a selected Product Center record
 
 Online data policy:
 - Keep the online .flaskenv, .venv, database, GoFastDFS files, provider API

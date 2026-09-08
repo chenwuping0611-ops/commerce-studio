@@ -857,6 +857,14 @@
                 if (customStyleInput) customStyleInput.focus();
                 return;
             }
+            if (mediaType === "IMAGE" && !productId) {
+                setMessage(
+                    "图片批量提示词必须先选择产品中心，才能保存产品参考图",
+                    true
+                );
+                productSelect.focus();
+                return;
+            }
             if (!creativePrompt && !productId && !skillId) {
                 setMessage(
                     "请至少填写批量创作要求，或选择产品/Skill",

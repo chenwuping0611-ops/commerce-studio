@@ -1,5 +1,6 @@
 """Integration smoke checks for image batch prompt processing."""
 
+import json
 import threading
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -62,6 +63,10 @@ def main():
             media_type="IMAGE",
             product_id=product.id,
             product_name_snapshot=product.name,
+            product_reference_images_snapshot=json.dumps(
+                ["https://files.example/snapshot-product.png"],
+                ensure_ascii=False,
+            ),
             image_aspect_ratio="2.44:1",
             image_resolution="2k",
             skill_prompt_snapshot=(
@@ -202,7 +207,7 @@ def main():
             )
             assert all(
                 call["options"]["reference_images"]
-                == calls[0]["options"]["reference_images"]
+                == ["https://files.example/snapshot-product.png"]
                 for call in calls
             )
 
