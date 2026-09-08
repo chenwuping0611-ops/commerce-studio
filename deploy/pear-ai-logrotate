@@ -7,5 +7,5 @@
     compress
     delaycompress
     copytruncate
-    su pear pear
+    su root root
 }

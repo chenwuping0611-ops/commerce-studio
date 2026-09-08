@@ -10,6 +10,7 @@ from .admin_user_role import user_role
 from .studio import (
     StudioAsset,
     StudioBatchPrompt,
+    StudioBatchPromptStyle,
     StudioGenerationComment,
     StudioGenerationTask,
     StudioGenerationTaskAsset,

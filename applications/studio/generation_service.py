@@ -65,6 +65,7 @@ from .product_prompt import (
 from .provider_client import (
     ProviderClient,
     ProviderRequestError,
+    extract_chat_content,
     provider_retry_call,
     redact_provider_payload,
 )
@@ -82,7 +83,9 @@ TERMINAL_STATUSES = ("SUCCEEDED", "FAILED", "CANCELLED")
 TASK_CODE_ALPHABET = string.ascii_letters + string.digits
 TASK_CODE_LENGTH = 7
 MAX_FINAL_PROMPT_BYTES = 5000
+MAX_IMAGE_PROMPT_CHARS = 32000
 MAX_RESULT_PAYLOAD_BYTES = 60000
+MAX_WORKFLOW_METADATA_BYTES = 12000
 TASK_SYNC_FIELDS = (
     "provider_task_id",
     "status",
@@ -124,6 +127,19 @@ def _truncate_utf8(value, max_bytes):
     if len(encoded) <= max_bytes:
         return text
     return encoded[:max_bytes].decode("utf-8", errors="ignore").rstrip()
+
+
+def _truncate_chars(value, max_chars):
+    """Keep image prompts within the upstream prompt.maxLength contract."""
+
+    text = str(value or "").strip()
+    try:
+        max_chars = int(max_chars)
+    except (TypeError, ValueError):
+        max_chars = MAX_IMAGE_PROMPT_CHARS
+    if max_chars <= 0:
+        return ""
+    return text[:max_chars].rstrip()
 
 
 def _terminal_expiry(now=None):
@@ -315,7 +331,13 @@ def _resolve_generation_skill(skill_id, department_id, user):
     return None
 
 
-def complete_chat(model, body, department_id=None, user=None):
+def complete_chat(
+    model,
+    body,
+    department_id=None,
+    user=None,
+    response_validator=None,
+):
     """Call the existing provider stack for a text or vision chat model."""
 
     if not model or not model.provider:
@@ -366,8 +388,17 @@ def complete_chat(model, body, department_id=None, user=None):
     # independent from SQLAlchemy's session lifecycle.
     client = ProviderClient(execution_context.provider)
     release_db_connection()
+
+    def complete_once():
+        response = client.complete(execution_context.model, body)
+        if not extract_chat_content(response):
+            raise ValueError("全局语言模型没有返回可用文本")
+        if response_validator is not None:
+            response_validator(response)
+        return response
+
     return provider_retry_call(
-        lambda: client.complete(execution_context.model, body),
+        complete_once,
         operation_name="studio chat completion",
     )
 
@@ -505,6 +536,21 @@ def _product_asset_is_accessible(asset, user):
 
 def _dump(value):
     return json.dumps(value, ensure_ascii=False, default=str) if value is not None else None
+
+
+def _workflow_metadata_snapshot(value):
+    """Validate and serialize small, non-provider workflow metadata."""
+
+    if value in (None, ""):
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("生成工作流元数据必须是对象")
+    serialized = _dump(value)
+    if serialized is None:
+        return None
+    if len(serialized.encode("utf-8")) > MAX_WORKFLOW_METADATA_BYTES:
+        raise ValueError("生成工作流元数据超过长度限制")
+    return serialized
 
 
 def _result_payload_snapshot(value):
@@ -1083,6 +1129,9 @@ def create_generation(
         raise ValueError("请先在模型供应商中填写 API Key")
     if not str(prompt or "").strip():
         raise ValueError("创意描述不能为空")
+    workflow_metadata = _workflow_metadata_snapshot(
+        options.get("workflow_metadata")
+    )
 
     product = _resolve_generation_product(
         product_id,
@@ -1194,6 +1243,8 @@ def create_generation(
         ),
         "reference_videos": extra_videos,
         "reference_videos_with_roles": reference_roles(extra_videos, "reference_video"),
+        "target_dimensions": options.get("target_dimensions"),
+        "target_aspect_ratio": options.get("target_aspect_ratio"),
     }
     if (
         media_type == "IMAGE"
@@ -1208,13 +1259,20 @@ def create_generation(
             runtime["prompt"],
             MAX_FINAL_PROMPT_BYTES,
         )
-    # Keep direct submissions and planner-assisted submissions consistent.
-    # The prompt starts with the operator's creative request, so truncating
-    # from the end preserves the highest-priority creative instruction.
-    runtime["prompt"] = _truncate_utf8(
-        runtime["prompt"],
-        MAX_FINAL_PROMPT_BYTES,
-    )
+    # Image providers validate prompt.maxLength in characters. Batch image
+    # processing has already supplied the complete per-version prompt and
+    # must keep it intact up to that limit; retain the older byte budget for
+    # video requests and legacy non-image flows.
+    if media_type == "IMAGE":
+        runtime["prompt"] = _truncate_chars(
+            runtime["prompt"],
+            MAX_IMAGE_PROMPT_CHARS,
+        )
+    else:
+        runtime["prompt"] = _truncate_utf8(
+            runtime["prompt"],
+            MAX_FINAL_PROMPT_BYTES,
+        )
     body = build_request_body(model, runtime, options.get("extra_fields") or {})
     if media_type == "IMAGE":
         # Image providers must never receive video-reference fields, even if
@@ -1284,6 +1342,7 @@ def create_generation(
             # stores these fields in studio_generation_task_detail.
             negative_prompt=None,
             request_body=_dump(redact_provider_payload(body)),
+            workflow_metadata=workflow_metadata,
             status="PENDING",
             progress=0,
             retention_policy=FileService.TEMPORARY,

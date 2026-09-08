@@ -5,6 +5,7 @@ SKILL_DIRECTORY = Path(__file__).resolve().parent / "skills"
 PRODUCT_EXTRACTION_SKILL_CODE = "Amazon_Product_Extraction_Skill.md"
 DETAIL_IMAGE_SKILL_CODE = "Amazon_Ecommerce_Detail_Image_Skill.md"
 BATCH_DETAIL_IMAGE_SKILL_CODE = "Amazon_Ecommerce_Batch_Detail_Image_Skill.md"
+WHITE_BACKGROUND_IMAGE_SKILL_CODE = "White_Background_Image_Refinement_Skill.md"
 
 AMAZON_SKILL_DEFINITIONS = (
     {
@@ -57,6 +58,13 @@ AMAZON_SKILL_DEFINITIONS = (
         "file_name": "Amazon_Ecommerce_Batch_Prompt_Skill.md",
         "tags": "Amazon,批量创作,提示词,图片创作,视频创作,产品中心",
         "media_type": "BOTH",
+    },
+    {
+        "name": "精修白底图",
+        "code": WHITE_BACKGROUND_IMAGE_SKILL_CODE,
+        "file_name": WHITE_BACKGROUND_IMAGE_SKILL_CODE,
+        "tags": "图片创作,白底图,抠图,产品精修,电商",
+        "media_type": "IMAGE",
     },
 )
 

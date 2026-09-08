@@ -216,6 +216,23 @@ class StudioSkill(db.Model):
     )
 
 
+class StudioBatchPromptStyle(db.Model):
+    """A reusable visual style option for the batch-prompt composer."""
+
+    __tablename__ = "studio_batch_prompt_style"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(160), nullable=False, unique=True)
+    sort = db.Column(db.Integer, nullable=False, default=0)
+    created_by = db.Column(db.Integer, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.datetime.now)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.datetime.now,
+        onupdate=datetime.datetime.now,
+    )
+
+
 class StudioBatchPrompt(db.Model):
     """A versioned batch-prompt document stored in GoFastDFS."""
 
@@ -243,6 +260,12 @@ class StudioBatchPrompt(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     dept_id = db.Column(db.Integer, nullable=False, comment="所属部门")
     user_id = db.Column(db.Integer, nullable=False, comment="创建用户")
+    name = db.Column(
+        db.String(160),
+        nullable=True,
+        default="批量提示词",
+        comment="批量提示词历史显示名称",
+    )
     media_type = db.Column(db.String(20), nullable=False, default="IMAGE")
     product_id = db.Column(
         db.Integer,
@@ -350,6 +373,11 @@ class StudioGenerationTask(db.Model):
     final_prompt = db.Column(db.Text, nullable=True)
     negative_prompt = db.Column(db.Text, nullable=True)
     request_body = db.Column(db.Text, nullable=True)
+    workflow_metadata = db.Column(
+        db.Text,
+        nullable=True,
+        comment="生成工作流元数据",
+    )
     provider_task_id = db.Column(db.String(255), nullable=True)
     status = db.Column(db.String(30), default="PENDING", nullable=False)
     progress = db.Column(db.Integer, default=0)

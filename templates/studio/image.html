@@ -95,10 +95,12 @@
                         <div class="studio-field-label">额外参考图</div>
                         <span class="studio-field-optional">可选</span>
                     </div>
-                    <label class="studio-upload studio-upload-inline studio-reference-dropzone" for="imageReferenceFiles">
+                    <label class="studio-upload studio-upload-inline studio-reference-dropzone"
+                           for="imageReferenceFiles"
+                           data-file-dropzone="imageReferenceFiles">
                         <div>
                             <strong>上传参考图片</strong>
-                            <span>支持多选，临时保留 7 天并自动带入本次任务</span>
+                            <span>支持点击选择或拖动上传，可同时选择多张图片</span>
                         </div>
                         <input id="imageReferenceFiles" type="file" multiple accept="image/*" hidden>
                     </label>
@@ -567,7 +569,7 @@ document.addEventListener("DOMContentLoaded", function () {
         batchPromptHistorySelect.innerHTML = histories.length
             ? '<option value="">请选择一条历史</option>' +
               histories.map(function (item) {
-                  var label = "提示词 #" + item.id +
+                  var label = (item.name || "批量提示词") + " #" + item.id +
                       " · " + (item.version_count || 0) + " 个版本";
                   if (item.image_quality) label += " · " + item.image_quality;
                   if (item.product_name) label += " · " + item.product_name;
@@ -1269,6 +1271,9 @@ document.addEventListener("DOMContentLoaded", function () {
                 String(item.resolution).toUpperCase()
             ));
         }
+        if (item.target_dimensions) {
+            meta.push("尺寸：" + Studio.escapeHtml(item.target_dimensions));
+        }
         if (product) meta.push("产品：" + Studio.escapeHtml(product));
         if (item.skill_name) meta.push("Skill：" + Studio.escapeHtml(item.skill_name));
         if (model) meta.push("模型：" + Studio.escapeHtml(model));
@@ -1482,20 +1487,24 @@ document.addEventListener("DOMContentLoaded", function () {
         return Studio.request(
             "/studio/api/history?media_type=IMAGE&page=" + page + "&page_size=20"
         ).then(function (result) {
-            var items = (result.data || []).map(decorateBatchTask).filter(function (item) {
-                return usableOutputs(item).length || item.output_expired ||
+            var items = (result.data || []).map(function (item) {
+                return decorateBatchTask(item);
+            }).filter(function (item) {
+                return !item.white_background && (
+                    usableOutputs(item).length || item.output_expired ||
                     item.status === "SUBMITTED" || item.status === "PROCESSING" ||
-                    item.status === "PENDING" || item.status === "FAILED";
+                    item.status === "PENDING" || item.status === "FAILED"
+                );
             });
             historyData = reset
                 ? mergeHistoryWithExisting(
                     items,
                     historyData.filter(function (item) {
-                        var identity = batchTaskIdentity(item);
+                        var batchIdentity = batchTaskIdentity(item);
                         return isLocalTask(item) ||
                             Boolean(
-                                identity &&
-                                knownBatchTaskIdentities[identity]
+                                batchIdentity &&
+                                knownBatchTaskIdentities[batchIdentity]
                             );
                     })
                 )
@@ -1537,6 +1546,63 @@ document.addEventListener("DOMContentLoaded", function () {
             if (url && urls.indexOf(url) === -1) urls.push(url);
         });
         textarea.value = urls.join("\n");
+    }
+
+    function bindFileDropzone(input, onFiles) {
+        if (!input || !onFiles) return;
+        var dropzone = document.querySelector(
+            '[data-file-dropzone="' + input.id + '"]'
+        );
+        if (!dropzone) return;
+
+        var dragDepth = 0;
+        function clearDragging() {
+            dragDepth = 0;
+            dropzone.classList.remove("is-dragging");
+        }
+
+        dropzone.addEventListener("dragenter", function (event) {
+            event.preventDefault();
+            dragDepth += 1;
+            dropzone.classList.add("is-dragging");
+        });
+        dropzone.addEventListener("dragover", function (event) {
+            event.preventDefault();
+            if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+            dropzone.classList.add("is-dragging");
+        });
+        dropzone.addEventListener("dragleave", function (event) {
+            event.preventDefault();
+            dragDepth = Math.max(0, dragDepth - 1);
+            if (!dragDepth) dropzone.classList.remove("is-dragging");
+        });
+        dropzone.addEventListener("drop", function (event) {
+            event.preventDefault();
+            clearDragging();
+            var files = event.dataTransfer && event.dataTransfer.files;
+            if (files && files.length) onFiles(files);
+        });
+        dropzone.addEventListener("dragend", clearDragging);
+    }
+
+    function uploadImageReferenceFiles(files) {
+        files = Array.from(files || []);
+        if (!files.length) return;
+        document.getElementById("imageReferenceStatus").textContent =
+            "正在上传参考图片...";
+        Studio.uploadAssets(
+            files,
+            "IMAGE",
+            "GENERATION_REFERENCE"
+        ).then(function (assets) {
+            referenceAssets = referenceAssets.concat(assets);
+            appendReferenceUrls("imageReferenceUrls", assets);
+            renderReferenceStatus();
+        }).catch(function (error) {
+            document.getElementById("imageReferenceStatus").textContent =
+                error.message;
+            Studio.toast(error.message, "error");
+        });
     }
 
     function viewerEntries() {
@@ -1914,21 +1980,11 @@ document.addEventListener("DOMContentLoaded", function () {
             closeComposer();
         }
     });
-    document.getElementById("imageReferenceFiles").addEventListener("change", function (event) {
-        var files = event.target.files;
-        if (!files.length) return;
-        document.getElementById("imageReferenceStatus").textContent = "正在上传参考图片...";
-        Studio.uploadAssets(files, "IMAGE", "GENERATION_REFERENCE").then(function (assets) {
-            referenceAssets = referenceAssets.concat(assets);
-            appendReferenceUrls("imageReferenceUrls", assets);
-            renderReferenceStatus();
-        }).catch(function (error) {
-            document.getElementById("imageReferenceStatus").textContent = error.message;
-            Studio.toast(error.message, "error");
-        }).finally(function () {
-            event.target.value = "";
-        });
+    imageReferenceFiles.addEventListener("change", function (event) {
+        uploadImageReferenceFiles(event.target.files);
+        event.target.value = "";
     });
+    bindFileDropzone(imageReferenceFiles, uploadImageReferenceFiles);
 
     function handleModelChange() {
         if (lastModelValue === modelSelect.value) return;

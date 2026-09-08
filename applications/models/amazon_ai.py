@@ -112,6 +112,11 @@ class AmazonAiTask(db.Model):
         nullable=False,
         default="Amazon AI任务",
     )
+    custom_name = db.Column(
+        db.Text,
+        nullable=True,
+        comment="竞品分析、差异化分析和 Listing 创作的用户自定义名称",
+    )
     source_key = db.Column(
         db.String(120),
         nullable=True,

@@ -1,3 +1,4 @@
+from applications.common.asset_relations import asset_referenced
 from applications.common.storage import FileService
 from applications.common.skill_storage import force_replace_skill_storage
 from applications.extensions import db
@@ -6,6 +7,17 @@ from applications.models import Dept, Power, Role, StudioAsset, StudioSkill
 
 from .permissions import AMAZON_AI_PERMISSION_CODES
 from .skill_catalog import AMAZON_SKILL_DEFINITIONS, read_skill_content
+
+
+RETIRED_AMAZON_SKILL_CODES = frozenset(
+    {
+        "Amazon_Listing_Strategy_Integration.md",
+        "Amazon_Keyword_Analysis_Skill.md",
+        "Amazon_Review_Analysis_Skill.md",
+        "Amazon_Listing_Audit_Skill.md",
+        "amazon-ecommerce-detail-image-skill",
+    }
+)
 
 
 AMAZON_AI_MENUS = [
@@ -130,6 +142,45 @@ def _read_skill_storage_asset(asset):
         return "", False
 
 
+def _remove_retired_skills():
+    """Remove retired Skill rows, then clean their detached files."""
+
+    obsolete_assets = {}
+    removed = False
+    for retired_code in RETIRED_AMAZON_SKILL_CODES:
+        retired = StudioSkill.query.filter_by(code=retired_code).first()
+        if not retired:
+            continue
+        removed = True
+        retired_asset = _skill_storage_asset(retired)
+        if retired_asset:
+            # Detach the business reference before any remote deletion. This
+            # prevents the asset-reference guard from seeing the row being
+            # retired and keeps a failed delete retryable.
+            retired.storage_asset_id = None
+            obsolete_assets[retired_asset.id] = retired_asset
+        db.session.delete(retired)
+
+    if not removed:
+        return
+
+    # Commit the Skill detach/delete before touching GoFastDFS. If the
+    # database transition fails, no remote object has been removed.
+    db.session.commit()
+
+    for asset in obsolete_assets.values():
+        if asset_referenced(asset.id):
+            # Another live product, Skill, batch prompt or task still uses
+            # this object, so it must remain available.
+            continue
+        deleted = FileService.delete_asset(asset)
+        if deleted:
+            db.session.delete(asset)
+        # Persist both successful deletion and DELETE_FAILED so the scheduler
+        # can retry a transient GoFastDFS failure.
+        db.session.commit()
+
+
 def seed_amazon_skills(seed_storage=True, force_storage_sync=False):
     """Import the bundled Amazon Markdown Skills into the existing Skill system."""
 
@@ -141,25 +192,7 @@ def seed_amazon_skills(seed_storage=True, force_storage_sync=False):
             (Dept.parent_id == 0) | (Dept.parent_id.is_(None))
         ).order_by(Dept.sort.asc(), Dept.id.asc()).first()
     )
-    retired_codes = {
-        "Amazon_Listing_Strategy_Integration.md",
-        "Amazon_Keyword_Analysis_Skill.md",
-        "Amazon_Review_Analysis_Skill.md",
-        "Amazon_Listing_Audit_Skill.md",
-    }
-    for retired_code in retired_codes:
-        retired = StudioSkill.query.filter_by(code=retired_code).first()
-        if retired:
-            retired_asset = (
-                StudioAsset.query.filter_by(id=retired.storage_asset_id).first()
-                if retired.storage_asset_id
-                else None
-            )
-            if retired_asset:
-                if FileService.delete_asset(retired_asset):
-                    db.session.delete(retired_asset)
-            db.session.delete(retired)
-    db.session.flush()
+    _remove_retired_skills()
     seeded = []
     for definition in AMAZON_SKILL_DEFINITIONS:
         content = read_skill_content(definition)

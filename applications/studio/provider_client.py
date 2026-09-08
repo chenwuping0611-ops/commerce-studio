@@ -76,7 +76,8 @@ GPT56_MODEL_CODES = frozenset(
 # GPT-5.x supports up to 128000 output tokens. Responses uses the
 # max_output_tokens field; Chat Completions uses max_completion_tokens.
 GPT_MAX_OUTPUT_TOKENS = 128000
-DEFAULT_PROVIDER_RETRY_COUNT = 3
+MAX_PROVIDER_ATTEMPTS = 3
+DEFAULT_PROVIDER_ATTEMPTS = 3
 
 _SENSITIVE_PAYLOAD_KEYS = frozenset(
     {
@@ -159,15 +160,16 @@ def provider_retry_attempts():
     """Return total attempts for one provider operation, including the first."""
 
     config = current_app.config if has_app_context() else {}
+    configured = config.get("STUDIO_PROVIDER_RETRY_COUNT")
+    if configured in (None, ""):
+        configured = os.getenv("STUDIO_PROVIDER_RETRY_COUNT")
+    if configured in (None, ""):
+        configured = DEFAULT_PROVIDER_ATTEMPTS
     try:
-        retries = int(
-            config.get("STUDIO_PROVIDER_RETRY_COUNT")
-            or os.getenv("STUDIO_PROVIDER_RETRY_COUNT")
-            or DEFAULT_PROVIDER_RETRY_COUNT
-        )
+        attempts = int(configured)
     except (TypeError, ValueError, RuntimeError):
-        retries = DEFAULT_PROVIDER_RETRY_COUNT
-    return max(1, retries + 1)
+        attempts = DEFAULT_PROVIDER_ATTEMPTS
+    return min(MAX_PROVIDER_ATTEMPTS, max(1, attempts))
 
 
 def is_retryable_provider_error(error):
@@ -186,12 +188,12 @@ def is_retryable_provider_error(error):
 
 
 def provider_retry_call(operation, *, operation_name="provider", attempts=None):
-    """Run one provider operation with three retries by default."""
+    """Run one provider operation at most three times, including the first."""
 
     total_attempts = (
         provider_retry_attempts()
         if attempts is None
-        else max(1, int(attempts))
+        else min(MAX_PROVIDER_ATTEMPTS, max(1, int(attempts)))
     )
     for attempt in range(1, total_attempts + 1):
         try:
@@ -413,11 +415,16 @@ class ProviderClient:
         session = requests.Session()
         retry = Retry(
             total=retry_total,
-            connect=retry_total,
+            # A model request is a chargeable POST. Business retry handling
+            # owns those attempts; transport-level connection retries must not
+            # silently multiply them.
+            connect=0,
             read=retry_total,
+            status=retry_total,
+            other=0,
             backoff_factor=0.6,
             status_forcelist=(408, 425, 429, 500, 502, 503, 504),
-            # Model submission is POST and may charge or enqueue work.
+            # Keep automatic status/read retries limited to idempotent reads.
             allowed_methods=frozenset({"GET", "HEAD", "OPTIONS"}),
             raise_on_status=False,
         )

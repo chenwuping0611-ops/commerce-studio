@@ -42,6 +42,7 @@ from applications.models import (
     AmazonAiTask,
     AmazonAiTaskAsset,
     AMAZON_TASK_TITLES,
+    Dept,
     StudioAsset,
     StudioModel,
     StudioProvider,
@@ -1178,34 +1179,94 @@ def _setting_department_id(owner_type, department_id):
     return department_id
 
 
-def global_chat_model_state(department_id=None, owner_type=None, user=None):
-    """Return the exact model selected for one department or admin scope."""
+def _admin_default_department_id(user=None):
+    """Return the real department used as the administrator's global scope."""
 
-    owner_type, department_id = _resolve_model_scope(
-        department_id,
-        owner_type,
-        user=user,
+    user = user or (
+        current_user
+        if getattr(current_user, "is_authenticated", False)
+        else None
     )
+    if not is_super_admin_user(user):
+        return None
+    root = (
+        Dept.query.filter_by(dept_name="总项目")
+        .order_by(Dept.id.asc())
+        .first()
+    )
+    if root:
+        return root.id
+    return user_department_id(user)
+
+
+def _configured_global_chat_model(department_id):
+    """Load the model selected by one concrete department setting."""
 
     setting = StudioSetting.query.filter_by(
         setting_key=AMAZON_GLOBAL_CHAT_MODEL_SETTING_KEY,
-        dept_id=_setting_department_id(owner_type, department_id),
+        dept_id=department_id,
     ).first()
     selected_id = None
     try:
         selected_id = int(setting.setting_value) if setting else None
     except (TypeError, ValueError):
         selected_id = None
+    if not selected_id:
+        return None
+    filters = [
+        StudioModel.id == selected_id,
+        StudioModel.media_type == "CHAT",
+    ]
+    if department_id not in (None, ""):
+        filters.append(StudioProvider.dept_id == department_id)
+    model = (
+        StudioModel.query.join(StudioProvider)
+        .filter(*filters)
+        .first()
+    )
+    if not model:
+        return None
+    if getattr(model, "enabled", 1) != 1:
+        return None
+    provider = getattr(model, "provider", None)
+    if not provider or getattr(provider, "enabled", 1) != 1:
+        return None
+    if not str(getattr(provider, "api_key", None) or "").strip():
+        return None
+    return model
 
-    model_query = None
-    if selected_id:
-        filters = [
-            StudioModel.id == selected_id,
-            StudioModel.media_type == "CHAT",
-            StudioProvider.dept_id == department_id,
-        ]
-        model_query = StudioModel.query.join(StudioProvider).filter(*filters)
-    model = model_query.first() if model_query is not None else None
+
+def global_chat_model_state(department_id=None, owner_type=None, user=None):
+    """Return the model selected for a task's department.
+
+    A concrete department setting always wins. A super administrator may use
+    the real ``总项目`` department setting only when the target department
+    has no selected model. Department-scoped and self-scoped users never cross
+    that boundary.
+    """
+
+    owner_type, requested_department_id = _resolve_model_scope(
+        department_id,
+        owner_type,
+        user=user,
+    )
+    resolved_department_id = requested_department_id
+    model = _configured_global_chat_model(requested_department_id)
+    fallback_used = False
+    if model is None and is_super_admin_user(user):
+        default_department_id = _admin_default_department_id(user)
+        if (
+            default_department_id is not None
+            and default_department_id != requested_department_id
+        ):
+            fallback_model = _configured_global_chat_model(
+                default_department_id
+            )
+            if fallback_model is not None:
+                model = fallback_model
+                resolved_department_id = default_department_id
+                fallback_used = True
+
     enabled = bool(
         model
         and model.enabled == 1
@@ -1224,7 +1285,10 @@ def global_chat_model_state(department_id=None, owner_type=None, user=None):
         "allowed": bool(enabled and has_key),
         "required_model_code": None,
         "owner_type": owner_type,
-        "dept_id": department_id,
+        "dept_id": resolved_department_id,
+        "requested_dept_id": requested_department_id,
+        "resolved_dept_id": resolved_department_id,
+        "fallback_used": fallback_used,
         "model": (
             {
                 "id": model.id,
@@ -1347,24 +1411,7 @@ class AmazonAiService:
                 "Amazon AI 已禁止执行：全局语言模型所属供应商尚未配置 API Key。"
             )
 
-        setting = StudioSetting.query.filter_by(
-            setting_key=AMAZON_GLOBAL_CHAT_MODEL_SETTING_KEY,
-            dept_id=_setting_department_id(
-                state["owner_type"],
-                state["dept_id"],
-            ),
-        ).first()
-        model = (
-            StudioModel.query.join(StudioProvider)
-            .filter(
-                StudioModel.id == int(setting.setting_value),
-                StudioModel.media_type == "CHAT",
-                StudioProvider.dept_id == state["dept_id"],
-            )
-            .first()
-            if setting and setting.setting_value
-            else None
-        )
+        model = _configured_global_chat_model(state["dept_id"])
         acting_user = user or (
             current_user
             if getattr(current_user, "is_authenticated", False)

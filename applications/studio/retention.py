@@ -300,6 +300,7 @@ def _cleanup_orphan_assets(limit, now):
         for asset in assets
         if str(asset.retention_policy or "").upper()
         == FileService.PERMANENT
+        and asset.status != "DELETE_FAILED"
     }
     deleted = 0
     failed = 0

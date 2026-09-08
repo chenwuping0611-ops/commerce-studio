@@ -467,11 +467,23 @@ def _task_display_id(task):
     )
 
 
-def _task_title(task):
+def _task_default_title(task):
     return str(
-        task.title
-        or AMAZON_TASK_TYPE_LABELS.get(task.task_type, "Amazon AI任务")
+        getattr(task, "title", None)
+        or AMAZON_TASK_TYPE_LABELS.get(
+            getattr(task, "task_type", ""),
+            "Amazon AI任务",
+        )
     )
+
+
+def _task_title(task):
+    custom_name = str(
+        getattr(task, "custom_name", None) or ""
+    ).strip()
+    if custom_name and getattr(task, "task_type", "") != "BASIC_INFO_CORRECT":
+        return custom_name
+    return _task_default_title(task)
 
 
 def _asset_dict(asset, fallback_filename=None):
@@ -548,6 +560,12 @@ def _task_dict(task, include_result=False):
         "task_code": task.task_code,
         "display_id": _task_display_id(task),
         "title": _task_title(task),
+        "custom_name": (
+            str(getattr(task, "custom_name", None) or "")
+            if task.task_type != "BASIC_INFO_CORRECT"
+            else ""
+        ),
+        "default_title": _task_default_title(task),
         "task_type": task.task_type,
         "task_type_label": AMAZON_TASK_TYPE_LABELS.get(
             task.task_type,
@@ -1269,6 +1287,13 @@ def options():
         )
         .all()
     )
+    chat_models = [
+        model
+        for model in chat_models
+        if str(
+            getattr(model.provider, "api_key", None) or ""
+        ).strip()
+    ]
     department_ids = {
         model.provider.dept_id
         for model in chat_models
@@ -1563,6 +1588,37 @@ def task_api(task_ref):
     return jsonify(success=True, data=_task_dict(task))
 
 
+@amazon_ai_bp.post("/api/tasks/<task_ref>/custom-name")
+@login_required
+def update_task_custom_name_api(task_ref):
+    task = _scoped_task_by_ref(task_ref)
+    if not task:
+        return jsonify(success=False, msg="Amazon AI 任务不存在"), 404
+    if task.task_type not in {
+        "COMPETITOR_ANALYZE",
+        "DIFFERENTIATION_GENERATE",
+        "LISTING_GENERATE",
+    }:
+        return jsonify(
+            success=False,
+            msg="基础信息修正不支持编辑任务名称",
+        ), 400
+    if not _has_task_permission(task.task_type, include_history=True):
+        return jsonify(success=False, msg="权限不足"), 403
+
+    body = _body()
+    custom_name = body.get("custom_name", body.get("name", ""))
+    if custom_name is None:
+        custom_name = ""
+    task.custom_name = str(custom_name).strip()
+    db.session.commit()
+    return jsonify(
+        success=True,
+        msg="任务名称已保存",
+        data=_task_dict(task),
+    )
+
+
 @amazon_ai_bp.get("/api/tasks/<task_ref>/result")
 @authorize("amazon_ai:history")
 def task_result_api(task_ref):
@@ -1606,6 +1662,12 @@ def result_tasks_api():
                 "task_code": task.task_code,
                 "display_id": _task_display_id(task),
                 "title": _task_title(task),
+                "custom_name": (
+                    str(getattr(task, "custom_name", None) or "")
+                    if task.task_type != "BASIC_INFO_CORRECT"
+                    else ""
+                ),
+                "default_title": _task_default_title(task),
                 "task_type": task.task_type,
                 "task_type_label": AMAZON_TASK_TYPE_LABELS.get(
                     task.task_type,
@@ -2336,6 +2398,12 @@ def basic_info_source_tasks_api():
                 "task_code": row.task_code,
                 "display_id": _task_display_id(row),
                 "title": _task_title(row),
+                "custom_name": (
+                    str(getattr(row, "custom_name", None) or "")
+                    if row.task_type != "BASIC_INFO_CORRECT"
+                    else ""
+                ),
+                "default_title": _task_default_title(row),
                 "task_type": row.task_type,
                 "task_type_label": AMAZON_TASK_TYPE_LABELS.get(
                     row.task_type,

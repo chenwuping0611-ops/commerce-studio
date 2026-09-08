@@ -51,6 +51,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var query = new URLSearchParams(window.location.search);
     var modelId = query.get("id") || "";
     var requestedProviderId = query.get("provider_id") || "";
+    var requestedDepartmentId = query.get("dept_id") || "";
     var form = document.getElementById("modelForm");
     var providerSelect = document.getElementById("modelProvider");
     var catalogSelect = document.getElementById("modelCatalog");
@@ -233,7 +234,10 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function loadData() {
         setMessage("正在加载模型目录...");
-        return Studio.request("/studio/api/providers").then(function (result) {
+        var suffix = requestedDepartmentId
+            ? "?dept_id=" + encodeURIComponent(requestedDepartmentId)
+            : "";
+        return Studio.request("/studio/api/providers" + suffix).then(function (result) {
             providers = result.data || [];
             models = [];
             providers.forEach(function (provider) {

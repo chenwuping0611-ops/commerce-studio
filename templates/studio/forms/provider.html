@@ -45,6 +45,12 @@
                            placeholder="编辑时留空表示保留原有 Key">
                 </div>
                 <div>
+                    <label class="studio-field-label">
+                        <input type="checkbox" name="enabled" id="providerEnabled" checked>
+                        启用供应商
+                    </label>
+                </div>
+                <div>
                     <label class="studio-field-label">认证 Header</label>
                     <input name="auth_header" id="providerAuthHeader" class="layui-input" placeholder="Authorization">
                 </div>
@@ -100,6 +106,7 @@
 document.addEventListener("DOMContentLoaded", function () {
     var query = new URLSearchParams(window.location.search);
     var providerId = query.get("id") || "";
+    var requestedDepartmentId = query.get("dept_id") || "";
     var form = document.getElementById("providerForm");
     var message = document.getElementById("providerMessage");
 
@@ -134,6 +141,7 @@ document.addEventListener("DOMContentLoaded", function () {
         setField("providerKind", provider.kind || "relay");
         setField("providerBaseUrl", provider.base_url || "");
         setField("providerApiKey", "");
+        document.getElementById("providerEnabled").checked = Boolean(provider.enabled);
         setField("providerAuthHeader", provider.auth_header || "Authorization");
         setField("providerAuthPrefix", provider.auth_prefix || "Bearer");
         setField("providerBalancePath", provider.balance_path || "/v1/user/balance");
@@ -152,7 +160,10 @@ document.addEventListener("DOMContentLoaded", function () {
     function loadProvider() {
         if (!providerId) return Promise.resolve();
         setMessage("正在加载供应商...");
-        return Studio.request("/studio/api/providers").then(function (result) {
+        var suffix = requestedDepartmentId
+            ? "?dept_id=" + encodeURIComponent(requestedDepartmentId)
+            : "";
+        return Studio.request("/studio/api/providers" + suffix).then(function (result) {
             var provider = result.data.find(function (item) {
                 return String(item.id) === String(providerId);
             });
@@ -185,6 +196,7 @@ document.addEventListener("DOMContentLoaded", function () {
         new FormData(form).forEach(function (value, key) {
             payload[key] = value;
         });
+        payload.enabled = document.getElementById("providerEnabled").checked;
         Studio.request("/studio/api/providers", {
             method: "POST",
             body: JSON.stringify(payload)

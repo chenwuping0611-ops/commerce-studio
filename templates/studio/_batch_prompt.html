@@ -140,20 +140,52 @@
                                for="batchPromptStyle-{{ batch_type }}">创作风格</label>
                         <span class="studio-field-optional">可选</span>
                     </div>
-                    <select id="batchPromptStyle-{{ batch_type }}"
-                            data-batch-prompt-style
-                            lay-ignore>
-                        {% for option in batch_prompt_style_options|default([], true) %}
-                        <option value="{{ option.value }}">{{ option.label }}</option>
-                        {% endfor %}
-                    </select>
+                    <div class="studio-batch-prompt-style-control">
+                        <select id="batchPromptStyle-{{ batch_type }}"
+                                data-batch-prompt-style
+                                lay-ignore>
+                            {% for option in batch_prompt_style_options|default([], true) %}
+                            <option value="{{ option.value }}">{{ option.label }}</option>
+                            {% endfor %}
+                        </select>
+                        <button type="button"
+                                class="layui-btn studio-btn-quiet studio-batch-prompt-style-manage"
+                                data-batch-prompt-style-manage
+                                title="管理创作风格">
+                            <i class="layui-icon layui-icon-set"></i>
+                            管理风格
+                        </button>
+                    </div>
                     <input type="text"
                            class="layui-input studio-batch-prompt-custom-style"
                            data-batch-prompt-custom-style
                            maxlength="160"
                            placeholder="输入自定义创作风格"
                            hidden>
-                    <div class="studio-field-help">风格只约束视觉表达；如果创作要求中明确指定风格，以创作要求为准。</div>
+                    <div class="studio-field-help">页面选择的风格优先于 Skill 内置风格；选择“跟随 Skill”时按 Skill 执行。</div>
+                    <div class="studio-batch-prompt-style-manager"
+                         data-batch-prompt-style-manager
+                         hidden>
+                        <div class="studio-batch-prompt-style-manager-header">
+                            <strong>动态风格配置</strong>
+                            <span class="studio-helper">添加后立即出现在下拉选项中</span>
+                        </div>
+                        <div class="studio-batch-prompt-style-add-row">
+                            <input type="text"
+                                   class="layui-input"
+                                   data-batch-prompt-style-input
+                                   maxlength="160"
+                                   placeholder="输入新的创作风格">
+                            <button type="button"
+                                    class="layui-btn studio-btn-primary"
+                                    data-batch-prompt-style-add>
+                                <i class="layui-icon layui-icon-add-1"></i>
+                                添加
+                            </button>
+                        </div>
+                        <div class="studio-batch-prompt-style-list"
+                             data-batch-prompt-style-list></div>
+                    </div>
                 </div>
 
                 <div class="studio-setting-card studio-batch-prompt-count-card">

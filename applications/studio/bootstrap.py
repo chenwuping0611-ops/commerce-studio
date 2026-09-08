@@ -44,11 +44,12 @@ STUDIO_MENUS = [
     ("视频与图片创作", "studio:root", "/studio/", "layui-icon layui-icon-console", 1, "0"),
     ("工作台首页", "studio:dashboard", "/studio/", "layui-icon layui-icon-home", 1, "1"),
     ("图片创作", "studio:image", "/studio/image", "layui-icon layui-icon-picture", 2, "1"),
-    ("视频创作", "studio:video", "/studio/video", "layui-icon layui-icon-video", 3, "1"),
-    ("批量创作提示词", "studio:batch_prompts", "/studio/batch-prompts", "layui-icon layui-icon-edit", 4, "1"),
-    ("产品中心", "studio:products", "/studio/products", "layui-icon layui-icon-app", 5, "1"),
-    ("Skill 配置", "studio:skills", "/studio/skills", "layui-icon layui-icon-component", 6, "1"),
-    ("生成历史", "studio:history", "/studio/history", "layui-icon layui-icon-log", 7, "1"),
+    ("白底图生成", "studio:white_background", "/studio/white-background", "layui-icon layui-icon-picture-fine", 3, "1"),
+    ("视频创作", "studio:video", "/studio/video", "layui-icon layui-icon-video", 4, "1"),
+    ("批量创作提示词", "studio:batch_prompts", "/studio/batch-prompts", "layui-icon layui-icon-edit", 5, "1"),
+    ("产品中心", "studio:products", "/studio/products", "layui-icon layui-icon-app", 6, "1"),
+    ("Skill 配置", "studio:skills", "/studio/skills", "layui-icon layui-icon-component", 7, "1"),
+    ("生成历史", "studio:history", "/studio/history", "layui-icon layui-icon-log", 8, "1"),
 ]
 
 GLOBAL_CHAT_MODEL_SETTING_KEY = "global_chat_model_id"
@@ -108,6 +109,7 @@ DEPARTMENT_ADMIN_POWER_CODES = {
     "studio:dashboard",
     "studio:root",
     "studio:image",
+    "studio:white_background",
     "studio:video",
     "studio:batch_prompts",
     "studio:products",

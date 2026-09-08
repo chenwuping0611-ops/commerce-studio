@@ -37,6 +37,16 @@
             overlay.querySelector("[data-batch-prompt-style]");
         var customStyleInput = overlay &&
             overlay.querySelector("[data-batch-prompt-custom-style]");
+        var styleManageButton = overlay &&
+            overlay.querySelector("[data-batch-prompt-style-manage]");
+        var styleManager = overlay &&
+            overlay.querySelector("[data-batch-prompt-style-manager]");
+        var styleInput = overlay &&
+            overlay.querySelector("[data-batch-prompt-style-input]");
+        var styleAddButton = overlay &&
+            overlay.querySelector("[data-batch-prompt-style-add]");
+        var styleList = overlay &&
+            overlay.querySelector("[data-batch-prompt-style-list]");
         var rangeInput = overlay &&
             overlay.querySelector("[data-batch-prompt-range]");
         var countInput = overlay &&
@@ -63,7 +73,8 @@
         var optionsRequestNumber = 0;
         var optionData = {
             products: [],
-            skills: []
+            skills: [],
+            styles: []
         };
         var mediaType = fixedMediaType === "VIDEO" ? "VIDEO" : "IMAGE";
 
@@ -138,9 +149,33 @@
             }
         }
 
+        function renderStyleManager() {
+            if (!styleList) return;
+            if (!optionData.styles.length) {
+                styleList.innerHTML =
+                    '<div class="studio-batch-prompt-style-empty">'
+                    + "还没有可管理的创作风格" + "</div>";
+                return;
+            }
+            styleList.innerHTML = optionData.styles.map(function (item) {
+                var deleteButton = item.id == null
+                    ? ""
+                    : '<button type="button" class="studio-link-button ' +
+                      'studio-batch-prompt-style-delete" ' +
+                      'data-batch-prompt-style-delete="' +
+                      Studio.escapeHtml(item.id) + '" title="删除创作风格">' +
+                      '<i class="layui-icon layui-icon-delete"></i>' +
+                      "删除</button>";
+                return '<div class="studio-batch-prompt-style-row">' +
+                    '<span>' + Studio.escapeHtml(item.name || item.label || "") +
+                    "</span>" + deleteButton + "</div>";
+            }).join("");
+        }
+
         function renderSelects() {
             var currentProduct = productSelect.value;
             var currentSkill = skillSelect.value;
+            var currentStyle = styleSelect ? styleSelect.value : "";
             productSelect.innerHTML = '<option value="">不关联产品</option>' +
                 optionData.products.map(function (item) {
                     var label = item.name || "未命名产品";
@@ -160,6 +195,17 @@
                         '">' + Studio.escapeHtml(label) + "</option>";
                 }).join("");
 
+            if (styleSelect) {
+                styleSelect.innerHTML = '<option value="">跟随 Skill</option>' +
+                    optionData.styles.map(function (item) {
+                        return '<option value="' +
+                            Studio.escapeHtml(item.value || item.name) + '">' +
+                            Studio.escapeHtml(item.label || item.name) +
+                            "</option>";
+                    }).join("") +
+                    '<option value="__custom__">自定义风格</option>';
+            }
+
             if (optionData.products.some(function (item) {
                 return String(item.id) === String(currentProduct);
             })) {
@@ -170,6 +216,17 @@
             })) {
                 skillSelect.value = currentSkill;
             }
+            if (styleSelect) {
+                var canKeepStyle = currentStyle === "" ||
+                    currentStyle === "__custom__" ||
+                    optionData.styles.some(function (item) {
+                        return String(item.value || item.name) ===
+                            String(currentStyle);
+                    });
+                styleSelect.value = canKeepStyle ? currentStyle : "";
+                syncCustomStyle();
+            }
+            renderStyleManager();
             if (window.layui) {
                 layui.use("form", function () {
                     layui.form.render("select");
@@ -192,8 +249,18 @@
                 }
                 optionData.products = result.data.products || [];
                 optionData.skills = result.data.skills || [];
+                optionData.styles = result.data.batch_prompt_styles || [];
                 renderSelects();
             });
+        }
+
+        function loadStyles() {
+            return Studio.request("/studio/api/batch-prompt-styles").then(
+                function (result) {
+                    optionData.styles = result.data.styles || [];
+                    renderSelects();
+                }
+            );
         }
 
         function openComposer() {
@@ -201,6 +268,9 @@
             overlay.setAttribute("aria-hidden", "false");
             document.body.classList.add("studio-composer-open");
             setMessage("");
+            loadStyles().catch(function (error) {
+                Studio.toast(error.message, "error");
+            });
             window.setTimeout(function () {
                 if (window.layui) {
                     layui.use("form", function () {
@@ -261,6 +331,7 @@
             return {
                 id: "local-" + Date.now() + "-" +
                     Math.random().toString(36).slice(2, 8),
+                name: "批量提示词",
                 media_type: payload.media_type,
                 product_id: payload.product_id || null,
                 product_name: payload.product_name || "",
@@ -317,6 +388,10 @@
                         return Boolean(value);
                     });
                     var isAnalyzing = item.ui_stage === "ANALYZING";
+                    var isLocal = isLocalHistoryItem(item);
+                    var displayName = String(
+                        item.name || "批量提示词"
+                    ).trim() || "批量提示词";
                     var content = item.content
                         ? '<pre class="studio-batch-prompt-content">' +
                           Studio.escapeHtml(item.content) + "</pre>"
@@ -349,12 +424,24 @@
                         Studio.escapeHtml(item.id) + '">' +
                         '<div class="studio-batch-prompt-item-header">' +
                         "<div>" +
-                        '<strong>' +
-                        (isLocalHistoryItem(item)
+                        '<div class="studio-batch-prompt-title" ' +
+                        'data-batch-prompt-name-container>' +
+                        '<strong data-batch-prompt-name-display>' +
+                        (isLocal
                             ? "批量创作提示词"
-                            : "批量提示词 #" +
-                              Studio.escapeHtml(item.id)) +
+                            : Studio.escapeHtml(displayName)) +
                         "</strong>" +
+                        (!isLocal
+                            ? '<span class="studio-batch-prompt-id">#' +
+                              Studio.escapeHtml(item.id) + "</span>" +
+                              '<button type="button" ' +
+                              'class="studio-link-button ' +
+                              'studio-batch-prompt-name-action" ' +
+                              'data-batch-action="edit-name" ' +
+                              'title="编辑批量提示词名称">' +
+                              "编辑名称</button>"
+                            : "") +
+                        "</div>" +
                         '<div class="studio-batch-prompt-meta">' +
                         meta.map(Studio.escapeHtml).join(" · ") +
                         "</div>" +
@@ -501,6 +588,68 @@
             if (editor) editor.focus();
         }
 
+        function beginNameEdit(itemNode, item) {
+            var title = itemNode.querySelector(
+                "[data-batch-prompt-name-container]"
+            );
+            if (!title || isLocalHistoryItem(item)) return;
+            var name = String(item.name || "批量提示词").trim() ||
+                "批量提示词";
+            title.innerHTML =
+                '<div class="studio-batch-prompt-name-editor-row">' +
+                '<input type="text" class="layui-input ' +
+                'studio-batch-prompt-name-editor" ' +
+                'data-batch-prompt-name-editor maxlength="160" ' +
+                'value="' + Studio.escapeHtml(name) + '">' +
+                '<span class="studio-batch-prompt-id">#' +
+                Studio.escapeHtml(item.id) + "</span>" +
+                "</div>" +
+                '<div class="studio-batch-prompt-name-actions">' +
+                '<button type="button" class="layui-btn ' +
+                'studio-btn-primary" data-batch-action="save-name">' +
+                "保存名称</button>" +
+                '<button type="button" class="layui-btn ' +
+                'studio-btn-quiet" data-batch-action="cancel-name">' +
+                "取消</button>" +
+                "</div>";
+            var editor = title.querySelector(
+                "[data-batch-prompt-name-editor]"
+            );
+            if (editor) editor.focus();
+        }
+
+        function saveName(itemNode, item) {
+            var editor = itemNode.querySelector(
+                "[data-batch-prompt-name-editor]"
+            );
+            var saveButton = itemNode.querySelector(
+                '[data-batch-action="save-name"]'
+            );
+            if (!editor || !saveButton) return;
+            var name = editor.value.trim();
+            if (!name) {
+                Studio.toast("批量提示词名称不能为空", "error");
+                editor.focus();
+                return;
+            }
+            saveButton.disabled = true;
+            saveButton.textContent = "保存中...";
+            Studio.request(
+                "/studio/api/batch-prompts/" + encodeURIComponent(item.id),
+                {
+                    method: "PUT",
+                    body: JSON.stringify({name: name})
+                }
+            ).then(function (result) {
+                replaceHistoryItem(result.data);
+                Studio.toast("批量提示词名称已保存");
+            }).catch(function (error) {
+                saveButton.disabled = false;
+                saveButton.textContent = "保存名称";
+                Studio.toast(error.message, "error");
+            });
+        }
+
         function saveEdit(itemNode, item) {
             var editor = itemNode.querySelector(
                 "[data-batch-prompt-editor]"
@@ -561,6 +710,81 @@
             syncCustomStyle();
         }
 
+        if (styleManageButton && styleManager) {
+            styleManageButton.addEventListener("click", function () {
+                styleManager.hidden = !styleManager.hidden;
+                if (!styleManager.hidden) {
+                    loadStyles().catch(function (error) {
+                        Studio.toast(error.message, "error");
+                    });
+                }
+            });
+        }
+
+        if (styleAddButton && styleInput) {
+            styleAddButton.addEventListener("click", function () {
+                var name = styleInput.value.trim();
+                if (!name) {
+                    Studio.toast("请输入创作风格", "error");
+                    styleInput.focus();
+                    return;
+                }
+                styleAddButton.disabled = true;
+                styleAddButton.classList.add("layui-btn-disabled");
+                Studio.request("/studio/api/batch-prompt-styles", {
+                    method: "POST",
+                    body: JSON.stringify({name: name})
+                }).then(function (result) {
+                    optionData.styles = result.data.styles || [];
+                    renderSelects();
+                    if (styleSelect && result.data.style) {
+                        styleSelect.value = result.data.style.value ||
+                            result.data.style.name || "";
+                        syncCustomStyle();
+                    }
+                    styleInput.value = "";
+                    Studio.toast("创作风格已添加");
+                }).catch(function (error) {
+                    Studio.toast(error.message, "error");
+                }).then(function () {
+                    styleAddButton.disabled = false;
+                    styleAddButton.classList.remove("layui-btn-disabled");
+                });
+            });
+            styleInput.addEventListener("keydown", function (event) {
+                if (event.key === "Enter") {
+                    event.preventDefault();
+                    styleAddButton.click();
+                }
+            });
+        }
+
+        if (styleList) {
+            styleList.addEventListener("click", function (event) {
+                var deleteButton = event.target.closest(
+                    "[data-batch-prompt-style-delete]"
+                );
+                if (!deleteButton) return;
+                var styleId = deleteButton.dataset.batchPromptStyleDelete;
+                if (!styleId || !window.confirm("确定删除这个创作风格吗？")) {
+                    return;
+                }
+                deleteButton.disabled = true;
+                Studio.request(
+                    "/studio/api/batch-prompt-styles/" +
+                    encodeURIComponent(styleId),
+                    {method: "DELETE"}
+                ).then(function (result) {
+                    optionData.styles = result.data.styles || [];
+                    renderSelects();
+                    Studio.toast("创作风格已删除");
+                }).catch(function (error) {
+                    deleteButton.disabled = false;
+                    Studio.toast(error.message, "error");
+                });
+            });
+        }
+
         history.addEventListener("click", function (event) {
             var actionNode = event.target.closest("[data-batch-action]");
             if (!actionNode) return;
@@ -575,9 +799,35 @@
             var action = actionNode.dataset.batchAction;
             if (action === "edit") {
                 beginEdit(itemNode, item);
+            } else if (action === "edit-name") {
+                beginNameEdit(itemNode, item);
             } else if (action === "save") {
                 saveEdit(itemNode, item);
+            } else if (action === "save-name") {
+                saveName(itemNode, item);
             } else if (action === "cancel") {
+                renderHistory();
+            } else if (action === "cancel-name") {
+                renderHistory();
+            }
+        });
+
+        history.addEventListener("keydown", function (event) {
+            var editor = event.target.closest(
+                "[data-batch-prompt-name-editor]"
+            );
+            if (!editor) return;
+            if (event.key === "Enter") {
+                event.preventDefault();
+                var title = editor.closest(
+                    "[data-batch-prompt-name-container]"
+                );
+                var saveButton = title && title.querySelector(
+                    '[data-batch-action="save-name"]'
+                );
+                if (saveButton) saveButton.click();
+            } else if (event.key === "Escape") {
+                event.preventDefault();
                 renderHistory();
             }
         });

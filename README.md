@@ -77,7 +77,7 @@ Alembic 迁移，创建 Pear Admin、部门、RBAC、Studio、Amazon AI 及全�
 追加到图片 Prompt 的输出规格末尾。接口AI返回的临时图片 URL 会先下载到
 本地临时文件，再统一上传到 GoFastDFS。
 
-供应商模型调用默认采用首次请求加 3 次业务重试。已获得上游任务 ID 或
+供应商模型调用默认最多执行 3 次（首次请求加最多 2 次业务重试）。已获得上游任务 ID 或
 同步输出后的存储失败不会重新提交生成请求；同一业务任务只保留一条本地历史。
 
 GoFastDFS 部署完成并配置 `.flaskenv` 后，如需上传内置 Skill 文件，再执行：
@@ -159,14 +159,13 @@ GOFASTDFS_GROUP=group1
 /var/log/pear-ai/systemd-error.log      systemd 标准错误
 ```
 
-推荐把项目部署到 `/opt/pear-ai`，由专用 `pear` 用户运行。项目在
-`/root/pear-ai` 时，`pear` 用户通常无法穿过 `/root` 目录，不要只修改
-`WorkingDirectory` 而遗漏文件权限。部署模板位于 `deploy/`：
+当前线上部署按实际服务器配置由 `root` 运行，不需要创建 `pear` 用户。
+推荐把项目部署到 `/opt/pear-ai`，避免服务路径依赖 `/root` 目录。部署模板
+位于 `deploy/`：
 
 ```bash
-sudo useradd --system --home-dir /opt/pear-ai --shell /sbin/nologin pear
-sudo install -d -o pear -g pear -m 0750 /var/log/pear-ai
-sudo chown -R pear:pear /opt/pear-ai
+sudo install -d -o root -g root -m 0750 /var/log/pear-ai
+sudo chown -R root:root /opt/pear-ai
 sudo cp /opt/pear-ai/deploy/pear-ai.service /etc/systemd/system/pear-ai.service
 sudo cp /opt/pear-ai/deploy/pear-ai-tmpfiles.conf /etc/tmpfiles.d/pear-ai.conf
 sudo cp /opt/pear-ai/deploy/pear-ai-logrotate /etc/logrotate.d/pear-ai

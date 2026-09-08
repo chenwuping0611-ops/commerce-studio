@@ -22,8 +22,8 @@
         </div>
         <div class="studio-table-wrap">
             <table class="studio-table">
-                <thead><tr><th>生成编号</th><th>类型</th><th>产品</th><th>Skill</th><th>模型</th><th>状态</th><th>进度</th><th>输出资产</th><th>创建时间</th>{% if can_delete_history %}<th>操作</th>{% endif %}</tr></thead>
-                <tbody id="historyTable"><tr><td colspan="{{ 10 if can_delete_history else 9 }}" class="studio-empty">正在加载</td></tr></tbody>
+                <thead><tr><th>生成编号</th><th>类型</th><th>产品</th><th>Skill</th><th>模型</th><th>状态</th><th>进度</th><th>输出资产</th><th>创建时间</th>{% if can_delete_history or can_manage_products %}<th>操作</th>{% endif %}</tr></thead>
+                <tbody id="historyTable"><tr><td colspan="{{ 10 if can_delete_history or can_manage_products else 9 }}" class="studio-empty">正在加载</td></tr></tbody>
             </table>
         </div>
         <div class="studio-history-pagination">
@@ -35,20 +35,89 @@
         </div>
     </div>
 </section>
+{% if can_manage_products %}
+<div class="studio-composer-overlay" id="historyBindOverlay" aria-hidden="true">
+    <div class="studio-composer-backdrop" data-history-bind-close="1"></div>
+    <div class="studio-composer-dialog" role="dialog" aria-modal="true"
+         aria-labelledby="historyBindTitle">
+        <section class="studio-card studio-image-composer">
+            <div class="studio-card-header">
+                <div>
+                    <h2 id="historyBindTitle">绑定到产品中心</h2>
+                    <div class="studio-card-subtitle">
+                        绑定后图片会转为永久素材；固定位置会替换原有图片
+                    </div>
+                </div>
+                <button type="button" class="studio-composer-close"
+                        id="historyBindClose"
+                        aria-label="关闭绑定窗口">×</button>
+            </div>
+            <form class="layui-form studio-form studio-image-form"
+                  id="historyBindForm">
+                <div class="studio-composer-grid">
+                    <div class="studio-field studio-field-span-2">
+                        <label class="studio-field-label"
+                               for="historyBindProduct">产品</label>
+                        <select id="historyBindProduct" lay-ignore required>
+                            <option value="">正在加载产品...</option>
+                        </select>
+                    </div>
+                    <div class="studio-field studio-field-span-2">
+                        <label class="studio-field-label"
+                               for="historyBindRole">产品图片位置</label>
+                        <select id="historyBindRole" lay-ignore required>
+                            <option value="">请选择产品图片位置</option>
+                            <option value="cover">主图</option>
+                            <option value="front">正面</option>
+                            <option value="back">背面</option>
+                            <option value="left">左侧</option>
+                            <option value="right">右侧</option>
+                            <option value="top">顶部</option>
+                            <option value="bottom">底部</option>
+                            <option value="detail">细节图</option>
+                            <option value="scene">场景图</option>
+                            <option value="reference">其他素材</option>
+                        </select>
+                        <div class="studio-field-help">
+                            白底图是图片素材，不能绑定到 360 视频位置。
+                        </div>
+                    </div>
+                </div>
+                <div class="studio-form-message" id="historyBindMessage"></div>
+                <div class="studio-form-actions studio-form-actions-inline">
+                    <button type="submit" class="layui-btn studio-btn-primary"
+                            id="historyBindSubmit">确认绑定</button>
+                    <button type="button" class="layui-btn studio-btn-quiet"
+                            id="historyBindCancel">取消</button>
+                </div>
+            </form>
+        </section>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
 <script>
 document.addEventListener("DOMContentLoaded", function () {
     var canDeleteHistory = {{ "true" if can_delete_history else "false" }};
-    var historyColumnCount = canDeleteHistory ? 10 : 9;
+    var canManageProducts = {{ "true" if can_manage_products else "false" }};
+    var historyHasActions = canDeleteHistory || canManageProducts;
+    var historyColumnCount = historyHasActions ? 10 : 9;
     var historyPage = 1;
     var historyHasMore = false;
     var historyLoading = false;
+    var bindOverlay = document.getElementById("historyBindOverlay");
+    var bindForm = document.getElementById("historyBindForm");
+    var bindProduct = document.getElementById("historyBindProduct");
+    var bindRole = document.getElementById("historyBindRole");
+    var bindMessage = document.getElementById("historyBindMessage");
+    var bindSubmit = document.getElementById("historyBindSubmit");
+    var bindState = null;
 
     function deleteHistory(taskId, button) {
         if (!canDeleteHistory || !taskId) return;
-        if (!window.confirm("确定删除这条生成历史及其生成资产吗？")) return;
+        if (!window.confirm("确定删除这条生成历史吗？已绑定到产品中心的图片会保留，未绑定图片会按临时资产策略删除。")) return;
         button.disabled = true;
         button.textContent = "删除中...";
         Studio.request("/studio/api/history/" + encodeURIComponent(taskId), {
@@ -61,6 +130,84 @@ document.addEventListener("DOMContentLoaded", function () {
             button.textContent = "删除";
             Studio.toast(error.message, "error");
         });
+    }
+
+    function closeBindDialog() {
+        if (!bindOverlay) return;
+        bindOverlay.classList.remove("is-open");
+        bindOverlay.setAttribute("aria-hidden", "true");
+        document.body.classList.remove("studio-composer-open");
+        bindState = null;
+        if (bindMessage) bindMessage.textContent = "";
+    }
+
+    function renderBindProducts(products, binding) {
+        products = products || [];
+        bindProduct.innerHTML = products.length
+            ? '<option value="">请选择产品</option>' + products.map(function (product) {
+                var label = product.name || product.code || "未命名产品";
+                if (product.code && product.name) label += " · " + product.code;
+                return '<option value="' + product.id + '">' +
+                    Studio.escapeHtml(label) + '</option>';
+            }).join("")
+            : '<option value="">暂无可用产品</option>';
+        if (binding && binding.product_id && products.some(function (product) {
+            return String(product.id) === String(binding.product_id);
+        })) {
+            bindProduct.value = String(binding.product_id);
+        } else if (products.length === 1) {
+            bindProduct.value = String(products[0].id);
+        }
+        bindRole.value = binding && binding.role ? binding.role : "";
+    }
+
+    function openBindDialog(taskId, assetId, binding) {
+        if (!bindOverlay || !canManageProducts || !taskId || !assetId) return;
+        bindState = {
+            taskId: taskId,
+            assetId: assetId,
+            binding: binding || null
+        };
+        bindMessage.textContent = "";
+        bindSubmit.disabled = true;
+        bindProduct.innerHTML = '<option value="">正在加载产品...</option>';
+        bindOverlay.classList.add("is-open");
+        bindOverlay.setAttribute("aria-hidden", "false");
+        document.body.classList.add("studio-composer-open");
+        Studio.request("/studio/api/products").then(function (result) {
+            if (!bindState) return;
+            renderBindProducts(result.data || [], bindState.binding);
+            bindSubmit.disabled = false;
+            if (window.layui) {
+                layui.use("form", function () {
+                    layui.form.render("select");
+                });
+            }
+            bindProduct.focus();
+        }).catch(function (error) {
+            bindSubmit.disabled = true;
+            bindMessage.textContent = error.message;
+        });
+    }
+
+    function outputBindingActions(item) {
+        if (!canManageProducts || !item.white_background ||
+            !item.output_assets || !item.output_assets.length) {
+            return "";
+        }
+        return '<div class="studio-history-output-actions">' +
+            item.output_assets.map(function (asset, index) {
+                if (!asset || !asset.id) return "";
+                var binding = asset.product_binding || null;
+                return '<button type="button" class="studio-link-button" ' +
+                    'data-action="bind-output" data-task-id="' + item.id +
+                    '" data-asset-id="' + asset.id + '" data-binding="' +
+                    Studio.escapeHtml(JSON.stringify(binding)) + '">' +
+                    (binding ? "更换绑定" : "绑定到产品中心") +
+                    '</button>' +
+                    '<span class="studio-helper">图片 ' + (index + 1) +
+                    (binding ? " · 已绑定" : "") + '</span>';
+            }).join("") + '</div>';
     }
 
     function updatePagination() {
@@ -79,9 +226,12 @@ document.addEventListener("DOMContentLoaded", function () {
         updatePagination();
         var code = document.getElementById("historyCode").value.trim();
         var type = document.getElementById("historyType").value;
+        var workflowType = new URLSearchParams(window.location.search)
+            .get("workflow_type");
         var query = new URLSearchParams();
         if (code) query.set("code", code);
         if (type) query.set("media_type", type);
+        if (workflowType) query.set("workflow_type", workflowType);
         query.set("page", historyPage);
         query.set("page_size", "20");
         return Studio.request("/studio/api/history?" + query.toString()).then(function (result) {
@@ -103,11 +253,16 @@ document.addEventListener("DOMContentLoaded", function () {
                     (item.output_expired
                         ? '<span class="muted">资产已过期（保留 7 天）</span>'
                         : '<span class="muted">等待输出</span>');
+                output += outputBindingActions(item);
                 var error = item.error_message ?
                     '<div class="studio-error-text">' + Studio.escapeHtml(item.error_message) + '</div>' : "";
-                var action = canDeleteHistory
-                    ? '<td><button type="button" class="studio-link-button studio-history-delete" data-action="delete-history" data-task-id="' +
-                        item.id + '">删除</button></td>'
+                var action = historyHasActions
+                    ? '<td>' +
+                      (canDeleteHistory
+                          ? '<button type="button" class="studio-link-button studio-history-delete" data-action="delete-history" data-task-id="' +
+                            item.id + '">删除</button>'
+                          : "") +
+                      '</td>'
                     : "";
                 return '<tr><td><a class="studio-history-code" href="/studio/history?code=' + item.task_code + '">' + item.task_code + '</a></td>' +
                     '<td>' + (item.media_type === "VIDEO" ? "视频" : "图片") + '</td>' +
@@ -152,8 +307,25 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     });
     document.getElementById("historyTable").addEventListener("click", function (event) {
-        var target = event.target.closest('[data-action="delete-history"]');
-        if (target) deleteHistory(target.dataset.taskId, target);
+        var target = event.target.closest("[data-action]");
+        if (!target) return;
+        if (target.dataset.action === "delete-history") {
+            deleteHistory(target.dataset.taskId, target);
+        } else if (target.dataset.action === "bind-output") {
+            var binding = null;
+            try {
+                binding = target.dataset.binding
+                    ? JSON.parse(target.dataset.binding)
+                    : null;
+            } catch (error) {
+                binding = null;
+            }
+            openBindDialog(
+                target.dataset.taskId,
+                target.dataset.assetId,
+                binding
+            );
+        }
     });
     document.getElementById("historyCode").addEventListener("keydown", function (event) {
         if (event.key === "Enter") {
@@ -166,6 +338,57 @@ document.addEventListener("DOMContentLoaded", function () {
     var initialType = new URLSearchParams(window.location.search).get("media_type");
     if (initialCode) document.getElementById("historyCode").value = initialCode;
     if (initialType) document.getElementById("historyType").value = initialType;
+    if (bindOverlay) {
+        document.getElementById("historyBindClose").addEventListener(
+            "click", closeBindDialog
+        );
+        document.getElementById("historyBindCancel").addEventListener(
+            "click", closeBindDialog
+        );
+        bindOverlay.querySelectorAll("[data-history-bind-close]").forEach(
+            function (node) {
+                node.addEventListener("click", closeBindDialog);
+            }
+        );
+        bindForm.addEventListener("submit", function (event) {
+            event.preventDefault();
+            if (!bindState) return;
+            var productId = bindProduct.value;
+            var role = bindRole.value;
+            if (!productId || !role) {
+                bindMessage.textContent = "请选择产品和产品图片位置";
+                return;
+            }
+            bindSubmit.disabled = true;
+            bindSubmit.textContent = "绑定中...";
+            Studio.request("/studio/api/white-background/bind", {
+                method: "POST",
+                body: JSON.stringify({
+                    task_id: bindState.taskId,
+                    asset_id: bindState.assetId,
+                    product_id: productId,
+                    role: role
+                })
+            }).then(function (result) {
+                closeBindDialog();
+                bindSubmit.disabled = false;
+                bindSubmit.textContent = "确认绑定";
+                return loadHistory(historyPage).then(function () {
+                    Studio.toast(result.msg || "已绑定到产品中心");
+                });
+            }).catch(function (error) {
+                bindSubmit.disabled = false;
+                bindSubmit.textContent = "确认绑定";
+                bindMessage.textContent = error.message;
+            });
+        });
+    }
+    document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape" && bindOverlay &&
+            bindOverlay.classList.contains("is-open")) {
+            closeBindDialog();
+        }
+    });
     loadHistory(1).catch(function (error) {
         Studio.toast(error.message, "error");
     });

@@ -1,18 +1,41 @@
 (function () {
+    function parseJsonResponse(response, fallbackMessage) {
+        return response.text().then(function (raw) {
+            var payload;
+            try {
+                payload = raw ? JSON.parse(raw) : null;
+            } catch (error) {
+                var status = response.status ? "（HTTP " + response.status + "）" : "";
+                throw new Error(
+                    (fallbackMessage || "服务器返回了无效响应") +
+                    status + "，请检查 Gunicorn/Nginx 日志"
+                );
+            }
+            if (!payload || typeof payload !== "object") {
+                var emptyStatus = response.status ? "（HTTP " + response.status + "）" : "";
+                throw new Error(
+                    (fallbackMessage || "服务器返回了无效响应") +
+                    emptyStatus + "，请检查 Gunicorn/Nginx 日志"
+                );
+            }
+            if (!response.ok || payload.success === false) {
+                var message = payload.msg || payload.message || "请求失败";
+                if (response.status && message === "请求失败") {
+                    message += "（HTTP " + response.status + "）";
+                }
+                throw new Error(message);
+            }
+            return payload;
+        });
+    }
+
     function request(url, options) {
         options = options || {};
         options.headers = Object.assign({
             "Content-Type": "application/json"
         }, options.headers || {});
         return fetch(url, options).then(function (response) {
-            return response.json().catch(function () {
-                return {success: false, msg: "服务器返回了无效响应"};
-            }).then(function (payload) {
-                if (!response.ok || payload.success === false) {
-                    throw new Error(payload.msg || "请求失败");
-                }
-                return payload;
-            });
+            return parseJsonResponse(response, "服务器返回了无效响应");
         });
     }
 
@@ -29,12 +52,7 @@
                 method: "POST",
                 body: body
             }).then(function (response) {
-                return response.json().catch(function () {
-                    return {success: false, msg: "服务器返回了无效响应"};
-                }).then(function (payload) {
-                    if (!response.ok || payload.success === false) {
-                        throw new Error(payload.msg || "文件上传失败");
-                    }
+                return parseJsonResponse(response, "服务器返回了无效响应").then(function (payload) {
                     return payload.data;
                 });
             });

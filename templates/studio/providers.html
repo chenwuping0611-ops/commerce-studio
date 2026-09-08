@@ -12,6 +12,9 @@
         <select class="studio-input-select" id="providerDepartment" title="供应商部门">
             <option value="">全部部门</option>
         </select>
+        <button type="button" class="layui-btn studio-btn-quiet" id="toggleAllDepartments">
+            查看所有部门供应商配置
+        </button>
         {% endif %}
         <button class="layui-btn studio-btn-primary" id="newProvider">新增供应商</button>
         <button class="layui-btn studio-btn-quiet" id="newModel">添加模型</button>
@@ -39,28 +42,53 @@
         <span id="globalChatModelStatus" class="studio-helper">正在加载配置</span>
     </div>
     <div class="studio-card-body studio-global-chat-config">
-        {% if is_super_admin %}
-        <div class="studio-field">
-            <label class="studio-field-label" for="globalChatDepartment">配置部门</label>
-            <select id="globalChatDepartment" class="studio-input-select"></select>
+        <div class="studio-global-chat-intro">
+            <div class="studio-global-chat-intro-title">统一工作模型</div>
+            <div class="studio-card-subtitle">先确定配置部门，再选择供应商和该供应商下的语言模型。保存后，相关创作与意见反馈会使用此配置。</div>
         </div>
-        {% endif %}
-        <div class="studio-field">
-            <label class="studio-field-label" for="globalChatModel">选择语言模型</label>
-            <select id="globalChatModel" class="studio-input-select">
-                <option value="">正在加载...</option>
-            </select>
-            <div class="studio-field-help">只会显示已启用的 CHAT 语言模型；切换后写入数据库，后续创作与意见反馈统一使用该模型。</div>
+        <div class="studio-global-chat-grid">
+            {% if is_super_admin %}
+            <div class="studio-global-chat-field">
+                <label class="studio-field-label" for="globalChatDepartment">配置部门</label>
+                <select id="globalChatDepartment" class="studio-input-select"></select>
+            </div>
+            {% endif %}
+            <div class="studio-global-chat-field">
+                <label class="studio-field-label" for="globalChatProvider">选择供应商</label>
+                <select id="globalChatProvider" class="studio-input-select">
+                    <option value="">正在加载...</option>
+                </select>
+                <div class="studio-field-help">仅显示当前部门已启用且已配置 API Key 的语言模型供应商。</div>
+            </div>
+            <div class="studio-global-chat-field">
+                <label class="studio-field-label" for="globalChatModel">选择语言模型</label>
+                <select id="globalChatModel" class="studio-input-select">
+                    <option value="">正在加载...</option>
+                </select>
+                <div class="studio-field-help">只显示当前供应商下已启用的语言模型。</div>
+            </div>
         </div>
-        <div class="studio-global-chat-current" id="globalChatModelCurrent">尚未选择</div>
-        <button type="button" class="layui-btn studio-btn-primary" id="saveGlobalChatModel">保存选择</button>
+        <div class="studio-global-chat-footer">
+            <div class="studio-global-chat-current">
+                <div class="studio-global-chat-current-label">当前生效配置</div>
+                <div id="globalChatModelCurrent">尚未选择</div>
+            </div>
+            <button type="button" class="layui-btn studio-btn-primary" id="saveGlobalChatModel">保存选择</button>
+        </div>
     </div>
 </section>
 
 <section class="studio-card studio-section-gap">
     <div class="studio-card-header">
-        <h2>模型定义</h2>
-        <span class="studio-helper">模型参数由供应商代码目录固定，列表只显示已启用模型</span>
+        <div>
+            <h2>模型定义</h2>
+            <span class="studio-helper">模型参数由供应商代码目录固定，停用模型仍保留在这里，便于重新启用</span>
+        </div>
+        <div class="studio-toolbar-right">
+            <select class="studio-input-select" id="modelProviderFilter" title="按供应商筛选模型">
+                <option value="">正在加载供应商...</option>
+            </select>
+        </div>
     </div>
     <div class="studio-table-wrap">
         <table class="studio-table">
@@ -85,8 +113,13 @@ document.addEventListener("DOMContentLoaded", function () {
     var providers = [];
     var models = [];
     var globalChatConfig = null;
-    var providerDepartmentId = "";
+    var ownProviderDepartmentId = {{ current_dept_id|tojson }};
+    var providerDepartmentId = String(ownProviderDepartmentId || "");
+    var showingAllDepartments = !providerDepartmentId;
+    var selectedModelProviderId = "";
+    var globalChatProviderId = "";
     var globalDepartmentId = "";
+    var dataLoadSequence = 0;
 
     function fitArea(area) {
         area = area || ["820px", "760px"];
@@ -159,6 +192,11 @@ document.addEventListener("DOMContentLoaded", function () {
                 '<div class="studio-provider-actions">' +
                     '<button class="layui-btn layui-btn-xs studio-btn-quiet edit-provider" data-id="' +
                     item.id + '">编辑</button>' +
+                    '<button class="layui-btn layui-btn-xs ' +
+                    (item.enabled ? "layui-btn-danger" : "studio-btn-primary") +
+                    ' toggle-provider" data-id="' + item.id +
+                    '" data-enabled="' + (item.enabled ? "1" : "0") + '">' +
+                    (item.enabled ? "停用供应商" : "启用供应商") + '</button>' +
                     '<button class="layui-btn layui-btn-xs studio-btn-quiet balance-provider" data-id="' +
                     item.id + '" data-scope="user">查询用户余额</button>' +
                     '<button class="layui-btn layui-btn-xs studio-btn-quiet balance-provider" data-id="' +
@@ -176,8 +214,32 @@ document.addEventListener("DOMContentLoaded", function () {
 
         list.querySelectorAll(".edit-provider").forEach(function (button) {
             button.addEventListener("click", function () {
-                openFrame("编辑供应商", "/studio/forms/provider?id=" +
-                    encodeURIComponent(button.dataset.id), ["820px", "760px"]);
+                var provider = providers.find(function (item) {
+                    return String(item.id) === String(button.dataset.id);
+                });
+                var editUrl = "/studio/forms/provider?id=" +
+                    encodeURIComponent(button.dataset.id);
+                if (provider && provider.dept_id) {
+                    editUrl += "&dept_id=" +
+                        encodeURIComponent(provider.dept_id);
+                }
+                openFrame("编辑供应商", editUrl, ["820px", "760px"]);
+            });
+        });
+        list.querySelectorAll(".toggle-provider").forEach(function (button) {
+            button.addEventListener("click", function () {
+                var enabled = button.dataset.enabled !== "1";
+                button.disabled = true;
+                Studio.request(
+                    "/studio/api/providers/" + button.dataset.id + "/status",
+                    {
+                        method: "POST",
+                        body: JSON.stringify({enabled: enabled})
+                    }
+                ).then(loadData).catch(function (error) {
+                    button.disabled = false;
+                    Studio.toast(error.message, "error");
+                });
             });
         });
         list.querySelectorAll(".balance-provider").forEach(function (button) {
@@ -238,11 +300,11 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function renderModels() {
         var table = document.getElementById("modelTable");
-        var activeModels = models.filter(function (item) {
-            return item.enabled;
+        var visibleModels = models.filter(function (item) {
+            return String(item.provider_id) === String(selectedModelProviderId);
         });
-        if (!activeModels.length) {
-            table.innerHTML = '<tr><td colspan="7" class="studio-empty">暂无启用模型，请点击“添加模型”从供应商目录启用。</td></tr>';
+        if (!visibleModels.length) {
+            table.innerHTML = '<tr><td colspan="7" class="studio-empty">暂无模型，请点击“添加模型”从供应商目录添加。</td></tr>';
             return;
         }
         function mediaTypeLabel(mediaType) {
@@ -250,13 +312,13 @@ document.addEventListener("DOMContentLoaded", function () {
                 ? "视频"
                 : (mediaType === "CHAT" ? "语言模型" : "图片");
         }
-        table.innerHTML = activeModels.map(function (item) {
-            var departments = (item.department_names || []).join("、") ||
-                item.dept_name || "未指定部门";
-            var action = item.model_ids && item.model_ids.length > 1
-                ? '<span class="studio-helper" title="该模型在多个部门各有独立配置">请按部门筛选</span>'
-                : '<button class="layui-btn layui-btn-xs layui-btn-danger delete-model" data-id="' +
-                    item.id + '">停用</button>';
+        table.innerHTML = visibleModels.map(function (item) {
+            var departments = item.dept_name || "未指定部门";
+            var action = '<button class="layui-btn layui-btn-xs ' +
+                (item.enabled ? "layui-btn-danger" : "studio-btn-primary") +
+                ' toggle-model" data-id="' + item.id +
+                '" data-enabled="' + (item.enabled ? "1" : "0") + '">' +
+                (item.enabled ? "停用模型" : "启用模型") + '</button>';
             return '<tr><td><b>' + Studio.escapeHtml(item.name) + '</b></td>' +
                 '<td class="muted">' + Studio.escapeHtml(item.model_code) + '</td>' +
                 '<td>' + mediaTypeLabel(item.media_type) + '</td>' +
@@ -272,46 +334,162 @@ document.addEventListener("DOMContentLoaded", function () {
 
         table.querySelectorAll(".edit-model").forEach(function (button) {
             button.addEventListener("click", function () {
-                openFrame("编辑模型", "/studio/forms/model?id=" +
-                    encodeURIComponent(button.dataset.id), ["1120px", "800px"]);
+                var model = visibleModels.find(function (item) {
+                    return String(item.id) === String(button.dataset.id);
+                });
+                var editUrl = "/studio/forms/model?id=" +
+                    encodeURIComponent(button.dataset.id);
+                if (model && model.dept_id) {
+                    editUrl += "&dept_id=" +
+                        encodeURIComponent(model.dept_id);
+                }
+                openFrame("编辑模型", editUrl, ["1120px", "800px"]);
             });
         });
-        table.querySelectorAll(".delete-model").forEach(function (button) {
+        table.querySelectorAll(".toggle-model").forEach(function (button) {
             button.addEventListener("click", function () {
-                if (!window.confirm("确定要停用这个模型吗？")) return;
-                Studio.request("/studio/api/models/" + button.dataset.id, {method: "DELETE"})
-                    .then(loadData)
-                    .catch(function (error) { Studio.toast(error.message, "error"); });
+                var enabled = button.dataset.enabled !== "1";
+                button.disabled = true;
+                Studio.request(
+                    "/studio/api/models/" + button.dataset.id + "/status",
+                    {
+                        method: "POST",
+                        body: JSON.stringify({enabled: enabled})
+                    }
+                ).then(loadData).catch(function (error) {
+                    button.disabled = false;
+                    Studio.toast(error.message, "error");
+                });
             });
         });
+    }
+
+    function renderModelProviderFilter() {
+        var select = document.getElementById("modelProviderFilter");
+        if (!select) return;
+        if (!providers.length) {
+            selectedModelProviderId = "";
+            select.innerHTML = '<option value="">暂无供应商</option>';
+            select.disabled = true;
+            renderModels();
+            return;
+        }
+
+        var selectedExists = providers.some(function (provider) {
+            return String(provider.id) === String(selectedModelProviderId);
+        });
+        var interfaceProvider = providers.find(function (provider) {
+            return String(provider.name || "").trim() === "接口AI";
+        });
+        if (!selectedExists) {
+            selectedModelProviderId = String(
+                (interfaceProvider || providers[0]).id
+            );
+        }
+        select.innerHTML = providers.map(function (provider) {
+            var sameNameCount = providers.filter(function (item) {
+                return item.name === provider.name;
+            }).length;
+            var label = provider.name || "未命名供应商";
+            if (sameNameCount > 1 && provider.dept_name) {
+                label += " · " + provider.dept_name;
+            }
+            return '<option value="' + provider.id + '">' +
+                Studio.escapeHtml(label) + '</option>';
+        }).join("");
+        select.value = String(selectedModelProviderId);
+        select.disabled = false;
+        layui.use("form", function () { layui.form.render("select"); });
+    }
+
+    function renderGlobalChatProviders() {
+        var select = document.getElementById("globalChatProvider");
+        if (!select) return;
+        var options = (globalChatConfig && globalChatConfig.providers) || [];
+        if (!options.length) {
+            globalChatProviderId = "";
+            select.innerHTML = '<option value="">暂无可用供应商</option>';
+            select.disabled = true;
+            return;
+        }
+
+        var selectedExists = options.some(function (item) {
+            return String(item.id) === String(globalChatProviderId);
+        });
+        var interfaceProvider = options.find(function (item) {
+            return String(item.name || "").trim() === "接口AI";
+        });
+        if (!selectedExists) {
+            var configuredProviderId = globalChatConfig &&
+                globalChatConfig.global_chat_model &&
+                globalChatConfig.global_chat_model.provider_id;
+            var configuredProvider = options.find(function (item) {
+                return String(item.id) === String(configuredProviderId);
+            });
+            globalChatProviderId = String(
+                (configuredProvider || interfaceProvider || options[0]).id
+            );
+        }
+        select.innerHTML = options.map(function (item) {
+            var label = item.name || "未命名供应商";
+            if (item.dept_name) {
+                label += " · " + item.dept_name;
+            }
+            return '<option value="' + item.id + '">' +
+                Studio.escapeHtml(label) + '</option>';
+        }).join("");
+        select.value = String(globalChatProviderId);
+        select.disabled = false;
+        layui.use("form", function () { layui.form.render("select"); });
     }
 
     function renderGlobalChatConfig() {
         var select = document.getElementById("globalChatModel");
         var status = document.getElementById("globalChatModelStatus");
         var current = document.getElementById("globalChatModelCurrent");
-        var options = (globalChatConfig && globalChatConfig.models) || [];
+        var allOptions = (globalChatConfig && globalChatConfig.models) || [];
+        var options = allOptions.filter(function (item) {
+            return String(item.provider_id) === String(globalChatProviderId);
+        });
         if (!options.length) {
-            select.innerHTML = '<option value="">暂无启用的语言模型</option>';
+            select.innerHTML = globalChatProviderId
+                ? '<option value="">当前供应商暂无启用的语言模型</option>'
+                : '<option value="">暂无启用的语言模型</option>';
             select.disabled = true;
-            current.textContent = "请先新增并启用一个 CHAT 语言模型";
-            status.textContent = "未配置";
+            var unavailableCurrent = globalChatConfig &&
+                globalChatConfig.global_chat_model;
+            if (unavailableCurrent) {
+                current.textContent = "当前使用：" + unavailableCurrent.name + " · " +
+                    unavailableCurrent.provider_name + " · " +
+                    unavailableCurrent.model_code;
+                status.textContent = "已配置";
+            } else {
+                current.textContent = "当前供应商暂无可选择的语言模型";
+                status.textContent = "未配置";
+            }
+            layui.use("form", function () { layui.form.render("select"); });
             return;
         }
         select.disabled = false;
         select.innerHTML = options.map(function (item) {
             return '<option value="' + item.id + '">' +
                 Studio.escapeHtml(item.name) + " · " +
-                Studio.escapeHtml(item.provider_name) + " · " +
                 Studio.escapeHtml(item.model_code) + '</option>';
         }).join("");
-        select.value = String(globalChatConfig.global_chat_model_id || options[0].id);
-        var selected = options.find(function (item) {
-            return item.id === Number(select.value);
-        }) || options[0];
-        current.textContent = "当前使用：" + selected.name + " · " +
-            selected.provider_name + " · " + selected.model_code;
-        status.textContent = "已配置";
+        var configuredId = Number(globalChatConfig.global_chat_model_id || 0);
+        var configured = options.find(function (item) {
+            return item.id === configuredId;
+        });
+        select.value = String((configured || options[0]).id);
+        var currentModel = globalChatConfig.global_chat_model;
+        if (currentModel) {
+            current.textContent = "当前使用：" + currentModel.name + " · " +
+                currentModel.provider_name + " · " + currentModel.model_code;
+            status.textContent = "已配置";
+        } else {
+            current.textContent = "尚未选择，请先保存一个可用的语言模型";
+            status.textContent = "未配置";
+        }
         layui.use("form", function () { layui.form.render("select"); });
     }
 
@@ -325,6 +503,7 @@ document.addEventListener("DOMContentLoaded", function () {
             globalChatConfig = result.data;
             globalDepartmentId = globalChatConfig.dept_id || "";
             renderGlobalDepartment();
+            renderGlobalChatProviders();
             renderGlobalChatConfig();
         });
     }
@@ -354,6 +533,16 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function renderProviderDepartment() {
         var select = document.getElementById("providerDepartment");
+        var toggle = document.getElementById("toggleAllDepartments");
+        if (toggle) {
+            toggle.textContent = showingAllDepartments
+                ? "隐藏其他部门供应商"
+                : "查看所有部门供应商配置";
+            toggle.setAttribute(
+                "aria-pressed",
+                showingAllDepartments ? "true" : "false"
+            );
+        }
         if (!select || !globalChatConfig) return;
         var options = globalChatConfig.departments || [];
         select.innerHTML = '<option value="">全部部门</option>' +
@@ -361,11 +550,14 @@ document.addEventListener("DOMContentLoaded", function () {
                 return '<option value="' + item.id + '">' +
                     Studio.escapeHtml(item.name) + '</option>';
             }).join("");
-        select.value = String(providerDepartmentId || "");
+        select.value = showingAllDepartments
+            ? ""
+            : String(providerDepartmentId || "");
         layui.use("form", function () { layui.form.render("select"); });
     }
 
     function loadData() {
+        var requestSequence = ++dataLoadSequence;
         return Promise.all([
             Studio.request(providerApiUrl()),
             Studio.request(
@@ -375,6 +567,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     : "")
             )
         ]).then(function (results) {
+            if (requestSequence !== dataLoadSequence) return;
             var result = results[0];
             providers = result.data;
             globalChatConfig = results[1].data;
@@ -387,9 +580,10 @@ document.addEventListener("DOMContentLoaded", function () {
                     models.push(model);
                 });
             });
-            models = mergeModels(models);
+            renderModelProviderFilter();
             renderProviders();
             renderModels();
+            renderGlobalChatProviders();
             renderGlobalChatConfig();
             providers.filter(function (provider) {
                 return provider.enabled && provider.api_key_configured;
@@ -420,7 +614,16 @@ document.addEventListener("DOMContentLoaded", function () {
             Studio.toast("请先新增并启用一个供应商", "error");
             return;
         }
-        openFrame("添加模型", "/studio/forms/model", ["980px", "760px"]);
+        var params = [];
+        if (providerDepartmentId) {
+            params.push("dept_id=" + encodeURIComponent(providerDepartmentId));
+        }
+        openFrame(
+            "添加模型",
+            "/studio/forms/model" +
+                (params.length ? "?" + params.join("&") : ""),
+            ["980px", "760px"]
+        );
     });
 
     document.getElementById("saveGlobalChatModel").addEventListener("click", function () {
@@ -435,11 +638,16 @@ document.addEventListener("DOMContentLoaded", function () {
             method: "POST",
             body: JSON.stringify({
                 global_chat_model_id: select.value,
+                provider_id: globalChatProviderId,
                 department_id: globalDepartmentId
             })
         }).then(function (result) {
             globalChatConfig.global_chat_model_id = result.data.global_chat_model_id;
             globalChatConfig.global_chat_model = result.data.global_chat_model;
+            globalChatProviderId = String(
+                result.data.provider_id || globalChatProviderId || ""
+            );
+            renderGlobalChatProviders();
             renderGlobalChatConfig();
             Studio.toast("全局语言模型已切换");
         }).catch(function (error) {
@@ -453,9 +661,39 @@ document.addEventListener("DOMContentLoaded", function () {
     if (providerDepartment) {
         providerDepartment.addEventListener("change", function () {
             providerDepartmentId = providerDepartment.value || "";
+            showingAllDepartments = !providerDepartmentId;
             loadData().catch(function (error) {
                 Studio.toast(error.message, "error");
             });
+        });
+    }
+    var toggleAllDepartments = document.getElementById("toggleAllDepartments");
+    if (toggleAllDepartments) {
+        toggleAllDepartments.addEventListener("click", function () {
+            if (showingAllDepartments) {
+                var ownDepartmentId = ownProviderDepartmentId ||
+                    (globalChatConfig && globalChatConfig.dept_id) ||
+                    "";
+                if (!ownDepartmentId) {
+                    Studio.toast("当前超级管理员尚未绑定部门", "error");
+                    return;
+                }
+                providerDepartmentId = String(ownDepartmentId);
+                showingAllDepartments = false;
+            } else {
+                providerDepartmentId = "";
+                showingAllDepartments = true;
+            }
+            loadData().catch(function (error) {
+                Studio.toast(error.message, "error");
+            });
+        });
+    }
+    var modelProviderFilter = document.getElementById("modelProviderFilter");
+    if (modelProviderFilter) {
+        modelProviderFilter.addEventListener("change", function () {
+            selectedModelProviderId = modelProviderFilter.value || "";
+            renderModels();
         });
     }
     var globalDepartment = document.getElementById("globalChatDepartment");
@@ -465,6 +703,13 @@ document.addEventListener("DOMContentLoaded", function () {
             loadGlobalChatConfig().catch(function (error) {
                 Studio.toast(error.message, "error");
             });
+        });
+    }
+    var globalChatProvider = document.getElementById("globalChatProvider");
+    if (globalChatProvider) {
+        globalChatProvider.addEventListener("change", function () {
+            globalChatProviderId = globalChatProvider.value || "";
+            renderGlobalChatConfig();
         });
     }
 

@@ -249,6 +249,8 @@ Production logging:
   beside the application log.
 - `deploy/pear-ai.service` sets the production variables explicitly so an old
   development `.flaskenv` cannot redirect production logs into the checkout.
+- The current production deployment intentionally runs systemd as `root`
+  (`User=root`, `Group=root`); do not create or require a `pear` service user.
 
 Default seeded account:
 
@@ -802,6 +804,11 @@ sudo tar -xzf /tmp/pear-ai-20260904-full-code-sync.tar.gz -C "$release_dir"
 
 # The archive contains direct project contents and never contains .flaskenv.
 sudo cp -a "$release_dir"/. /opt/pear-ai/
+
+# The current production service runs as root. Keep the application and log
+# directories readable by root; no pear account is required.
+sudo install -d -o root -g root -m 0750 /var/log/pear-ai
+sudo chown -R root:root /opt/pear-ai
 
 # Refresh service/logging templates only from the shipped code package.
 sudo install -m 0644 /opt/pear-ai/deploy/pear-ai.service /etc/systemd/system/pear-ai.service

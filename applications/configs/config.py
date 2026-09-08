@@ -123,8 +123,9 @@ class BaseConfig:
     STUDIO_HTTP_MAX_RETRIES = int(
         os.getenv("STUDIO_HTTP_MAX_RETRIES") or 2
     )
-    # One provider operation gets its initial request plus this many business
-    # retries. Submission retries reuse the same local task row.
+    # Total attempts for one provider operation, including the initial
+    # request. The provider adapter caps this at three to avoid duplicate
+    # chargeable model requests.
     STUDIO_PROVIDER_RETRY_COUNT = int(
         os.getenv("STUDIO_PROVIDER_RETRY_COUNT") or 3
     )

@@ -21,6 +21,7 @@ from flask import (
 )
 from flask_login import current_user, login_required
 from sqlalchemy import and_, desc, func, or_
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import joinedload, selectinload
 from werkzeug.datastructures import FileStorage
 
@@ -57,6 +58,7 @@ from applications.models import (
     Dept,
     StudioAsset,
     StudioBatchPrompt,
+    StudioBatchPromptStyle,
     StudioGenerationComment,
     StudioGenerationTask,
     StudioGenerationTaskAsset,
@@ -70,6 +72,7 @@ from applications.models import (
 )
 from applications.amazon_ai.service import (
     AmazonAiService,
+    global_chat_model_state,
     read_task_result_text,
 )
 from applications.amazon_ai.skill_catalog import (
@@ -77,6 +80,7 @@ from applications.amazon_ai.skill_catalog import (
     BATCH_DETAIL_IMAGE_SKILL_CODE,
     DETAIL_IMAGE_SKILL_CODE,
     PRODUCT_EXTRACTION_SKILL_CODE,
+    WHITE_BACKGROUND_IMAGE_SKILL_CODE,
 )
 from applications.common.storage import FileService, StorageError
 from applications.common.skill_storage import (
@@ -99,8 +103,10 @@ from applications.studio.batch_prompt import (
     BATCH_PROMPT_STYLE_OPTIONS,
     DEFAULT_BATCH_IMAGE_ASPECT_RATIO,
     DEFAULT_BATCH_IMAGE_RESOLUTION,
+    DEFAULT_BATCH_PROMPT_NAME,
+    MAX_BATCH_PROMPT_VERSION_CHARS,
     MAX_BATCH_PROMPT_COUNT,
-    MAX_BATCH_PROMPT_VERSION_BYTES,
+    normalize_batch_prompt_name,
     normalize_batch_image_resolution,
     normalize_image_aspect_ratio,
     normalize_prompt_newlines,
@@ -111,6 +117,8 @@ from applications.studio.batch_prompt import (
     parse_batch_prompt_count,
     parse_model_versions,
     parse_version_document,
+    strip_image_batch_settings,
+    validate_versions,
     version_label,
 )
 from applications.studio.product_prompt import (
@@ -144,6 +152,9 @@ from applications.studio.retention import delete_generation_task
 from applications.studio.request_builder import (
     build_request_body,
     split_option_tokens,
+)
+from applications.studio.white_background_service import (
+    create_white_background_generations,
 )
 studio_bp = Blueprint("studio", __name__, url_prefix="/studio")
 GLOBAL_CHAT_MODEL_SETTING_KEY = "global_chat_model_id"
@@ -307,6 +318,32 @@ PRODUCT_ASSET_ROLE_SORT = {
     "scene": 90,
     "reference": 100,
     "360": 110,
+}
+
+IMAGE_PRODUCT_ASSET_ROLES = (
+    "cover",
+    "front",
+    "back",
+    "left",
+    "right",
+    "top",
+    "bottom",
+    "detail",
+    "scene",
+    "reference",
+)
+
+PRODUCT_ASSET_ROLE_LABELS = {
+    "cover": "主图",
+    "front": "正面",
+    "back": "背面",
+    "left": "左侧",
+    "right": "右侧",
+    "top": "顶部",
+    "bottom": "底部",
+    "detail": "细节图",
+    "scene": "场景图",
+    "reference": "其他素材",
 }
 
 
@@ -581,6 +618,12 @@ def _clean_api_key(value):
         return None
     value = str(value).strip()
     return value or None
+
+
+def _provider_has_api_key(provider):
+    return bool(
+        str(getattr(provider, "api_key", None) or "").strip()
+    )
 
 
 def _as_enabled(value, default=True):
@@ -995,7 +1038,7 @@ def _parameter_number(value):
 
 
 def _provider_dict(provider):
-    api_key_configured = bool(provider.api_key)
+    api_key_configured = _provider_has_api_key(provider)
     owner_type = provider_owner_type(provider)
     catalog = catalog_for_provider(provider)
     catalog_codes = {
@@ -1167,6 +1210,60 @@ def _product_asset_is_accessible(asset, user=None):
     )
 
 
+def _product_binding_dict(product_asset):
+    """Serialize one visible Product Center binding for a stored asset."""
+
+    if not product_asset:
+        return None
+    product = getattr(product_asset, "product", None)
+    if not product or not product.enabled:
+        return None
+    if not can_access_resource(current_user, product):
+        return None
+    role = str(product_asset.role or "reference").strip().lower()
+    return {
+        "product_asset_id": product_asset.id,
+        "product_id": product.id,
+        "product_name": product.name or product.code or "未命名产品",
+        "product_code": product.code or "",
+        "role": role,
+        "role_label": PRODUCT_ASSET_ROLE_LABELS.get(role, "其他素材"),
+    }
+
+
+def _asset_product_binding(asset):
+    """Return the first active, in-scope Product Center binding."""
+
+    if not asset:
+        return None
+    rows = (
+        StudioProductAsset.query
+        .filter(
+            StudioProductAsset.storage_asset_id == asset.id,
+            StudioProductAsset.enabled != 0,
+        )
+        .order_by(StudioProductAsset.id.asc())
+        .all()
+    )
+    for row in rows:
+        binding = _product_binding_dict(row)
+        if binding:
+            return binding
+    return None
+
+
+def _asset_referenced_outside_source_task(asset):
+    """Keep other business references, but ignore the asset's own task."""
+
+    if not asset:
+        return False
+    return asset_referenced(
+        asset.id,
+        generation_task_id=getattr(asset, "generation_task_id", None),
+        now=None,
+    )
+
+
 def _product_dict(product):
     return {
         "id": product.id,
@@ -1195,6 +1292,66 @@ def _product_dict(product):
 
 
 def _task_dict(task, include_comments=True):
+    workflow_metadata = {}
+    raw_workflow_metadata = getattr(task, "workflow_metadata", None)
+    if isinstance(raw_workflow_metadata, dict):
+        workflow_metadata = dict(raw_workflow_metadata)
+    elif raw_workflow_metadata:
+        try:
+            parsed_workflow_metadata = json.loads(raw_workflow_metadata)
+            if isinstance(parsed_workflow_metadata, dict):
+                workflow_metadata = parsed_workflow_metadata
+        except (TypeError, ValueError):
+            workflow_metadata = {}
+    workflow_type = str(
+        workflow_metadata.get("type")
+        or workflow_metadata.get("workflow_type")
+        or ""
+    ).strip().upper()
+    white_metadata = workflow_metadata.get("white_background")
+    if not isinstance(white_metadata, dict):
+        white_metadata = {}
+    white_background = (
+        workflow_type == "WHITE_BACKGROUND"
+        or bool(white_metadata.get("enabled"))
+    )
+    white_batch_id = (
+        workflow_metadata.get("batch_id")
+        or white_metadata.get("batch_id")
+    )
+    white_index = (
+        workflow_metadata.get("index")
+        or white_metadata.get("index")
+    )
+    white_count = (
+        workflow_metadata.get("count")
+        or white_metadata.get("count")
+    )
+    white_merge = (
+        workflow_metadata.get("merge")
+        if "merge" in workflow_metadata
+        else white_metadata.get("merge")
+    )
+    white_asset_ids = (
+        workflow_metadata.get("asset_ids")
+        or white_metadata.get("asset_ids")
+        or []
+    )
+    white_target_dimensions = (
+        workflow_metadata.get("target_dimensions")
+        or white_metadata.get("target_dimensions")
+        or ""
+    )
+    white_target_aspect_ratio = (
+        workflow_metadata.get("target_aspect_ratio")
+        or white_metadata.get("target_aspect_ratio")
+        or ""
+    )
+    white_quality = (
+        workflow_metadata.get("quality")
+        or white_metadata.get("quality")
+        or ""
+    )
     relation_pairs = generation_task_asset_links_for_task(
         task,
         include_legacy=True,
@@ -1222,8 +1379,13 @@ def _task_dict(task, include_comments=True):
         if not asset:
             continue
         role = str(getattr(link, "role", "") or "").upper()
-        is_output = asset.purpose == "GENERATION_OUTPUT" or (
-            role in output_roles
+        is_output = (
+            asset.purpose == "GENERATION_OUTPUT"
+            or role in output_roles
+            or (
+                getattr(asset, "generation_task_id", None) == task.id
+                and asset.asset_type in ("IMAGE", "VIDEO", "BOTH")
+            )
         )
         is_reference = asset.purpose == "GENERATION_REFERENCE" or (
             role in reference_roles
@@ -1234,6 +1396,24 @@ def _task_dict(task, include_comments=True):
         if is_reference and asset.id not in seen_reference_ids:
             seen_reference_ids.add(asset.id)
             reference_candidates.append(asset)
+
+    # Older generation rows may have the legacy task pointer but no
+    # normalized OUTPUT relation. Keep those results visible and bindable.
+    if not output_candidates:
+        legacy_outputs = (
+            StudioAsset.query
+            .filter(
+                StudioAsset.generation_task_id == task.id,
+                StudioAsset.purpose == "GENERATION_OUTPUT",
+            )
+            .order_by(StudioAsset.id.asc())
+            .all()
+        )
+        for asset in legacy_outputs:
+            if asset.id in seen_output_ids:
+                continue
+            seen_output_ids.add(asset.id)
+            output_candidates.append(asset)
 
     has_output_asset_rows = bool(output_candidates)
     output_assets = [
@@ -1283,6 +1463,16 @@ def _task_dict(task, include_comments=True):
         if include_comments
         else []
     )
+    output_asset_payloads = []
+    for index, asset in enumerate(output_assets, start=1):
+        payload = _asset_dict(
+            asset,
+            f"{task.task_code}-{index}.{'mp4' if task.media_type == 'VIDEO' else 'png'}",
+        )
+        if white_background and asset.asset_type in ("IMAGE", "BOTH"):
+            payload["product_binding"] = _asset_product_binding(asset)
+        output_asset_payloads.append(payload)
+
     return {
         "id": task.id,
         "dept_id": task.dept_id,
@@ -1306,6 +1496,19 @@ def _task_dict(task, include_comments=True):
         "final_prompt": task.final_prompt or "",
         "status": task.status,
         "progress": task.progress or 0,
+        "workflow_type": workflow_type,
+        "workflow_metadata": workflow_metadata,
+        "white_background": white_background,
+        "white_background_batch_id": str(white_batch_id or ""),
+        "white_background_index": white_index,
+        "white_background_count": white_count,
+        "white_background_merge": bool(white_merge),
+        "white_background_asset_ids": (
+            white_asset_ids if isinstance(white_asset_ids, list) else []
+        ),
+        "target_dimensions": str(white_target_dimensions or ""),
+        "target_aspect_ratio": str(white_target_aspect_ratio or ""),
+        "resolution": str(white_quality or ""),
         "output_url": output_url,
         "output_filename": output_filename,
         "output_download_url": (
@@ -1316,13 +1519,7 @@ def _task_dict(task, include_comments=True):
             else ""
         ),
         "output_format": task.output_format or "",
-        "output_assets": [
-            _asset_dict(
-                asset,
-                f"{task.task_code}-{index}.{'mp4' if task.media_type == 'VIDEO' else 'png'}",
-            )
-            for index, asset in enumerate(output_assets, start=1)
-        ],
+        "output_assets": output_asset_payloads,
         "reference_assets": [_asset_dict(asset) for asset in reference_assets],
         "comments": [_comment_dict(comment) for comment in comments],
         "output_expired": output_expired,
@@ -1516,7 +1713,7 @@ def _global_chat_models(department_id=None, owner_type=None):
     )
     if owner_type is None:
         return []
-    return (
+    models = (
         _scoped_model_query(
             department_id,
             owner_type=owner_type,
@@ -1529,6 +1726,11 @@ def _global_chat_models(department_id=None, owner_type=None):
         .order_by(StudioProvider.name.asc(), StudioModel.name.asc())
         .all()
     )
+    return [
+        model
+        for model in models
+        if _provider_has_api_key(model.provider)
+    ]
 
 
 def _global_chat_model(department_id=None, owner_type=None):
@@ -1546,6 +1748,34 @@ def _global_chat_model(department_id=None, owner_type=None):
     selected_id = _int_or_none(setting.setting_value) if setting else None
     selected = next((model for model in models if model.id == selected_id), None)
     return selected
+
+
+def _runtime_global_chat_model(department_id=None, owner_type=None):
+    """Resolve the model used by a runtime task, including admin fallback."""
+
+    state = global_chat_model_state(
+        department_id,
+        owner_type=owner_type,
+        user=current_user,
+    )
+    model_info = state.get("model") or {}
+    model_id = _int_or_none(model_info.get("id"))
+    if not model_id:
+        return None, state
+    model = (
+        StudioModel.query.join(StudioProvider)
+        .filter(
+            StudioModel.id == model_id,
+            StudioModel.media_type == "CHAT",
+            StudioModel.enabled == 1,
+            StudioProvider.enabled == 1,
+            StudioProvider.dept_id == state.get("dept_id"),
+        )
+        .first()
+    )
+    if model and not _provider_has_api_key(model.provider):
+        model = None
+    return model, state
 
 
 def _global_chat_model_payload(model):
@@ -1570,6 +1800,31 @@ def _global_chat_model_payload(model):
         "provider_name": model.provider.name if model.provider else "",
         "enabled": bool(model.enabled and model.provider and model.provider.enabled),
     }
+
+
+def _global_chat_provider_payloads(models):
+    """Build the supplier choices for the global CHAT model selector."""
+
+    providers = {}
+    for model in models or []:
+        provider = getattr(model, "provider", None)
+        if not provider or provider.id in providers:
+            continue
+        providers[provider.id] = {
+            "id": provider.id,
+            "name": provider.name or "",
+            "dept_id": provider.dept_id,
+            "dept_name": _department_label(provider.dept_id),
+            "enabled": bool(provider.enabled),
+            "api_key_configured": _provider_has_api_key(provider),
+        }
+    return sorted(
+        providers.values(),
+        key=lambda item: (
+            item["name"].lower(),
+            item["id"],
+        ),
+    )
 
 
 def _model_capabilities(model):
@@ -1672,6 +1927,178 @@ def _batch_prompt_permission_response(media_type, require_media=True):
     return None
 
 
+def _batch_prompt_style_permission_response():
+    if not _has_permission("studio:batch_prompts"):
+        return jsonify(success=False, msg="没有批量创作提示词权限"), 403
+    return None
+
+
+def _batch_prompt_style_rows():
+    """Return current global style rows, or ``None`` before migration."""
+
+    try:
+        return (
+            StudioBatchPromptStyle.query
+            .order_by(
+                StudioBatchPromptStyle.sort.asc(),
+                StudioBatchPromptStyle.id.asc(),
+            )
+            .all()
+        )
+    except SQLAlchemyError:
+        # Keep the page usable while an older local database is waiting for
+        # the additive migration. POST/DELETE return a precise upgrade hint.
+        db.session.rollback()
+        current_app.logger.warning(
+            "batch prompt style table is unavailable; using code defaults",
+            exc_info=True,
+        )
+        return None
+
+
+def _batch_prompt_style_payload(style):
+    return {
+        "id": style.id,
+        "value": style.name,
+        "name": style.name,
+        "label": style.name,
+    }
+
+
+def _batch_prompt_style_payloads():
+    rows = _batch_prompt_style_rows()
+    if rows is None:
+        return [
+            {
+                "id": None,
+                "value": item["value"],
+                "name": item["label"],
+                "label": item["label"],
+            }
+            for item in BATCH_PROMPT_STYLE_OPTIONS
+            if item["value"] not in ("", BATCH_PROMPT_STYLE_CUSTOM_VALUE)
+        ]
+    return [_batch_prompt_style_payload(style) for style in rows]
+
+
+def _batch_prompt_style_options_for_page():
+    options = [{"value": "", "label": "跟随 Skill"}]
+    options.extend(
+        {
+            "value": item["value"],
+            "label": item["label"],
+        }
+        for item in _batch_prompt_style_payloads()
+    )
+    options.append(
+        {
+            "value": BATCH_PROMPT_STYLE_CUSTOM_VALUE,
+            "label": "自定义风格",
+        }
+    )
+    return options
+
+
+@studio_bp.get("/api/batch-prompt-styles")
+@login_required
+def batch_prompt_styles_api():
+    permission_error = _batch_prompt_style_permission_response()
+    if permission_error:
+        return permission_error
+    return jsonify(
+        success=True,
+        data={"styles": _batch_prompt_style_payloads()},
+    )
+
+
+@studio_bp.post("/api/batch-prompt-styles")
+@login_required
+def create_batch_prompt_style_api():
+    permission_error = _batch_prompt_style_permission_response()
+    if permission_error:
+        return permission_error
+    data = _body()
+    try:
+        name = normalize_batch_prompt_style(data.get("name"))
+    except (TypeError, ValueError) as exc:
+        return jsonify(success=False, msg=str(exc)), 400
+    if not name:
+        return jsonify(success=False, msg="请输入创作风格"), 400
+    if name in (BATCH_PROMPT_STYLE_CUSTOM_VALUE, "跟随 Skill"):
+        return jsonify(success=False, msg="该名称是系统保留项，请换一个名称"), 400
+
+    try:
+        duplicate = (
+            StudioBatchPromptStyle.query
+            .filter(func.lower(StudioBatchPromptStyle.name) == name.lower())
+            .first()
+        )
+        if duplicate:
+            return jsonify(success=False, msg="该创作风格已经存在"), 400
+        next_sort = (
+            db.session.query(func.coalesce(func.max(StudioBatchPromptStyle.sort), 0))
+            .scalar()
+            or 0
+        ) + 1
+        style = StudioBatchPromptStyle(
+            name=name,
+            sort=next_sort,
+            created_by=current_user.id,
+        )
+        db.session.add(style)
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify(success=False, msg="该创作风格已经存在"), 400
+    except SQLAlchemyError:
+        db.session.rollback()
+        current_app.logger.exception(
+            "failed to create batch prompt style"
+        )
+        return jsonify(
+            success=False,
+            msg="风格配置表尚未完成数据库升级，请先执行 flask db upgrade",
+        ), 503
+
+    return jsonify(
+        success=True,
+        msg="创作风格已添加",
+        data={
+            "style": _batch_prompt_style_payload(style),
+            "styles": _batch_prompt_style_payloads(),
+        },
+    )
+
+
+@studio_bp.delete("/api/batch-prompt-styles/<int:style_id>")
+@login_required
+def delete_batch_prompt_style_api(style_id):
+    permission_error = _batch_prompt_style_permission_response()
+    if permission_error:
+        return permission_error
+    try:
+        style = StudioBatchPromptStyle.query.filter_by(id=style_id).first()
+        if not style:
+            return jsonify(success=False, msg="创作风格不存在"), 404
+        db.session.delete(style)
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        current_app.logger.exception(
+            "failed to delete batch prompt style: id=%s",
+            style_id,
+        )
+        return jsonify(
+            success=False,
+            msg="风格配置表尚未完成数据库升级，请先执行 flask db upgrade",
+        ), 503
+    return jsonify(
+        success=True,
+        msg="创作风格已删除",
+        data={"styles": _batch_prompt_style_payloads()},
+    )
+
+
 def _scoped_batch_prompt_query(media_type=None):
     query = StudioBatchPrompt.query
     if media_type in ("IMAGE", "VIDEO"):
@@ -1710,7 +2137,7 @@ def _batch_prompt_content(batch_prompt):
                     filename=asset.original_filename,
                     maximum_size=(
                         MAX_BATCH_PROMPT_COUNT
-                        * (MAX_BATCH_PROMPT_VERSION_BYTES + 64)
+                        * (MAX_BATCH_PROMPT_VERSION_CHARS * 4 + 64)
                     ),
                 ),
             ),
@@ -1811,11 +2238,16 @@ def _batch_prompt_dict(batch_prompt, include_content=True):
         or (asset.original_filename if asset else "")
         or ""
     )
+    batch_prompt_name = (
+        str(getattr(batch_prompt, "name", "") or "").strip()
+        or DEFAULT_BATCH_PROMPT_NAME
+    )
     return {
         "id": batch_prompt.id,
         "dept_id": batch_prompt.dept_id,
         "dept_name": _department_label(batch_prompt.dept_id),
         "user_id": batch_prompt.user_id,
+        "name": batch_prompt_name,
         "media_type": batch_prompt.media_type,
         "product_id": batch_prompt.product_id,
         "product_name": product_name,
@@ -2010,49 +2442,171 @@ def _batch_prompt_context(
             image_resolution,
             default=DEFAULT_BATCH_IMAGE_RESOLUTION,
         )
-    skill_prompt = (
-        read_skill_text(
-            skill,
-            user=current_user,
-            builtin_codes=AMAZON_BUILTIN_SKILL_CODES,
-        )
-        if skill
-        else ""
-    )
+    skill_file = ""
+    skill_prompt = ""
+    if skill:
+        try:
+            skill_file = skill_file_url(
+                skill,
+                user=current_user,
+                builtin_codes=AMAZON_BUILTIN_SKILL_CODES,
+            )
+        except StorageError:
+            # A linked Skill file is authoritative. Let read_skill_text()
+            # surface a precise error instead of silently using stale text.
+            if getattr(skill, "storage_asset_id", None):
+                raise
+        if not skill_file:
+            # Keep legacy no-file Skill rows usable while all current built-in
+            # Skills travel to Responses as input_file attachments.
+            skill_prompt = read_skill_text(
+                skill,
+                user=current_user,
+                builtin_codes=AMAZON_BUILTIN_SKILL_CODES,
+            )
     descriptors = product_reference_descriptors(
         product,
         media_type=media_type,
         asset_filter=_product_asset_is_accessible,
     )
+    is_batch_detail_skill = bool(
+        media_type == "IMAGE"
+        and skill
+        and str(getattr(skill, "code", "") or "").strip()
+        == BATCH_DETAIL_IMAGE_SKILL_CODE
+    )
+    effective_style = str(creative_style or "").strip()
+    if is_batch_detail_skill and not effective_style:
+        effective_style = "专业电商详情图"
+    product_name = (
+        str(getattr(product, "name", "") or "").strip()
+        if product
+        else ""
+    )
+    creative_request = str(creative_prompt or "").strip()
     context_parts = [
         f"任务：为电商{media_label}创作生成 {count} 个可直接使用的不同版本提示词。",
         "这是一次无会话状态的单次规划请求；请在本次响应中一次性生成全部版本。",
         "每个版本都必须针对同一个产品，不得生成多个不同产品。",
         "信息优先级必须严格遵守：用户本次批量创作要求最高；"
         "产品中心事实、产品图片和禁止修改规则是产品硬约束；"
-        "选定 Skill 只能补充未定义的创作细节，不能覆盖用户要求或产品事实。",
+        "选定 Skill 只能补充未定义的创作细节，不能覆盖用户要求或产品事实；"
+        "如果页面选择了具体创作风格，页面选择的风格优先于 Skill 内置或默认风格，"
+        "两者冲突时必须执行页面选择的风格。",
         "每个版本需要有真实差异，例如场景、构图、镜头、光线、卖点表达或详情图模块"
         "的组合不同，但不能通过改变产品本体来制造差异。",
-        "每个版本不能超过 5000 个 UTF-8 字节，内容完整、简洁，适合直接发送给上游"
+        f"每个版本不能超过 {MAX_BATCH_PROMPT_VERSION_CHARS} 个字符，内容完整、简洁，适合直接发送给上游"
         f"{media_label}模型。不得输出版本标题、解释、Markdown 或 JSON 以外的文字。",
     ]
+    if is_batch_detail_skill:
+        context_parts.extend(
+            [
+                "本次使用的是批量电商详情图提示词 Skill。以下动态任务参数已经由系统"
+                "由 Python 从页面和产品中心读取并按固定标题顺序整理，必须直接作为"
+                "本次任务的真实输入，覆盖 Skill 中的同名模板字段，不能输出任何"
+                "占位符或示例值。",
+                "Skill 文件只负责规则、创作约束、版本规划和固定输出格式；"
+                "不得让 Skill 自行读取数据库、猜测产品中心字段，动态产品资料以"
+                "下面 Python 注入的内容为准。",
+                (
+                    "页面创作风格状态：本次已选择页面风格；它优先覆盖 Skill 中"
+                    "冲突的风格要求。"
+                    if creative_style
+                    else "页面创作风格状态：本次选择跟随 Skill；不要把默认风格"
+                    "当成用户手动覆盖。"
+                ),
+                f"产品名称：{product_name}",
+                "图片类型：亚马逊风格",
+                f"风格参考：{effective_style}",
+                "目标平台：亚马逊电商平台",
+                f"图片比例：{image_aspect_ratio}",
+                f"图片质量：{image_resolution.upper()}",
+                f"生成数量：{count}",
+                "特殊要求：" + creative_request,
+                "输出语言：",
+                "产品概览："
+                + (
+                    str(getattr(product, "description", "") or "").strip()
+                    if product
+                    else ""
+                ),
+                "核心卖点："
+                + (
+                    str(
+                        getattr(product, "core_selling_points", "")
+                        or ""
+                    ).strip()
+                    if product
+                    else ""
+                ),
+                "产品档案："
+                + (
+                    str(getattr(product, "product_profile", "") or "").strip()
+                    if product
+                    else ""
+                ),
+                "产品记忆："
+                + (
+                    str(getattr(product, "product_memory", "") or "").strip()
+                    if product
+                    else ""
+                ),
+                "产品中心上传图片必须作为本次文本模型的多模态图片参考，"
+                "必须按真实图片识别产品，不得用文字资料替代图片事实。",
+                "如果产品名称、产品概览、核心卖点、产品档案或产品记忆为空，"
+                "必须保持为空，不得根据 Skill 示例或图片背景自行补写；"
+                "没有关联产品时不得虚构产品身份。",
+                "每个版本必须明确写出主标题、副标题、信息布局、排版形式和设计感强调，"
+                "并把产品核心卖点转化为可视化的详情图表达。",
+                "识别报告由产品中心上传图片、产品概览、核心卖点、产品档案和产品记忆"
+                "综合整理；主标题和卖点只能依据识别报告中的已确认事实。",
+                "每个版本必须明确包含原文："
+                "严格还原上传的产品图，包括包装设计、颜色、LOGO位置、文字内容、图案元素等所有细节。",
+                "当生成数量为 10 时，必须按十屏方案组织内容，至少 3 个、优先 4 个版本"
+                "包含模特或真实人物使用场景；部分版本可以只展示已核验的产品功能、"
+                "材料或使用结果，不展示产品本体。",
+                "如果特殊要求中提供目标国家或地区，必须据此选择模特外观、服饰、生活方式、"
+                "场景审美和构图；如果同时提供目标语言，画面内新增文案使用该语言；"
+                "没有提供时不得猜测国家、族裔或目标国语言。",
+                "所有版本应体现精致的杂志式排版、明确的信息层级、多元拍摄角度、"
+                "30 秒内抓住用户注意力、高清真实场景和统一高级的整体风格。",
+            ]
+        )
     if product:
         context_parts.append(product_identity_planner_contract())
     if media_type == "IMAGE":
+        if is_batch_detail_skill:
+            context_parts.append(
+                "图片版本参数规则：画面比例始终使用 Python 注入的页面系统预设 "
+                f"{image_aspect_ratio}，图片质量始终使用 Python 注入的 "
+                f"{image_resolution.upper()}。特殊要求、Skill 默认值和产品资料中的"
+                "尺寸描述都不能覆盖这两个页面参数。每个版本字符串中必须明确"
+                "包含两行参数标记：“画布比例：<比例>”和“图片质量：<1K/2K/4K>”。"
+                "这些标记仅供后端解析，绝不能要求图片模型把比例或质量文字渲染到图片中。"
+            )
+        else:
+            context_parts.append(
+                "图片版本参数规则：本次页面选择的图片质量默认为 "
+                f"{image_resolution.upper()}；默认画布比例为 "
+                f"{image_aspect_ratio}。"
+                "如果用户本次批量创作要求明确写出画布尺寸或比例，"
+                "每个版本可以按该明确要求覆盖默认画布比例；"
+                "图片质量只有在用户明确要求时才覆盖页面选择值。"
+                "每个版本字符串中必须明确包含两行参数标记："
+                "“画布比例：<比例>”和“图片质量：<1K/2K/4K>”。"
+                "这些标记仅供后端解析，绝不能要求图片模型把比例或质量文字渲染到图片中。"
+            )
+    if skill_file:
         context_parts.append(
-            "图片版本参数规则：本次页面选择的图片质量默认为 "
-            f"{image_resolution.upper()}；默认画布比例为 "
-            f"{image_aspect_ratio}。"
-            "如果用户本次批量创作要求明确写出画布尺寸或比例，"
-            "每个版本可以按该明确要求覆盖默认画布比例；"
-            "图片质量只有在用户明确要求时才覆盖页面选择值。"
-            "每个版本字符串中必须明确包含两行参数标记："
-            "“画布比例：<比例>”和“图片质量：<1K/2K/4K>”。"
-            "这些标记仅供后端解析，绝不能要求图片模型把比例或质量文字渲染到图片中。"
+            "第一优先输入：本请求用户消息中的第一个 input_file 是选定的"
+            "批量详情图 Skill 文件。请先完整读取该文件，再执行其中的规则；"
+            "文件中的示例和默认值不能覆盖下面 Python 注入的动态任务参数。"
+            f"附件文件标识：{getattr(skill, 'code', '') or '当前选定 Skill'}。"
         )
-    if skill_prompt:
+    elif skill_prompt:
         context_parts.append(
-            "第一优先输入：选定 Skill 文件原文。请完整读取并执行其中的约束：\n"
+            "第一优先输入：当前 Skill 没有可用的 GoFastDFS 文件，以下是兼容旧数据"
+            "的 Skill 文本；请完整读取并执行其中的约束：\n"
             + skill_prompt
         )
     else:
@@ -2064,32 +2618,51 @@ def _batch_prompt_context(
             _product_usage_research_instruction(web_search_enabled)
         )
     context_parts.append(
-        "第二优先输入：用户本次批量创作需求（如果为空，则没有额外需求）："
+        "第二优先输入：用户本次批量创作需求（为空表示没有额外要求）："
         + (
             creative_prompt
-            or "未提供；请根据产品中心资料和选定 Skill 生成专业电商详情图提示词。"
+            if is_batch_detail_skill
+            else (
+                creative_prompt
+                or "未提供；请根据产品中心资料和选定 Skill 生成专业电商详情图提示词。"
+            )
         )
     )
-    if creative_style:
+    if creative_style or is_batch_detail_skill:
         context_parts.append(
             "用户选择的创作风格（只约束视觉表达，不得改变产品本体）："
-            + creative_style
+            + (effective_style if is_batch_detail_skill else creative_style)
         )
+        if creative_style:
+            context_parts.append(
+                "创作风格冲突处理：页面选择的创作风格是本次视觉表达的最终"
+                "约束，必须覆盖 Skill 文件中与其冲突的内置风格、默认风格、"
+                "场景审美和排版风格；不得同时保留冲突风格。产品事实、产品外观"
+                "和安全限制仍然必须遵守。"
+            )
+        elif is_batch_detail_skill:
+            context_parts.append(
+                "创作风格冲突处理：本次页面选择跟随 Skill，因此按 Skill 的"
+                "风格规则执行，不要自行添加额外风格。"
+            )
     if (
         media_type == "IMAGE"
         and skill
         and skill.code == BATCH_DETAIL_IMAGE_SKILL_CODE
     ):
         context_parts.append(
-            "批量详情图 Skill 的默认画面比例是 2.44:1；"
-            "本页面已选择的画布比例优先于 Skill 默认值。"
-            "只有用户本次批量创作需求明确写出其他系统预设比例时才覆盖页面选择；"
-            "没有明确覆盖时，每个版本都必须保留页面选择的比例。"
+            "批量详情图每个版本的画布比例和图片质量必须始终使用 Python "
+            "注入的页面当前系统参数；本页面选择优先于 Skill 默认值、用户特殊要求"
+            "中的尺寸描述、产品资料和模型自行判断，任何内容都不能覆盖页面选择。"
         )
-    if product:
+    if product and not is_batch_detail_skill:
         context_parts.append(
             "第三优先输入：产品中心核心卖点（只能使用其中有依据的内容）："
             + (str(product.core_selling_points or "").strip() or "未提供")
+        )
+        context_parts.append(
+            "产品中心产品概览（只能使用其中有依据的内容）："
+            + (str(product.description or "").strip() or "未提供")
         )
         context_parts.append(
             "第四优先输入：产品中心产品档案（只能使用其中有依据的内容）："
@@ -2112,10 +2685,11 @@ def _batch_prompt_context(
                     f"产品中心补充字段 {label}：{str(value).strip()}"
                 )
     else:
-        context_parts.append(
-            "第三至第五优先输入：本次没有关联产品中心，不得虚构产品名称、参数、"
-            "产品卖点、产品档案或产品记忆。"
-        )
+        if not is_batch_detail_skill:
+            context_parts.append(
+                "第三至第五优先输入：本次没有关联产品中心，不得虚构产品名称、参数、"
+                "产品卖点、产品档案或产品记忆。"
+            )
     if descriptors:
         context_parts.append(
             "产品中心图片 URL 与多模态图片：模型必须读取 URL 对应的真实图片，"
@@ -2130,26 +2704,57 @@ def _batch_prompt_context(
         '{"versions":["第一版提示词内容","第二版提示词内容"]}。'
         f"versions 数组必须恰好包含 {count} 个字符串；不要返回其他字段。"
         "字符串中不要带“第一版”“第二版”等编号，Python 会自动添加。"
-        "每个字符串不能超过 5000 个 UTF-8 字节，且版本之间不能完全重复。"
+        f"每个字符串不能超过 {MAX_BATCH_PROMPT_VERSION_CHARS} 个字符，且版本之间不能完全重复。"
     )
     if media_type == "IMAGE":
+        if is_batch_detail_skill:
+            planner_instruction += (
+                "每个字符串必须包含清晰的“画布比例：...”和“图片质量：...”标记，"
+                f"画布比例必须始终使用页面选择的 {image_aspect_ratio}，"
+                f"图片质量必须始终使用页面选择的 {image_resolution.upper()}；"
+                "特殊要求和 Skill 不能覆盖这两个参数。比例必须使用系统预设值，"
+                "质量只能是 1K、2K 或 4K；这些参数标记不是图片内文案。"
+            )
+        else:
+            planner_instruction += (
+                "每个字符串必须包含清晰的“画布比例：...”和“图片质量：...”标记，"
+                f"没有用户明确覆盖时，画布比例使用页面选择的 {image_aspect_ratio}；"
+                "比例必须使用系统预设值，质量只能是 1K、2K 或 4K；"
+                "这些参数标记不是图片内文案。"
+            )
+    if is_batch_detail_skill:
         planner_instruction += (
-            "每个字符串必须包含清晰的“画布比例：...”和“图片质量：...”标记，"
-            f"没有用户明确覆盖时，画布比例使用页面选择的 {image_aspect_ratio}；"
-            "比例必须使用系统预设值，质量只能是 1K、2K 或 4K；"
-            "这些参数标记不是图片内文案。"
+            "每个版本提示词正文、标题、副标题、卖点和排版说明必须全程使用中文；"
+            "不得主动输出英文单词、英文缩写或中英混合句。"
+            "产品图片中已经存在的品牌、型号、标签和包装原文可以按图片事实保留。"
+            "图片类型固定为亚马逊风格，目标平台固定为亚马逊电商平台，"
+            "产品名称只能使用产品中心提供的名称。"
+            "每个版本必须明确写出主标题、副标题、信息布局、排版形式和设计感强调，"
+            "并直接包含“严格还原上传的产品图，包括包装设计、颜色、LOGO位置、文字内容、"
+            "图案元素等所有细节”。"
+            "主标题和卖点只能依据由产品图片与产品中心资料整理的识别报告。"
+            "最终数量为 10 时至少 3 个、优先 4 个版本包含模特或真实人物使用场景；"
+            "部分版本可以以已核验的产品功能、材料或使用结果为主，不展示产品本体。"
         )
     context_budget = 120000
     context_text = _limit_utf8(
         "\n".join(context_parts),
         max(0, context_budget - len(planner_instruction.encode("utf-8"))),
     )
-    content_blocks = [
+    content_blocks = []
+    if skill_file:
+        content_blocks.append(
+            {
+                "type": "input_file",
+                "file_url": skill_file,
+            }
+        )
+    content_blocks.append(
         {
             "type": "text",
             "text": context_text + "\n" + planner_instruction,
         }
-    ]
+    )
     content_blocks.extend(
         {
             "type": "image_url",
@@ -2166,6 +2771,14 @@ def _batch_prompt_context(
                 "你是电商图片与视频批量提示词规划器。"
                 "只输出可执行的提示词 JSON，绝不虚构产品事实；"
                 "收到的产品图片是身份核对依据。"
+                + (
+                    "批量详情图版本正文必须全程使用中文，"
+                    "除产品原图中已经存在的原文和接口协议字段外，"
+                    "不得主动输出英文；每个版本必须具备主标题、副标题、信息布局、"
+                    "排版形式、设计感强调和产品还原硬性约束。"
+                    if is_batch_detail_skill
+                    else ""
+                )
             ),
         },
         {"role": "user", "content": content_blocks},
@@ -2175,6 +2788,32 @@ def _batch_prompt_context(
         max(2400, count * 900),
     )
     return messages, max_tokens, descriptors
+
+
+def _force_batch_detail_image_settings(
+    versions,
+    *,
+    aspect_ratio,
+    resolution,
+):
+    """Apply page-owned image settings to every batch-detail version."""
+
+    fixed_aspect_ratio = normalize_image_aspect_ratio(aspect_ratio)
+    fixed_resolution = normalize_batch_image_resolution(resolution)
+    normalized = []
+    for version in versions:
+        prompt = strip_image_batch_settings(version)
+        normalized.append(
+            (
+                f"{prompt}\n"
+                f"画布比例：{fixed_aspect_ratio}\n"
+                f"图片质量：{fixed_resolution.upper()}"
+            ).strip()
+        )
+    return validate_versions(
+        normalized,
+        expected_count=len(versions),
+    )
 
 
 def _mark_batch_prompt_failed(batch_id, message):
@@ -2228,6 +2867,18 @@ def image():
     )
 
 
+@studio_bp.get("/white-background")
+@authorize("studio:white_background")
+def white_background():
+    return render_template(
+        "studio/white_background.html",
+        can_delete_history=_can_delete_history(),
+        can_manage_products=_has_permission("studio:products"),
+        is_super_admin=is_super_admin_user(),
+        white_background_skill_code=WHITE_BACKGROUND_IMAGE_SKILL_CODE,
+    )
+
+
 @studio_bp.get("/video")
 @authorize("studio:video")
 def video():
@@ -2244,7 +2895,7 @@ def batch_prompts():
     return render_template(
         "studio/batch_prompts.html",
         batch_media_type="ALL",
-        batch_prompt_style_options=BATCH_PROMPT_STYLE_OPTIONS,
+        batch_prompt_style_options=_batch_prompt_style_options_for_page(),
         batch_prompt_aspect_ratio_options=BATCH_IMAGE_ASPECT_RATIO_OPTIONS,
         batch_prompt_default_aspect_ratio=DEFAULT_BATCH_IMAGE_ASPECT_RATIO,
     )
@@ -2291,6 +2942,7 @@ def history():
     return render_template(
         "studio/history.html",
         can_delete_history=_can_delete_history(),
+        can_manage_products=_has_permission("studio:products"),
     )
 
 
@@ -2394,6 +3046,11 @@ def options():
         )
         .all()
     )
+    models = [
+        model
+        for model in models
+        if _provider_has_api_key(model.provider)
+    ]
     products_data = (
         _scoped_product_query()
         .filter_by(enabled=1)
@@ -2413,6 +3070,7 @@ def options():
         success=True,
         data={
             "models": [_model_dict(model) for model in models],
+            "batch_prompt_styles": _batch_prompt_style_payloads(),
             "products": [
                 {
                     "id": product.id,
@@ -2430,6 +3088,7 @@ def options():
                     "dept_name": _department_label(skill.dept_id),
                     "is_builtin": skill.code in AMAZON_BUILTIN_SKILL_CODES,
                     "name": skill.name,
+                    "code": skill.code,
                     "media_type": skill.media_type,
                 }
                 for skill in skills
@@ -2522,6 +3181,145 @@ def upload_asset():
         except Exception:
             current_app.logger.exception("failed to roll back uploaded asset")
         return jsonify(success=False, msg=str(exc)), 400
+
+
+@studio_bp.post("/api/image/white-background")
+@login_required
+def create_white_background_api():
+    """Create independent or grid white-background image tasks."""
+
+    if not _has_permission("studio:image"):
+        return jsonify(success=False, msg="权限不足"), 403
+
+    data = _body()
+    raw_merge = data.get("merge", False)
+    if isinstance(raw_merge, bool):
+        merge = raw_merge
+    else:
+        merge = str(raw_merge or "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+
+    try:
+        result = create_white_background_generations(
+            user_id=current_user.id,
+            model_id=data.get("model_id"),
+            reference_asset_ids=_int_list(data.get("reference_asset_ids")),
+            aspect_ratio=data.get("aspect_ratio") or "auto",
+            resolution=data.get("resolution") or "1k",
+            merge=merge,
+            client_batch_id=data.get("client_batch_id"),
+            skill_id=data.get("skill_id"),
+        )
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.exception(
+            "studio white-background request failed: user_id=%s "
+            "model_id=%s merge=%s reference_count=%s error=%s",
+            current_user.id,
+            data.get("model_id"),
+            merge,
+            len(_int_list(data.get("reference_asset_ids"))),
+            str(exc),
+        )
+        return jsonify(success=False, msg=str(exc) or "精修白底图任务创建失败"), 400
+
+    task_ids = [
+        int(item["task_id"])
+        for item in result.get("tasks", [])
+        if item.get("task_id")
+    ]
+    task_payloads = {}
+    if task_ids:
+        task_rows = (
+            _with_task_loaders(
+                _scoped_task_query().filter(
+                    StudioGenerationTask.id.in_(task_ids)
+                ),
+                include_comments=True,
+            )
+            .all()
+        )
+        task_payloads = {
+            int(task.id): _task_dict(task)
+            for task in task_rows
+            if _can_read_task(task)
+        }
+
+    tasks = []
+    failures = []
+    for item in result.get("tasks", []):
+        task_id = _int_or_none(item.get("task_id"))
+        if task_id:
+            task = task_payloads.get(task_id)
+            if task:
+                payload = dict(task)
+                payload.update(
+                    {
+                        "white_background": True,
+                        "white_background_batch_id": result["batch_id"],
+                        "white_background_index": item.get("index"),
+                        "white_background_count": result.get("count", 0),
+                        "white_background_merge": bool(result.get("merge")),
+                        "white_background_asset_ids": item.get("asset_ids") or [],
+                        "target_dimensions": item.get("target_dimensions") or "",
+                        "target_aspect_ratio": (
+                            item.get("target_aspect_ratio") or ""
+                        ),
+                        "aspect_ratio": (
+                            item.get("target_aspect_ratio") or ""
+                        ),
+                        "resolution": item.get("quality") or "",
+                    }
+                )
+                tasks.append(payload)
+                continue
+            failures.append(
+                {
+                    "index": item.get("index"),
+                    "attempts": 1,
+                    "error": "任务已创建但当前数据范围无法读取任务历史",
+                }
+            )
+            continue
+
+        failures.append(
+            {
+                "index": item.get("index"),
+                "attempts": 1,
+                "error": item.get("error") or "精修白底图任务提交失败",
+            }
+        )
+
+    tasks.sort(key=lambda item: int(item.get("white_background_index") or 0))
+    failures.sort(key=lambda item: int(item.get("index") or 0))
+    failed_count = len(failures)
+    if failed_count and tasks:
+        message = f"已提交 {len(tasks)} 张白底图，{failed_count} 张提交失败"
+    elif failed_count:
+        message = "所有精修白底图任务提交失败，失败结果已返回"
+    else:
+        message = (
+                "已提交 1 个合并宫格图任务"
+                if result.get("merge")
+                else f"已提交 {len(tasks)} 张白底图"
+        )
+    return jsonify(
+        success=True,
+        msg=message,
+        data={
+            "batch_id": result["batch_id"],
+            "merge": bool(result.get("merge")),
+            "count": result.get("count", 0),
+            "succeeded": len(tasks),
+            "failed": failed_count,
+            "tasks": tasks,
+            "failures": failures,
+        },
+    )
 
 
 @studio_bp.post("/api/generate")
@@ -2734,19 +3532,29 @@ def _prepare_prompt_request():
             },
         )
 
-    chat_model = _global_chat_model(department_id)
-    if not chat_model or not chat_model.provider:
+    chat_model, chat_model_state = _runtime_global_chat_model(department_id)
+    if (
+        not chat_model
+        or not chat_model.provider
+        or not chat_model_state.get("configured")
+    ):
         return jsonify(success=False, msg="请先在模型供应商中选择启用的全局语言模型"), 400
+    model_department_id = chat_model_state.get("dept_id")
+    if not chat_model_state.get("enabled"):
+        return jsonify(success=False, msg="当前全局语言模型或其供应商未启用"), 400
     if not can_access_model(
         current_user,
         chat_model,
-        department_id=department_id,
+        department_id=model_department_id,
     ):
         return jsonify(success=False, msg="无权使用当前全局语言模型"), 403
-    if not str(chat_model.provider.api_key or "").strip():
+    if not chat_model_state.get("has_api_key"):
         return jsonify(
             success=False,
-            msg="全局语言模型尚未配置 API Key，请先编辑对应供应商",
+            msg=(
+                "全局语言模型所属供应商尚未配置 API Key，请先编辑对应供应商"
+                f"（{chat_model.provider.name} / {chat_model.model_code}）"
+            ),
         ), 400
 
     planner_tools = _product_usage_web_search_tools(chat_model, product)
@@ -3063,6 +3871,14 @@ def create_batch_prompt_api():
     except ValueError as exc:
         return jsonify(success=False, msg=str(exc)), 400
 
+    try:
+        batch_prompt_name = normalize_batch_prompt_name(
+            data.get("name"),
+            default=DEFAULT_BATCH_PROMPT_NAME,
+        )
+    except ValueError as exc:
+        return jsonify(success=False, msg=str(exc)), 400
+
     product_id = _int_or_none(data.get("product_id"))
     skill_id = _int_or_none(data.get("skill_id"))
     creative_prompt = str(
@@ -3125,26 +3941,45 @@ def create_batch_prompt_api():
             msg="Skill 不存在、已停用或不属于当前可用范围",
         ), 400
 
+    is_batch_detail_skill = bool(
+        media_type == "IMAGE"
+        and skill
+        and str(getattr(skill, "code", "") or "").strip()
+        == BATCH_DETAIL_IMAGE_SKILL_CODE
+    )
     department_id = _batch_prompt_department(product, skill)
     if department_id is None:
         return jsonify(success=False, msg="当前账号没有有效部门归属"), 400
 
-    chat_model = _global_chat_model(department_id)
-    if not chat_model or not chat_model.provider:
+    chat_model, chat_model_state = _runtime_global_chat_model(department_id)
+    if (
+        not chat_model
+        or not chat_model.provider
+        or not chat_model_state.get("configured")
+    ):
         return jsonify(
             success=False,
             msg="请先在模型供应商中选择启用的全局语言模型",
         ), 400
+    model_department_id = chat_model_state.get("dept_id")
+    if not chat_model_state.get("enabled"):
+        return jsonify(
+            success=False,
+            msg="当前全局语言模型或其供应商未启用",
+        ), 400
     if not can_access_model(
         current_user,
         chat_model,
-        department_id=department_id,
+        department_id=model_department_id,
     ):
         return jsonify(success=False, msg="无权使用当前全局语言模型"), 403
-    if not str(chat_model.provider.api_key or "").strip():
+    if not chat_model_state.get("has_api_key"):
         return jsonify(
             success=False,
-            msg="全局语言模型尚未配置 API Key，请先编辑对应供应商",
+            msg=(
+                "全局语言模型所属供应商尚未配置 API Key，请先编辑对应供应商"
+                f"（{chat_model.provider.name} / {chat_model.model_code}）"
+            ),
         ), 400
 
     planner_tools = _product_usage_web_search_tools(chat_model, product)
@@ -3182,6 +4017,7 @@ def create_batch_prompt_api():
     batch_prompt = StudioBatchPrompt(
         dept_id=department_id,
         user_id=current_user.id,
+        name=batch_prompt_name,
         media_type=media_type,
         product_id=product.id if product else None,
         skill_id=skill.id if skill else None,
@@ -3220,14 +4056,39 @@ def create_batch_prompt_api():
             planner_model_code,
             _dump(redact_provider_payload(body)),
         )
+        def validate_batch_prompt_response(response):
+            versions = parse_model_versions(
+                extract_chat_content(response),
+                count,
+            )
+            if (
+                media_type == "IMAGE"
+                and is_batch_detail_skill
+            ):
+                _force_batch_detail_image_settings(
+                    versions,
+                    aspect_ratio=image_aspect_ratio,
+                    resolution=image_resolution,
+                )
+
         response = complete_chat(
             chat_model,
             body,
-            department_id=department_id,
+            department_id=model_department_id,
             user=current_user,
+            response_validator=validate_batch_prompt_response,
         )
         content = extract_chat_content(response)
         versions = parse_model_versions(content, count)
+        if (
+            media_type == "IMAGE"
+            and is_batch_detail_skill
+        ):
+            versions = _force_batch_detail_image_settings(
+                versions,
+                aspect_ratio=image_aspect_ratio,
+                resolution=image_resolution,
+            )
         document = format_versions(versions)
     except Exception as exc:
         _mark_batch_prompt_failed(batch_prompt_id, str(exc))
@@ -3405,16 +4266,33 @@ def process_image_batch_prompt_api():
         ), 400
 
     product_id = batch_prompt.product_id
-    if product_id:
-        product = _generation_product(
-            product_id,
-            provider_department_id,
-        )
-        if not product:
-            return jsonify(
-                success=False,
-                msg="批量提示词关联产品不存在、已停用或无权访问",
-            ), 400
+    if not product_id:
+        return jsonify(
+            success=False,
+            msg="批量图片处理必须关联产品中心，才能提供产品参考图",
+        ), 400
+    product = _generation_product(
+        product_id,
+        provider_department_id,
+    )
+    if not product:
+        return jsonify(
+            success=False,
+            msg="批量提示词关联产品不存在、已停用或无权访问",
+        ), 400
+    batch_product_reference_urls = product_reference_urls(
+        product,
+        media_type="IMAGE",
+        asset_filter=lambda asset: _product_asset_is_accessible(
+            asset,
+            current_user,
+        ),
+    )
+    if not batch_product_reference_urls:
+        return jsonify(
+            success=False,
+            msg="关联产品中心没有可用的产品图片，请先上传产品图片",
+        ), 400
 
     app = current_app._get_current_object()
     user_id = current_user.id
@@ -3441,9 +4319,11 @@ def process_image_batch_prompt_api():
                         # The version is already the complete prompt from
                         # the selected batch-prompt history. Do not load
                         # or append a Skill during image batch processing.
-                        # The product is still passed separately so its
-                        # authorized reference images are resolved.
+                        # Only the authorized product-center images are sent
+                        # as references. No user-uploaded image or Skill is
+                        # carried into this per-version image request.
                         "prepared_prompt": version["prompt"],
+                        "reference_images": batch_product_reference_urls,
                         "department_id": generation_department_id,
                     },
                     acting_user=acting_user,
@@ -3553,7 +4433,7 @@ def process_image_batch_prompt_api():
 @studio_bp.put("/api/batch-prompts/<int:batch_prompt_id>")
 @login_required
 def update_batch_prompt_api(batch_prompt_id):
-    """Validate and atomically replace an edited GoFastDFS prompt document."""
+    """Update a history name and/or atomically replace its prompt document."""
 
     batch_prompt = _scoped_batch_prompt_query().filter_by(
         id=batch_prompt_id,
@@ -3566,10 +4446,42 @@ def update_batch_prompt_api(batch_prompt_id):
     )
     if permission_error:
         return permission_error
+    data = _body()
+    has_name = "name" in data
+    has_content = "content" in data
+    if not has_name and not has_content:
+        return jsonify(success=False, msg="没有可更新的批量提示词内容"), 400
+
+    updated_name = None
+    if has_name:
+        try:
+            updated_name = normalize_batch_prompt_name(data.get("name"))
+        except ValueError as exc:
+            return jsonify(success=False, msg=str(exc)), 400
+
+    if not has_content:
+        batch_prompt.name = updated_name
+        db.session.add(batch_prompt)
+        try:
+            db.session.commit()
+        except Exception as exc:
+            db.session.rollback()
+            current_app.logger.exception(
+                "studio batch prompt name update failed: id=%s error=%s",
+                batch_prompt_id,
+                str(exc),
+            )
+            return jsonify(success=False, msg=str(exc)), 400
+        return jsonify(
+            success=True,
+            msg="批量提示词名称已保存",
+            data=_batch_prompt_dict(batch_prompt),
+        )
+
     if batch_prompt.status != "SUCCEEDED":
         return jsonify(success=False, msg="只有已完成的批量提示词可以编辑"), 400
 
-    content = str(_body().get("content") or "")
+    content = str(data.get("content") or "")
     try:
         versions = parse_version_document(
             content,
@@ -3620,6 +4532,8 @@ def update_batch_prompt_api(batch_prompt_id):
                     category=FileService.default_category("FILE", "BATCH_PROMPT"),
                 )
         batch_prompt.file_name = file_name
+        if has_name:
+            batch_prompt.name = updated_name
         batch_prompt.error_message = None
         batch_prompt.status = "SUCCEEDED"
         db.session.add(batch_prompt)
@@ -3735,19 +4649,32 @@ def _analyze_task_feedback(task_code):
             msg=f"没有可供意见反馈使用的{media_label}资产",
         ), 400
 
-    chat_model = _global_chat_model(task.dept_id)
-    if not chat_model or not chat_model.provider:
+    chat_model, chat_model_state = _runtime_global_chat_model(task.dept_id)
+    if (
+        not chat_model
+        or not chat_model.provider
+        or not chat_model_state.get("configured")
+    ):
         return jsonify(success=False, msg="请先在模型供应商中选择启用的全局语言模型"), 400
+    model_department_id = chat_model_state.get("dept_id")
+    if not chat_model_state.get("enabled"):
+        return jsonify(
+            success=False,
+            msg="当前全局语言模型或其供应商未启用",
+        ), 400
     if not can_access_model(
         current_user,
         chat_model,
-        department_id=task.dept_id,
+        department_id=model_department_id,
     ):
         return jsonify(success=False, msg="无权使用当前全局语言模型"), 403
-    if not str(chat_model.provider.api_key or "").strip():
+    if not chat_model_state.get("has_api_key"):
         return jsonify(
             success=False,
-            msg="全局语言模型尚未配置 API Key，请先编辑对应供应商",
+            msg=(
+                "全局语言模型所属供应商尚未配置 API Key，请先编辑对应供应商"
+                f"（{chat_model.provider.name} / {chat_model.model_code}）"
+            ),
         ), 400
     # The feedback Skill is a system-wide built-in resource. It is normally
     # stored under the seed department, so filtering it by the task's
@@ -4224,6 +5151,7 @@ def _next_studio_history_cursor(rows):
 def history_api():
     code = (request.args.get("code") or "").strip()
     media_type = str(request.args.get("media_type") or "").upper()
+    workflow_type = str(request.args.get("workflow_type") or "").upper()
     page = max(_int_or_none(request.args.get("page")) or 1, 1)
     page_size = _int_or_none(request.args.get("page_size")) or 20
     page_size = min(max(page_size, 1), 50)
@@ -4232,6 +5160,17 @@ def history_api():
         query = query.filter_by(task_code=code)
     if media_type in ("IMAGE", "VIDEO"):
         query = query.filter_by(media_type=media_type)
+    if workflow_type == "WHITE_BACKGROUND":
+        query = query.filter(
+            or_(
+                StudioGenerationTask.workflow_metadata.like(
+                    "%WHITE_BACKGROUND%"
+                ),
+                StudioGenerationTask.workflow_metadata.like(
+                    "%white_background%"
+                ),
+            )
+        )
     cursor_created_at, cursor_id = _studio_history_cursor()
     if cursor_created_at is not None and cursor_id is not None:
         query = query.filter(
@@ -4315,6 +5254,191 @@ def delete_history_api(task_id):
     if not result["deleted"]:
         return jsonify(success=False, msg=result["message"]), 400
     return jsonify(success=True, msg=result["message"])
+
+
+@studio_bp.post("/api/white-background/bind")
+@authorize("studio:products", log=True)
+def bind_white_background_output():
+    """Bind a completed white-background output into Product Center."""
+
+    data = _body()
+    task_id = _int_or_none(data.get("task_id"))
+    asset_id = _int_or_none(data.get("asset_id"))
+    product_id = _int_or_none(data.get("product_id"))
+    role = str(data.get("role") or "").strip().lower()
+    if not task_id or not asset_id or not product_id:
+        return jsonify(
+            success=False,
+            msg="请选择有效的历史任务、生成图片和产品",
+        ), 400
+    if role not in IMAGE_PRODUCT_ASSET_ROLES:
+        return jsonify(success=False, msg="请选择有效的产品图片位置"), 400
+
+    task = _scoped_task_query().filter_by(id=task_id).first()
+    if not task:
+        return jsonify(success=False, msg="白底图历史不存在或无权访问"), 404
+    workflow_metadata = _json(task.workflow_metadata, {})
+    workflow_type = str(
+        workflow_metadata.get("type")
+        or workflow_metadata.get("workflow_type")
+        or ""
+    ).strip().upper()
+    white_metadata = workflow_metadata.get("white_background")
+    if not isinstance(white_metadata, dict):
+        white_metadata = {}
+    if workflow_type != "WHITE_BACKGROUND":
+        if not white_metadata.get("enabled"):
+            return jsonify(success=False, msg="当前历史不是精修白底图任务"), 400
+    if task.status != "SUCCEEDED":
+        return jsonify(success=False, msg="只有已完成的白底图才能绑定到产品中心"), 400
+
+    output_asset = None
+    for link, candidate in generation_task_asset_links_for_task(
+        task,
+        roles={"OUTPUT", "RESULT", "THUMBNAIL"},
+        include_legacy=True,
+    ):
+        if not candidate or int(candidate.id) != int(asset_id):
+            continue
+        relation_role = str(getattr(link, "role", "") or "").upper()
+        if (
+            candidate.purpose == "GENERATION_OUTPUT"
+            or relation_role in {"OUTPUT", "RESULT", "THUMBNAIL"}
+            or getattr(candidate, "generation_task_id", None) == task.id
+        ):
+            output_asset = candidate
+            break
+    if not output_asset:
+        output_asset = (
+            StudioAsset.query
+            .filter(
+                StudioAsset.id == asset_id,
+                StudioAsset.generation_task_id == task.id,
+                StudioAsset.purpose.in_(("GENERATION_OUTPUT", "PRODUCT")),
+            )
+            .first()
+        )
+    if not output_asset:
+        return jsonify(success=False, msg="生成图片不属于当前白底图历史"), 400
+    if (
+        output_asset.asset_type not in ("IMAGE", "BOTH")
+        or not _asset_is_active(output_asset)
+        or not _is_usable_asset_url(output_asset.public_url)
+    ):
+        return jsonify(success=False, msg="生成图片已失效，无法绑定"), 400
+
+    product = _scoped_product_query().filter_by(
+        id=product_id,
+        enabled=1,
+    ).first()
+    if not product:
+        return jsonify(success=False, msg="产品不存在或无权访问"), 404
+    if (
+        product.dept_id is None
+        or task.dept_id != product.dept_id
+        or output_asset.dept_id != product.dept_id
+    ):
+        return jsonify(success=False, msg="历史、生成图片和产品不属于同一部门"), 403
+
+    existing = StudioProductAsset.query.filter_by(
+        product_id=product.id,
+        storage_asset_id=output_asset.id,
+        role=role,
+        enabled=1,
+    ).first()
+    if existing:
+        output_asset.purpose = "PRODUCT"
+        output_asset.retention_policy = FileService.PERMANENT
+        output_asset.expires_at = None
+        db.session.commit()
+        return jsonify(
+            success=True,
+            msg="这张图片已经绑定到当前产品位置",
+            data={
+                "product": _product_dict(product),
+                "binding": _product_binding_dict(existing),
+            },
+        )
+
+    replace_requested = data.get("replace_existing")
+    replace_requested = (
+        replace_requested is True
+        or str(replace_requested or "").strip().lower()
+        in ("1", "true", "yes", "on")
+    )
+    replace_existing = role in FIXED_PRODUCT_ASSET_ROLES or replace_requested
+    previous_storage_assets = []
+    if replace_existing:
+        previous_assets = StudioProductAsset.query.filter_by(
+            product_id=product.id,
+            role=role,
+            enabled=1,
+        ).all()
+        for previous in previous_assets:
+            if previous.storage_asset_id:
+                previous_storage = StudioAsset.query.filter_by(
+                    id=previous.storage_asset_id,
+                    status="ACTIVE",
+                    dept_id=product.dept_id,
+                ).first()
+                if (
+                    previous_storage
+                    and previous_storage.id != output_asset.id
+                    and can_access_asset(current_user, previous_storage)
+                ):
+                    previous_storage_assets.append(previous_storage)
+            previous.enabled = 0
+
+    output_asset.purpose = "PRODUCT"
+    output_asset.retention_policy = FileService.PERMANENT
+    output_asset.expires_at = None
+    output_asset.error_message = None
+    output_asset.deleted_at = None
+    product_asset = StudioProductAsset(
+        product_id=product.id,
+        name=(
+            str(data.get("name") or "").strip()
+            or output_asset.original_filename
+            or f"{PRODUCT_ASSET_ROLE_LABELS.get(role, '产品素材')}-{task.task_code}"
+        ),
+        url=output_asset.public_url,
+        asset_type="IMAGE",
+        role=role,
+        sort=PRODUCT_ASSET_ROLE_SORT.get(role, 100),
+        storage_asset_id=output_asset.id,
+    )
+    try:
+        db.session.add(product_asset)
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify(success=False, msg=str(exc)), 400
+
+    cleanup_failed = False
+    cleanup_protected = 0
+    for previous_storage in previous_storage_assets:
+        if _asset_referenced_outside_source_task(previous_storage):
+            cleanup_protected += 1
+            continue
+        if not FileService.delete_asset(previous_storage):
+            cleanup_failed = True
+    if previous_storage_assets:
+        db.session.commit()
+
+    if cleanup_failed:
+        message = "已绑定到产品中心，但旧文件删除失败，已保留待后续重试"
+    elif cleanup_protected:
+        message = "已绑定到产品中心，旧文件仍被其他历史引用，已保留"
+    else:
+        message = "已绑定到产品中心"
+    return jsonify(
+        success=True,
+        msg=message,
+        data={
+            "product": _product_dict(product),
+            "binding": _product_binding_dict(product_asset),
+        },
+    )
 
 
 @studio_bp.get("/api/products")
@@ -4466,6 +5590,12 @@ def create_product_from_listing():
             "===== Listing 创作历史全文 =====\n"
             + listing_content
         )
+        def validate_product_extraction_response(response):
+            _normalize_extracted_product(
+                extract_chat_content(response),
+                listing_task=task,
+            )
+
         response = complete_chat(
             chat_model,
             {
@@ -4479,6 +5609,7 @@ def create_product_from_listing():
             },
             department_id=task.dept_id,
             user=current_user,
+            response_validator=validate_product_extraction_response,
         )
         extracted = _normalize_extracted_product(
             extract_chat_content(response),
@@ -4651,7 +5782,7 @@ def delete_product(product_id):
     cleanup_failed = False
     cleanup_protected = 0
     for stored_asset in stored_assets.values():
-        if asset_referenced(stored_asset.id, now=None):
+        if _asset_referenced_outside_source_task(stored_asset):
             cleanup_protected += 1
             continue
         if not FileService.delete_asset(stored_asset):
@@ -4760,7 +5891,7 @@ def save_product_asset(product_id):
     cleanup_failed = False
     cleanup_protected = 0
     for previous_storage in previous_storage_assets:
-        if asset_referenced(previous_storage.id, now=None):
+        if _asset_referenced_outside_source_task(previous_storage):
             cleanup_protected += 1
             continue
         if not FileService.delete_asset(previous_storage):
@@ -4800,7 +5931,7 @@ def delete_product_asset(product_id, asset_id):
             and stored_asset.status in ("ACTIVE", "DELETE_FAILED")
             and stored_asset.dept_id == product.dept_id
             and can_access_asset(current_user, stored_asset)
-            and not asset_referenced(stored_asset.id, now=None)
+            and not _asset_referenced_outside_source_task(stored_asset)
         ):
             FileService.delete_asset(stored_asset)
     db.session.commit()
@@ -4892,6 +6023,7 @@ def ai_config_api():
             "owner_type": owner_type,
             "global_chat_model_id": selected.id if selected else None,
             "global_chat_model": _global_chat_model_payload(selected),
+            "providers": _global_chat_provider_payloads(models),
             "models": [_global_chat_model_payload(model) for model in models],
         },
     )
@@ -4913,6 +6045,7 @@ def save_ai_config():
     ):
         return jsonify(success=False, msg="请选择有效部门"), 400
     model_id = _int_or_none(data.get("global_chat_model_id"))
+    provider_id = _int_or_none(data.get("provider_id"))
     model = (
         _scoped_model_query(
             department_id,
@@ -4928,6 +6061,13 @@ def save_ai_config():
         if model_id
         else None
     )
+    if model and provider_id and model.provider_id != provider_id:
+        return jsonify(
+            success=False,
+            msg="所选语言模型不属于当前供应商",
+        ), 400
+    if model and not _provider_has_api_key(model.provider):
+        model = None
     if not model:
         return jsonify(success=False, msg="请选择启用的语言模型"), 400
 
@@ -4952,6 +6092,7 @@ def save_ai_config():
             "owner_type": owner_type,
             "global_chat_model_id": model.id,
             "global_chat_model": _global_chat_model_payload(model),
+            "provider_id": model.provider_id,
         },
     )
 
@@ -5021,7 +6162,10 @@ def save_provider():
     provider.auth_header = data.get("auth_header") or "Authorization"
     provider.auth_prefix = data.get("auth_prefix") or "Bearer"
     provider.timeout = max(30, _int_or_none(data.get("timeout")) or 120)
-    provider.enabled = 1 if _as_enabled(data.get("enabled"), True) else 0
+    provider.enabled = 1 if _as_enabled(
+        data.get("enabled"),
+        bool(provider.enabled) if provider_id else True,
+    ) else 0
     provider.description = data.get("description") or ""
     db.session.add(provider)
     db.session.commit()
@@ -5039,7 +6183,7 @@ def provider_balance(provider_id):
     ).first()
     if not provider:
         return jsonify(success=False, msg="供应商不存在或已停用"), 404
-    if not provider.api_key:
+    if not _provider_has_api_key(provider):
         return jsonify(success=False, msg="请先配置 API Key"), 400
     scope = request.args.get("scope") or "user"
     if scope not in ("user", "token"):
@@ -5071,10 +6215,31 @@ def delete_provider(provider_id):
     if not provider:
         return jsonify(success=False, msg="供应商不存在"), 404
     provider.enabled = 0
-    for model in provider.models:
-        model.enabled = 0
     db.session.commit()
     return jsonify(success=True, msg="供应商已停用")
+
+
+@studio_bp.post("/api/providers/<int:provider_id>/status")
+@authorize("studio:providers")
+def update_provider_status(provider_id):
+    if not can_manage_provider():
+        return _provider_management_denied()
+    provider = _scoped_provider_query().filter_by(id=provider_id).first()
+    if not provider:
+        return jsonify(success=False, msg="供应商不存在"), 404
+    data = _body()
+    if "enabled" not in data:
+        return jsonify(success=False, msg="缺少供应商启停状态"), 400
+    provider.enabled = 1 if _as_enabled(
+        data.get("enabled"),
+        bool(provider.enabled),
+    ) else 0
+    db.session.commit()
+    return jsonify(
+        success=True,
+        msg="供应商已启用" if provider.enabled else "供应商已停用",
+        data=_provider_dict(provider),
+    )
 
 
 @studio_bp.post("/api/models")
@@ -5085,7 +6250,7 @@ def save_model():
     data = _body()
     model_id = _int_or_none(data.get("id"))
     model = (
-        _scoped_model_query().filter_by(id=model_id).first()
+        _scoped_model_query().filter(StudioModel.id == model_id).first()
         if model_id
         else StudioModel()
     )
@@ -5140,10 +6305,17 @@ def save_model():
         ensure_ascii=False,
     )
     model.description = spec.description
-    model.enabled = 1 if _as_enabled(data.get("enabled"), True) else 0
+    model.enabled = 1 if _as_enabled(
+        data.get("enabled"),
+        bool(model.enabled) if model_id else True,
+    ) else 0
     db.session.add(model)
     db.session.commit()
-    return jsonify(success=True, msg="模型已启用", data=_model_dict(model))
+    return jsonify(
+        success=True,
+        msg="模型已启用" if model.enabled else "模型已停用",
+        data=_model_dict(model),
+    )
 
 
 @studio_bp.delete("/api/models/<int:model_id>")
@@ -5151,12 +6323,35 @@ def save_model():
 def delete_model(model_id):
     if not can_manage_provider():
         return _provider_management_denied()
-    model = _scoped_model_query().filter_by(id=model_id).first()
+    model = _scoped_model_query().filter(StudioModel.id == model_id).first()
     if not model:
         return jsonify(success=False, msg="模型不存在"), 404
     model.enabled = 0
     db.session.commit()
     return jsonify(success=True, msg="模型已停用")
+
+
+@studio_bp.post("/api/models/<int:model_id>/status")
+@authorize("studio:providers")
+def update_model_status(model_id):
+    if not can_manage_provider():
+        return _provider_management_denied()
+    model = _scoped_model_query().filter(StudioModel.id == model_id).first()
+    if not model:
+        return jsonify(success=False, msg="模型不存在"), 404
+    data = _body()
+    if "enabled" not in data:
+        return jsonify(success=False, msg="缺少模型启停状态"), 400
+    model.enabled = 1 if _as_enabled(
+        data.get("enabled"),
+        bool(model.enabled),
+    ) else 0
+    db.session.commit()
+    return jsonify(
+        success=True,
+        msg="模型已启用" if model.enabled else "模型已停用",
+        data=_model_dict(model),
+    )
 
 
 def _skill_dict(skill, include_content=False):

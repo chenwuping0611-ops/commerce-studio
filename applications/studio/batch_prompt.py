@@ -17,8 +17,14 @@ from .provider_catalog import KUAIPAO_IMAGE_ASPECT_RATIOS
 DEFAULT_BATCH_PROMPT_COUNT = 10
 MIN_BATCH_PROMPT_COUNT = 1
 MAX_BATCH_PROMPT_COUNT = 50
-MAX_BATCH_PROMPT_VERSION_BYTES = 5000
+# The upstream image endpoint validates `prompt` by character count. Keep
+# the old exported name as a compatibility alias for callers from older
+# releases, but validate the actual version text by Python character count.
+MAX_BATCH_PROMPT_VERSION_CHARS = 32000
+MAX_BATCH_PROMPT_VERSION_BYTES = MAX_BATCH_PROMPT_VERSION_CHARS
 MAX_BATCH_PROMPT_STYLE_LENGTH = 160
+DEFAULT_BATCH_PROMPT_NAME = "批量提示词"
+MAX_BATCH_PROMPT_NAME_LENGTH = 160
 DEFAULT_BATCH_IMAGE_ASPECT_RATIO = "2.44:1"
 BATCH_IMAGE_ASPECT_RATIO_OPTIONS = tuple(KUAIPAO_IMAGE_ASPECT_RATIOS)
 DEFAULT_BATCH_IMAGE_RESOLUTION = "2k"
@@ -148,6 +154,21 @@ def normalize_batch_prompt_style(value):
     if not text:
         return ""
     return text[:MAX_BATCH_PROMPT_STYLE_LENGTH].strip()
+
+
+def normalize_batch_prompt_name(value, default=None):
+    """Validate the operator-facing name shown for one history record."""
+
+    text = str(value or "").strip()
+    if not text:
+        if default is not None:
+            return str(default).strip()
+        raise ValueError("批量提示词名称不能为空")
+    if len(text) > MAX_BATCH_PROMPT_NAME_LENGTH:
+        raise ValueError(
+            f"批量提示词名称不能超过 {MAX_BATCH_PROMPT_NAME_LENGTH} 个字符"
+        )
+    return text
 
 
 def normalize_batch_image_resolution(value, default=DEFAULT_BATCH_IMAGE_RESOLUTION):
@@ -348,7 +369,13 @@ def validate_versions(
     expected_count=None,
     max_bytes=MAX_BATCH_PROMPT_VERSION_BYTES,
 ):
-    """Return clean versions or raise a user-facing validation error."""
+    """Return clean versions within the upstream 32000-character limit.
+
+    `max_bytes` is retained in the signature for compatibility with older
+    callers. Its value now represents the provider's character limit, because
+    the image endpoint's schema uses `prompt.maxLength` rather than a UTF-8
+    byte budget.
+    """
 
     if not isinstance(versions, (list, tuple)):
         raise ValueError("模型返回的批量提示词不是版本列表")
@@ -367,10 +394,11 @@ def validate_versions(
     if duplicate_indexes:
         raise ValueError("批量提示词版本不能完全重复")
     for index, item in enumerate(normalized, start=1):
-        size = len(item.encode("utf-8"))
+        size = len(item)
         if size > max_bytes:
             raise ValueError(
-                f"{version_label(index)}超过 {max_bytes} 字节限制"
+                f"{version_label(index)}超过 {max_bytes} 个字符限制"
+                "（兼容原有字节限制校验）"
             )
     return normalized
 

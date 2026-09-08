@@ -2,6 +2,36 @@
     var uploadDraftForms = [];
     var uploadDraftCleanupBound = false;
 
+    function parseJsonResponse(response, fallbackMessage) {
+        return response.text().then(function (raw) {
+            var payload;
+            try {
+                payload = raw ? JSON.parse(raw) : null;
+            } catch (error) {
+                var status = response.status ? "（HTTP " + response.status + "）" : "";
+                throw new Error(
+                    (fallbackMessage || "服务器返回了无效响应") +
+                    status + "，请检查 Gunicorn/Nginx 日志"
+                );
+            }
+            if (!payload || typeof payload !== "object") {
+                var emptyStatus = response.status ? "（HTTP " + response.status + "）" : "";
+                throw new Error(
+                    (fallbackMessage || "服务器返回了无效响应") +
+                    emptyStatus + "，请检查 Gunicorn/Nginx 日志"
+                );
+            }
+            if (!response.ok || payload.success === false) {
+                var message = payload.msg || payload.message || "请求失败";
+                if (response.status && message === "请求失败") {
+                    message += "（HTTP " + response.status + "）";
+                }
+                throw new Error(message);
+            }
+            return payload;
+        });
+    }
+
     function request(url, options) {
         options = options || {};
         var method = String(options.method || "GET").toUpperCase();
@@ -13,11 +43,7 @@
         options.cache = "no-store";
         options.headers = Object.assign({"Content-Type": "application/json"}, options.headers || {});
         return fetch(requestUrl, options).then(function (response) {
-            return response.json().catch(function () { return {success: false, msg: "服务器返回了无效响应"}; })
-                .then(function (payload) {
-                    if (!response.ok || payload.success === false) throw new Error(payload.msg || "请求失败");
-                    return payload;
-                });
+            return parseJsonResponse(response, "服务器返回了无效响应");
         });
     }
 
@@ -284,27 +310,51 @@
                 historyPath: "/amazon-ai/api/competitors/history",
                 resultPath: "/amazon-ai/api/competitors/history/",
                 emptyText: "暂无竞品分析历史",
-                historyLabel: "竞品分析历史"
+                historyLabel: "竞品分析历史",
+                editableName: true
             },
             differentiation: {
                 historyPath: "/amazon-ai/api/differentiation/history",
                 resultPath: "/amazon-ai/api/differentiation/history/",
                 emptyText: "暂无差异化分析历史",
-                historyLabel: "差异化分析历史"
+                historyLabel: "差异化分析历史",
+                editableName: true
             },
             basicInfo: {
                 historyPath: "/amazon-ai/api/basic-info/history",
                 resultPath: "/amazon-ai/api/basic-info/history/",
                 emptyText: "暂无基础信息修正历史",
-                historyLabel: "基础信息修正历史"
+                historyLabel: "基础信息修正历史",
+                editableName: false
             },
             listing: {
                 historyPath: "/amazon-ai/api/listing/history",
                 resultPath: "/amazon-ai/api/listing/history/",
                 emptyText: "暂无 Listing 创作历史",
-                historyLabel: "Listing 创作历史"
+                historyLabel: "Listing 创作历史",
+                editableName: true
             }
         }[listApi] || null;
+    }
+
+    function supportsCustomTaskName(task) {
+        return Boolean(
+            task &&
+            ["COMPETITOR_ANALYZE", "DIFFERENTIATION_GENERATE", "LISTING_GENERATE"]
+                .indexOf(task.task_type) >= 0
+        );
+    }
+
+    function saveTaskCustomName(taskRef, customName) {
+        return request(
+            "/amazon-ai/api/tasks/" +
+            encodeURIComponent(taskRef) +
+            "/custom-name",
+            {
+                method: "POST",
+                body: JSON.stringify({custom_name: String(customName == null ? "" : customName)})
+            }
+        );
     }
 
     function renderSavedTaskHistory(targetId, items, config) {
@@ -324,6 +374,9 @@
             var detailMessage = item.status === "SUCCEEDED"
                 ? "点击查看完整分析结果"
                 : (item.error_message || "该任务没有可展开的完整结果");
+            var editableName = Boolean(
+                config.editableName && supportsCustomTaskName(item)
+            );
             return '<details class="amazon-saved-task" data-task-code="' +
                 escapeHtml(taskCode) + '">' +
                 '<summary><span class="amazon-saved-task-main">' +
@@ -334,6 +387,9 @@
                 escapeHtml(status) + ' · ' + escapeHtml(item.created_at || "") +
                 '</span></span><span class="amazon-saved-task-actions">' +
                 '<button type="button" class="amazon-button quiet amazon-saved-task-view">查看</button>' +
+                (editableName
+                    ? '<button type="button" class="amazon-button quiet amazon-saved-task-edit">编辑名称</button>'
+                    : "") +
                 '<button type="button" class="amazon-button quiet amazon-saved-task-delete">删除</button>' +
                 '</span></summary>' +
                 '<div class="amazon-saved-task-body" id="' + detailId +
@@ -344,10 +400,69 @@
         target.querySelectorAll(".amazon-saved-task").forEach(function (item) {
             var taskCode = item.dataset.taskCode || "";
             var viewButton = item.querySelector(".amazon-saved-task-view");
+            var editButton = item.querySelector(".amazon-saved-task-edit");
             var deleteButton = item.querySelector(".amazon-saved-task-delete");
             var body = item.querySelector(".amazon-saved-task-body");
             var loaded = false;
             var loading = false;
+            var titleNode = item.querySelector(".amazon-saved-task-title");
+            var originalTitle = titleNode ? titleNode.textContent : "";
+
+            function restoreTitle() {
+                if (!titleNode) return;
+                titleNode.textContent = originalTitle;
+                titleNode.title = originalTitle;
+                if (editButton) {
+                    editButton.dataset.editing = "0";
+                    editButton.disabled = false;
+                    editButton.textContent = "编辑名称";
+                }
+            }
+
+            function startNameEdit(event) {
+                event.preventDefault();
+                event.stopPropagation();
+                if (!titleNode || !editButton) return;
+                if (editButton.dataset.editing === "1") {
+                    var input = titleNode.querySelector(".amazon-saved-task-name-input");
+                    editButton.disabled = true;
+                    editButton.textContent = "保存中...";
+                    saveTaskCustomName(taskCode, input ? input.value : "")
+                        .then(function () {
+                            return refreshSavedTaskHistory(targetId, config);
+                        })
+                        .catch(function (error) {
+                            editButton.disabled = false;
+                            editButton.textContent = "保存";
+                            window.alert(error.message);
+                        });
+                    return;
+                }
+                titleNode.innerHTML =
+                    '<input type="text" class="amazon-saved-task-name-input" value="' +
+                    escapeHtml(originalTitle) + '">';
+                var nameInput = titleNode.querySelector(
+                    ".amazon-saved-task-name-input"
+                );
+                editButton.dataset.editing = "1";
+                editButton.textContent = "保存";
+                if (nameInput) {
+                    nameInput.addEventListener("click", function (inputEvent) {
+                        inputEvent.stopPropagation();
+                    });
+                    nameInput.addEventListener("keydown", function (inputEvent) {
+                        if (inputEvent.key === "Escape") {
+                            inputEvent.preventDefault();
+                            restoreTitle();
+                        } else if (inputEvent.key === "Enter") {
+                            inputEvent.preventDefault();
+                            editButton.click();
+                        }
+                    });
+                    nameInput.focus();
+                    nameInput.select();
+                }
+            }
 
             function loadResult() {
                 if (loaded || loading || !taskCode || !body) {
@@ -388,6 +503,9 @@
                     event.stopPropagation();
                     item.open = !item.open;
                 });
+            }
+            if (editButton) {
+                editButton.addEventListener("click", startNameEdit);
             }
             if (deleteButton) {
                 deleteButton.addEventListener("click", function (event) {
@@ -929,12 +1047,7 @@
                 credentials: "same-origin",
                 cache: "no-store"
             }).then(function (response) {
-                return response.json().catch(function () {
-                    return {success: false, msg: "服务器返回了无效响应"};
-                }).then(function (payload) {
-                    if (!response.ok || payload.success === false) {
-                        throw new Error(payload.msg || "文件上传失败");
-                    }
+                return parseJsonResponse(response, "服务器返回了无效响应").then(function (payload) {
                     if (!payload.data || payload.data.id == null) {
                         throw new Error("文件上传成功但服务器没有返回文件记录");
                     }
@@ -1158,13 +1271,17 @@
                 '<td>' + escapeHtml(item.task_type_label || item.task_type) + "</td>" +
                 '<td>' + escapeHtml(item.model_code || "") + "</td>" +
                 '<td>' + escapeHtml(item.skill_name || "") + "</td>" +
-                '<td><span class="amazon-status ' + statusClass(item.status) + '">' + escapeHtml(statusText(item.status)) + "</span></td>" +
-                '<td>' + escapeHtml(item.created_at) + "</td>" +
-                '<td class="amazon-history-actions">' +
-                '<button type="button" class="amazon-button quiet amazon-history-view" ' +
-                'data-task-code="' + escapeHtml(taskCode) + '">查看</button>' +
-                '<button type="button" class="amazon-button quiet amazon-history-delete" ' +
-                'data-task-code="' + escapeHtml(taskCode) + '">删除</button>' +
+            '<td><span class="amazon-status ' + statusClass(item.status) + '">' + escapeHtml(statusText(item.status)) + "</span></td>" +
+            '<td>' + escapeHtml(item.created_at) + "</td>" +
+            '<td class="amazon-history-actions">' +
+            '<button type="button" class="amazon-button quiet amazon-history-view" ' +
+            'data-task-code="' + escapeHtml(taskCode) + '">查看</button>' +
+            (supportsCustomTaskName(item)
+                ? '<button type="button" class="amazon-button quiet amazon-history-edit" ' +
+                    'data-task-code="' + escapeHtml(taskCode) + '">编辑名称</button>'
+                : "") +
+            '<button type="button" class="amazon-button quiet amazon-history-delete" ' +
+            'data-task-code="' + escapeHtml(taskCode) + '">删除</button>' +
                 "</td></tr>" +
                 '<tr class="amazon-history-detail-row" hidden>' +
                 '<td colspan="9"><div id="' + detailId + '" class="amazon-history-detail"></div></td></tr>';
@@ -1304,11 +1421,36 @@
                 });
                 historyBody.addEventListener("click", function (event) {
                     var viewButton = event.target.closest(".amazon-history-view");
+                    var editButton = event.target.closest(".amazon-history-edit");
                     var deleteButton = event.target.closest(".amazon-history-delete");
-                    var button = viewButton || deleteButton;
+                    var button = viewButton || editButton || deleteButton;
                     if (!button) return;
                     var taskCode = button.getAttribute("data-task-code") || "";
                     if (!taskCode) return;
+                    if (editButton) {
+                        event.preventDefault();
+                        var titleNode = button.closest("tr").querySelector(
+                            ".amazon-task-title"
+                        );
+                        var currentName = titleNode ? titleNode.textContent : "";
+                        var nextName = window.prompt(
+                            "请输入自定义任务名称，留空可恢复系统标题",
+                            currentName
+                        );
+                        if (nextName === null) return;
+                        editButton.disabled = true;
+                        editButton.textContent = "保存中...";
+                        saveTaskCustomName(taskCode, nextName)
+                            .then(function () {
+                                load(page);
+                            })
+                            .catch(function (error) {
+                                editButton.disabled = false;
+                                editButton.textContent = "编辑名称";
+                                window.alert(error.message);
+                            });
+                        return;
+                    }
                     if (viewButton) {
                         var detailRow = viewButton.closest("tr").nextElementSibling;
                         var detailId = "amazon-history-detail-" + safeDomId(taskCode);

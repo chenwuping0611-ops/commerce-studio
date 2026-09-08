@@ -46,6 +46,7 @@ SEEDANCE_FORBIDDEN_IMAGE_FIELDS = frozenset(
 
 IMAGE_MAX_DIMENSION = 4096
 IMAGE_DIMENSION_ALIGNMENT = 8
+JIEKOU_IMAGE_MAX_PROMPT_CHARS = 32000
 JIEKOU_IMAGE_QUALITY_BY_RESOLUTION = {
     "1k": "low",
     "2k": "medium",
@@ -666,6 +667,65 @@ def _truncate_prompt_utf8(value, max_bytes):
     return encoded[:max_bytes].decode("utf-8", errors="ignore").rstrip()
 
 
+def _truncate_prompt_chars(value, max_chars):
+    """Keep a provider prompt within its schema character limit."""
+
+    text = str(value or "").strip()
+    try:
+        max_chars = int(max_chars)
+    except (TypeError, ValueError):
+        max_chars = JIEKOU_IMAGE_MAX_PROMPT_CHARS
+    if max_chars <= 0:
+        return ""
+    return text[:max_chars].rstrip()
+
+
+_IMAGE_DIMENSIONS_RE = re.compile(
+    r"^\s*(\d+)\s*[xX×:]\s*(\d+)\s*$"
+)
+_IMAGE_RATIO_RE = re.compile(
+    r"^\s*(\d+(?:\.\d+)?)\s*[:xX×]\s*(\d+(?:\.\d+)?)\s*$"
+)
+
+
+def _normalise_image_dimensions(value):
+    """Validate a provider-facing pixel canvas such as ``1024x1024``."""
+
+    match = _IMAGE_DIMENSIONS_RE.fullmatch(str(value or ""))
+    if not match:
+        raise ValueError("图片尺寸必须是宽x高的正整数")
+    width = int(match.group(1))
+    height = int(match.group(2))
+    if width <= 0 or height <= 0:
+        raise ValueError("图片尺寸必须是宽x高的正整数")
+    return f"{width}x{height}"
+
+
+def _ratio_text_for_contract(value, dimensions):
+    """Normalize a ratio for an Interface AI output contract."""
+
+    match = _IMAGE_RATIO_RE.fullmatch(str(value or ""))
+    if match:
+        width = float(match.group(1))
+        height = float(match.group(2))
+        if (
+            math.isfinite(width)
+            and math.isfinite(height)
+            and width > 0
+            and height > 0
+        ):
+            if width.is_integer() and height.is_integer():
+                width_int = int(width)
+                height_int = int(height)
+                divisor = math.gcd(width_int, height_int)
+                return f"{width_int // divisor}:{height_int // divisor}"
+            return f"{width:g}:{height:g}"
+
+    width_text, height_text = _normalise_image_dimensions(dimensions).split("x")
+    divisor = math.gcd(int(width_text), int(height_text))
+    return f"{int(width_text) // divisor}:{int(height_text) // divisor}"
+
+
 _JIEKOU_OUTPUT_CONTRACT_RE = re.compile(
     r"(?:^|\n)\s*输出规格：画布分辨率必须为"
     r"\d+\s*[xX×]\s*\d+像素，宽高比约为"
@@ -679,29 +739,51 @@ def append_jiekou_image_output_contract(
     aspect_ratio,
     resolution,
     *,
-    max_bytes=5000,
+    target_dimensions=None,
+    target_aspect_ratio=None,
+    max_chars=JIEKOU_IMAGE_MAX_PROMPT_CHARS,
+    max_bytes=None,
 ):
-    """Append the selected Interface AI canvas contract to one image prompt."""
+    """Append the Interface AI canvas contract within prompt.maxLength.
 
-    canonical_ratio = _canonical_image_aspect_ratio(aspect_ratio or "1:1")
-    normalized_resolution = (
-        str(resolution or "1k").strip().lower().replace(" ", "")
-    )
-    dimensions = image_dimensions_for_resolution(
-        canonical_ratio,
-        normalized_resolution,
-    ).replace("x", "X")
+    max_bytes remains accepted for compatibility with older integrations;
+    new requests use the upstream 32000-character schema limit.
+    """
+
+    if max_bytes is not None:
+        max_chars = max_bytes
+    try:
+        max_chars = int(max_chars)
+    except (TypeError, ValueError):
+        max_chars = JIEKOU_IMAGE_MAX_PROMPT_CHARS
+
+    if target_dimensions not in (None, ""):
+        dimensions = _normalise_image_dimensions(target_dimensions)
+        contract_ratio = _ratio_text_for_contract(
+            target_aspect_ratio or aspect_ratio,
+            dimensions,
+        )
+    else:
+        contract_ratio = _canonical_image_aspect_ratio(aspect_ratio or "1:1")
+        normalized_resolution = (
+            str(resolution or "1k").strip().lower().replace(" ", "")
+        )
+        dimensions = image_dimensions_for_resolution(
+            contract_ratio,
+            normalized_resolution,
+        )
+    dimensions = dimensions.replace("x", "X")
     suffix = (
         f"输出规格：画布分辨率必须为{dimensions}像素，"
-        f"宽高比约为{canonical_ratio}。"
+        f"宽高比约为{contract_ratio}。"
     )
     base = _JIEKOU_OUTPUT_CONTRACT_RE.sub("\n", str(prompt or "")).strip()
     separator = "\n\n" if base else ""
-    suffix_bytes = len((separator + suffix).encode("utf-8"))
-    if suffix_bytes >= max_bytes:
+    suffix_chars = len(separator + suffix)
+    if suffix_chars >= max_chars:
         raise ValueError("接口AI图片输出规格超过提示词长度限制")
-    available = max_bytes - suffix_bytes
-    base = _truncate_prompt_utf8(base, available)
+    available = max_chars - suffix_chars
+    base = _truncate_prompt_chars(base, available)
     return (base + separator + suffix).strip()
 
 
@@ -816,10 +898,18 @@ def build_request_body(model, runtime, extra_fields=None):
     return normalize_provider_request_body(
         model,
         body,
+        target_dimensions=runtime.get("target_dimensions"),
+        target_aspect_ratio=runtime.get("target_aspect_ratio"),
     )
 
 
-def normalize_provider_request_body(model, body):
+def normalize_provider_request_body(
+    model,
+    body,
+    *,
+    target_dimensions=None,
+    target_aspect_ratio=None,
+):
     """Apply provider-specific invariants after the generic field builder."""
 
     model_code = str(getattr(model, "model_code", "") or "").strip().lower()
@@ -832,10 +922,19 @@ def normalize_provider_request_body(model, body):
         return normalize_seedance_request_body(model_code, body)
 
     if is_kuaipao_image_model(model):
-        return normalize_kuaipao_image_request_body(model, body)
+        return normalize_kuaipao_image_request_body(
+            model,
+            body,
+            target_dimensions=target_dimensions,
+        )
 
     if is_jiekou_image_model(model):
-        return normalize_jiekou_image_request_body(model, body)
+        return normalize_jiekou_image_request_body(
+            model,
+            body,
+            target_dimensions=target_dimensions,
+            target_aspect_ratio=target_aspect_ratio,
+        )
 
     if model_code == "gemini-3.1-flash-image-preview":
         metadata = body.get("metadata")
@@ -865,7 +964,12 @@ def normalize_provider_request_body(model, body):
     return body
 
 
-def normalize_kuaipao_image_request_body(model, body):
+def normalize_kuaipao_image_request_body(
+    model,
+    body,
+    *,
+    target_dimensions=None,
+):
     """Normalize Kuaipao image fields before JSON or multipart transport."""
 
     references = body.get("reference_images")
@@ -875,7 +979,11 @@ def normalize_kuaipao_image_request_body(model, body):
             body["reference_images"] = legacy_urls
 
     ratio = body.get("size") or "1:1"
-    body["size"] = image_size_for_aspect_ratio(ratio)
+    body["size"] = (
+        _normalise_image_dimensions(target_dimensions)
+        if target_dimensions not in (None, "")
+        else image_size_for_aspect_ratio(ratio)
+    )
     model_code = str(
         getattr(model, "model_code", "") or ""
     ).strip().lower()
@@ -896,7 +1004,13 @@ def normalize_kuaipao_image_request_body(model, body):
     return body
 
 
-def normalize_jiekou_image_request_body(model, body):
+def normalize_jiekou_image_request_body(
+    model,
+    body,
+    *,
+    target_dimensions=None,
+    target_aspect_ratio=None,
+):
     """Normalize Interface AI gpt-image2 into its fixed JSON request body."""
 
     references = body.get("image")
@@ -915,6 +1029,9 @@ def normalize_jiekou_image_request_body(model, body):
         body.get("prompt") or "",
         ratio,
         resolution,
+        target_dimensions=target_dimensions,
+        target_aspect_ratio=target_aspect_ratio,
+        max_chars=JIEKOU_IMAGE_MAX_PROMPT_CHARS,
     )
     body["size"] = "auto"
     normalized_resolution = (

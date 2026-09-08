@@ -5,8 +5,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=pear
-Group=pear
+# The current production host intentionally runs this service as root.
+User=root
+Group=root
 WorkingDirectory=/opt/pear-ai
 EnvironmentFile=/opt/pear-ai/.flaskenv
 Environment=FLASK_APP=app.py
@@ -19,6 +20,11 @@ Environment=PEAR_AI_APP_LOG_FILE=/var/log/pear-ai/pear-ai.log
 Environment=PEAR_AI_LOG_LEVEL=INFO
 Environment=PEAR_AI_LOG_STRICT=true
 Environment=PEAR_AI_LOG_TO_CONSOLE=false
+# Amazon AI/Interface AI requests can wait up to 600 seconds. Keep the
+# reverse proxy connected for the whole provider request and allow history
+# endpoints to run on another thread while a model call is in progress.
+Environment=GUNICORN_TIMEOUT=900
+Environment=GUNICORN_WORKER_CLASS=gthread
 ExecStart=/opt/pear-ai/.venv/bin/gunicorn -c /opt/pear-ai/gunicorn.conf.py "applications:create_app('production')"
 Restart=always
 RestartSec=5

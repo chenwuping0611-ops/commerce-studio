@@ -11,8 +11,14 @@ os.makedirs(configured_log_dir, exist_ok=True)
 bind = os.getenv("GUNICORN_BIND", "127.0.0.1:8000")
 backlog = 512
 chdir = project_root
-timeout = int(os.getenv("GUNICORN_TIMEOUT") or 180)
-worker_class = 'sync'
+# Interface AI Responses requests may legitimately take up to 600 seconds.
+# Keep Gunicorn alive longer than the provider timeout so Nginx never turns a
+# valid long-running JSON response into an HTML 502/504 page.
+timeout = int(os.getenv("GUNICORN_TIMEOUT") or 900)
+# A long synchronous model request must not block history/options requests in
+# the same worker. gthread keeps the existing single-process deployment while
+# allowing the configured thread pool to serve those short requests.
+worker_class = os.getenv("GUNICORN_WORKER_CLASS", "gthread")
 
 workers = max(1, int(os.getenv("GUNICORN_WORKERS") or 1))
 threads = max(1, int(os.getenv("GUNICORN_THREADS") or 4))

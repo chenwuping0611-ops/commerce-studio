@@ -12,6 +12,7 @@ from applications.extensions import db
 from applications.models import (
     StudioBatchPrompt,
     StudioModel,
+    StudioProduct,
     StudioProvider,
     User,
 )
@@ -46,12 +47,21 @@ def main():
         assert model is not None
         provider = model.provider
         original_key = provider.api_key
+        product = (
+            StudioProduct.query
+            .filter_by(enabled=1)
+            .order_by(StudioProduct.id.asc())
+            .first()
+        )
+        assert product is not None
         provider.api_key = "image-batch-process-smoke-key"
 
         batch_prompt = StudioBatchPrompt(
             dept_id=admin.dept_id,
             user_id=admin.id,
             media_type="IMAGE",
+            product_id=product.id,
+            product_name_snapshot=product.name,
             image_aspect_ratio="2.44:1",
             image_resolution="2k",
             skill_prompt_snapshot=(
@@ -184,6 +194,15 @@ def main():
                 "skill_id" not in call["options"]
                 and "skill_name" not in call["options"]
                 and "skill_prompt" not in call["options"]
+                for call in calls
+            )
+            assert all(
+                call["options"]["reference_images"]
+                for call in calls
+            )
+            assert all(
+                call["options"]["reference_images"]
+                == calls[0]["options"]["reference_images"]
                 for call in calls
             )
 

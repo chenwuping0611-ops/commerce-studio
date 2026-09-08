@@ -1,0 +1,1510 @@
+{% extends "studio/base.html" %}
+{% block title %}白底图生成 | Commerce Studio{% endblock %}
+{% block content %}
+<div class="studio-page-header studio-image-header">
+    <div>
+        <div class="studio-eyebrow">图片处理</div>
+        <h1>白底图生成</h1>
+        <p>上传产品图片，移除无关背景并保留产品完整细节；可分别生成，也可以合并为宫格白底图。</p>
+    </div>
+    <div class="studio-toolbar-right">
+        <span id="whiteBackgroundProviderBalance" class="studio-balance-inline">当前供应商余额：未查询</span>
+        <span id="whiteBackgroundTaskStatus" class="studio-pill gray">等待任务</span>
+        <button type="button" class="layui-btn studio-btn-primary" id="newWhiteBackgroundButton">
+            新建图片
+        </button>
+        <a class="layui-btn studio-btn-quiet"
+           href="/studio/history?media_type=IMAGE&workflow_type=WHITE_BACKGROUND"
+           data-studio-history-link="IMAGE">完整历史</a>
+    </div>
+</div>
+
+<div class="studio-composer-overlay" id="whiteBackgroundOverlay" aria-hidden="true">
+    <div class="studio-composer-backdrop" data-white-background-close="1"></div>
+    <div class="studio-composer-dialog" role="dialog" aria-modal="true"
+         aria-labelledby="whiteBackgroundTitle">
+        <section class="studio-card studio-image-composer">
+            <div class="studio-card-header">
+                <div>
+                    <h2 id="whiteBackgroundTitle">精修白底图</h2>
+                    <div class="studio-card-subtitle">
+                        保留产品真实外观，移除无关背景并进行轻度精修
+                    </div>
+                </div>
+                <div class="studio-toolbar-right">
+                    <button type="button" class="studio-composer-close"
+                            id="whiteBackgroundClose"
+                            aria-label="关闭创建白底图">×</button>
+                </div>
+            </div>
+            <form class="layui-form studio-form studio-image-form"
+                  id="whiteBackgroundForm">
+                <div class="studio-composer-grid">
+                    <div class="studio-field studio-field-span-2">
+                        <label class="studio-field-label"
+                               for="whiteBackgroundModel">图片模型</label>
+                        <select id="whiteBackgroundModel" lay-ignore required>
+                            <option value="">正在加载图片模型...</option>
+                        </select>
+                        <div class="studio-field-help">
+                            使用图片创作中已配置的图片模型和对应质量参数。
+                        </div>
+                    </div>
+                    <div class="studio-field studio-field-span-2">
+                        <label class="studio-field-label"
+                               for="whiteBackgroundSkill">Skill</label>
+                        <select id="whiteBackgroundSkill" lay-ignore required>
+                            <option value="">正在加载图片 Skill...</option>
+                        </select>
+                        <div class="studio-field-help">
+                            默认使用“精修白底图”，也可以切换到其他图片 Skill。
+                        </div>
+                    </div>
+                </div>
+
+                <div class="studio-reference-section studio-white-background-upload-section">
+                    <div class="studio-field-label-row">
+                        <div class="studio-field-label">产品图片</div>
+                        <span class="studio-field-required">必填，可多选</span>
+                    </div>
+                    <label class="studio-upload studio-upload-inline studio-reference-dropzone"
+                           for="whiteBackgroundFiles"
+                           data-file-dropzone="whiteBackgroundFiles">
+                        <div>
+                            <strong>上传需要处理的产品图片</strong>
+                            <span>支持点击选择或拖动上传多张图片；图片会先保存到临时素材</span>
+                        </div>
+                        <input id="whiteBackgroundFiles" type="file" multiple
+                               accept="image/*" hidden>
+                    </label>
+                    <div id="whiteBackgroundFileList"
+                         class="studio-white-background-file-list"></div>
+                    <div id="whiteBackgroundUploadStatus"
+                         class="studio-upload-status studio-helper">
+                        至少上传一张产品图片后才能提交。
+                    </div>
+                </div>
+
+                <div class="studio-image-settings studio-white-background-settings">
+                    <div class="studio-setting-card">
+                        <label class="studio-field-label"
+                               for="whiteBackgroundAspect">画面比例</label>
+                        <select id="whiteBackgroundAspect"
+                                class="studio-input-select">
+                            <option value="auto">自动</option>
+                        </select>
+                        <div class="studio-field-help">
+                            自动时按上传图片比例处理；合并宫格图时按图片数量自动选择宫格比例。
+                        </div>
+                    </div>
+                    <div class="studio-setting-card">
+                        <label class="studio-field-label"
+                               for="whiteBackgroundResolution">分辨率</label>
+                        <select id="whiteBackgroundResolution"
+                                class="studio-input-select">
+                            <option value="1k">1K</option>
+                        </select>
+                        <div class="studio-field-help">
+                            仅支持 1K、2K、4K，默认使用 1K。
+                        </div>
+                    </div>
+                </div>
+
+                <label class="studio-white-background-merge studio-toggle-card is-disabled"
+                       id="whiteBackgroundMergeCard"
+                       data-state="off"
+                       aria-checked="false">
+                    <span class="studio-toggle-copy">
+                        <strong>
+                            合并宫格图
+                            <span id="whiteBackgroundMergeState"
+                                  class="studio-toggle-state"
+                                  aria-live="polite">未开启</span>
+                        </strong>
+                        <small id="whiteBackgroundMergeHelp">
+                            可提前开启，上传 2 至 9 张图片后制作对应宫格白底图。
+                        </small>
+                    </span>
+                    <input type="checkbox"
+                           id="whiteBackgroundMerge"
+                           lay-ignore
+                           role="switch"
+                           aria-label="合并宫格图"
+                           aria-checked="false">
+                    <span class="studio-toggle-control" aria-hidden="true">
+                        <span class="studio-toggle-track">
+                            <span class="studio-toggle-thumb"></span>
+                        </span>
+                    </span>
+                </label>
+
+                <div class="studio-form-message"
+                     id="whiteBackgroundMessage"></div>
+                <div class="studio-form-actions studio-form-actions-inline">
+                    <button type="submit" class="layui-btn studio-btn-primary"
+                            id="whiteBackgroundSubmit">开始精修</button>
+                    <button type="button" class="layui-btn studio-btn-quiet"
+                            id="whiteBackgroundCancel">取消</button>
+                </div>
+            </form>
+        </section>
+    </div>
+</div>
+
+{% if can_manage_products %}
+<div class="studio-composer-overlay" id="whiteBackgroundBindOverlay" aria-hidden="true">
+    <div class="studio-composer-backdrop" data-white-bind-close="1"></div>
+    <div class="studio-composer-dialog" role="dialog" aria-modal="true"
+         aria-labelledby="whiteBackgroundBindTitle">
+        <section class="studio-card studio-image-composer">
+            <div class="studio-card-header">
+                <div>
+                    <h2 id="whiteBackgroundBindTitle">绑定到产品中心</h2>
+                    <div class="studio-card-subtitle">
+                        绑定后图片会转为永久素材；固定位置会替换原有图片
+                    </div>
+                </div>
+                <button type="button" class="studio-composer-close"
+                        id="whiteBackgroundBindClose"
+                        aria-label="关闭绑定窗口">×</button>
+            </div>
+            <form class="layui-form studio-form studio-image-form"
+                  id="whiteBackgroundBindForm">
+                <div class="studio-composer-grid">
+                    <div class="studio-field studio-field-span-2">
+                        <label class="studio-field-label"
+                               for="whiteBackgroundBindProduct">产品</label>
+                        <select id="whiteBackgroundBindProduct" lay-ignore required>
+                            <option value="">正在加载产品...</option>
+                        </select>
+                    </div>
+                    <div class="studio-field studio-field-span-2">
+                        <label class="studio-field-label"
+                               for="whiteBackgroundBindRole">产品图片位置</label>
+                        <select id="whiteBackgroundBindRole" lay-ignore required>
+                            <option value="">请选择产品图片位置</option>
+                            <option value="cover">主图</option>
+                            <option value="front">正面</option>
+                            <option value="back">背面</option>
+                            <option value="left">左侧</option>
+                            <option value="right">右侧</option>
+                            <option value="top">顶部</option>
+                            <option value="bottom">底部</option>
+                            <option value="detail">细节图</option>
+                            <option value="scene">场景图</option>
+                            <option value="reference">其他素材</option>
+                        </select>
+                        <div class="studio-field-help">
+                            主图、正反左右上下为固定位置，绑定时会停用并清理原文件。
+                        </div>
+                    </div>
+                </div>
+                <div class="studio-form-message" id="whiteBackgroundBindMessage"></div>
+                <div class="studio-form-actions studio-form-actions-inline">
+                    <button type="submit" class="layui-btn studio-btn-primary"
+                            id="whiteBackgroundBindSubmit">确认绑定</button>
+                    <button type="button" class="layui-btn studio-btn-quiet"
+                            id="whiteBackgroundBindCancel">取消</button>
+                </div>
+            </form>
+        </section>
+    </div>
+</div>
+{% endif %}
+
+<div class="studio-image-workspace">
+    <section class="studio-card studio-image-feed-card">
+        <div class="studio-card-header">
+            <div>
+                <h2>白底图历史</h2>
+                <div class="studio-card-subtitle">最新任务先显示等待状态，完成后自动替换为生成结果</div>
+            </div>
+            <button type="button" class="layui-btn studio-btn-quiet studio-refresh-button"
+                    id="whiteBackgroundRefresh">刷新</button>
+        </div>
+        <div class="studio-image-feed-toolbar">
+            <span id="whiteBackgroundFeedSummary" class="studio-helper">正在加载白底图记录</span>
+            <span class="studio-feed-hint">点击图片预览或下载；生成中的任务会持续更新</span>
+        </div>
+        <div class="studio-image-feed" id="whiteBackgroundFeed">
+            <div class="studio-feed-empty">
+                <strong>还没有白底图记录</strong>
+                <span>点击“新建白底图”提交任务后，结果会出现在这里。</span>
+            </div>
+        </div>
+        <div class="studio-history-pagination">
+            <span id="whiteBackgroundHistoryPageInfo" class="studio-helper"></span>
+            <button type="button" class="studio-link-button"
+                    id="whiteBackgroundLoadMore" hidden>加载更多历史</button>
+        </div>
+    </section>
+</div>
+
+<div class="studio-image-viewer" id="whiteBackgroundViewer" aria-hidden="true">
+    <div class="studio-image-viewer-backdrop" data-white-viewer-close="1"></div>
+    <div class="studio-image-viewer-layout" role="dialog" aria-modal="true"
+         aria-labelledby="whiteBackgroundViewerTitle">
+        <aside class="studio-image-viewer-history"
+               id="whiteBackgroundViewerHistory" aria-label="历史图片"></aside>
+        <main class="studio-image-viewer-stage" data-white-viewer-close="1">
+            <img id="whiteBackgroundViewerImage" src="" alt="白底图预览">
+        </main>
+        <div class="studio-image-viewer-controls">
+            <div class="studio-image-viewer-meta">
+                <strong id="whiteBackgroundViewerTitle">白底图</strong>
+                <span id="whiteBackgroundViewerMeta"></span>
+            </div>
+            <button type="button" class="studio-image-viewer-action"
+                    id="whiteBackgroundViewerDownload">下载</button>
+            <button type="button" class="studio-image-viewer-close"
+                    id="whiteBackgroundViewerClose" aria-label="关闭预览">×</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    var canDeleteHistory = {{ "true" if can_delete_history else "false" }};
+    var canManageProducts = {{ "true" if can_manage_products else "false" }};
+    var isSuperAdmin = {{ "true" if is_super_admin else "false" }};
+    var defaultSkillCode = {{ white_background_skill_code|tojson }};
+    var overlay = document.getElementById("whiteBackgroundOverlay");
+    var form = document.getElementById("whiteBackgroundForm");
+    var modelSelect = document.getElementById("whiteBackgroundModel");
+    var skillSelect = document.getElementById("whiteBackgroundSkill");
+    var filesInput = document.getElementById("whiteBackgroundFiles");
+    var fileList = document.getElementById("whiteBackgroundFileList");
+    var uploadStatus = document.getElementById("whiteBackgroundUploadStatus");
+    var aspectSelect = document.getElementById("whiteBackgroundAspect");
+    var resolutionSelect = document.getElementById("whiteBackgroundResolution");
+    var mergeInput = document.getElementById("whiteBackgroundMerge");
+    var mergeCard = document.getElementById("whiteBackgroundMergeCard");
+    var mergeState = document.getElementById("whiteBackgroundMergeState");
+    var mergeHelp = document.getElementById("whiteBackgroundMergeHelp");
+    var message = document.getElementById("whiteBackgroundMessage");
+    var submitButton = document.getElementById("whiteBackgroundSubmit");
+    var modelData = [];
+    var skillData = [];
+    var assets = [];
+    var historyData = [];
+    var historyPage = 1;
+    var historyHasMore = false;
+    var historyLoading = false;
+    var pendingByCode = {};
+    var pollTimers = {};
+    var viewer = document.getElementById("whiteBackgroundViewer");
+    var viewerImage = document.getElementById("whiteBackgroundViewerImage");
+    var viewerTitle = document.getElementById("whiteBackgroundViewerTitle");
+    var viewerMeta = document.getElementById("whiteBackgroundViewerMeta");
+    var viewerDownload = document.getElementById("whiteBackgroundViewerDownload");
+    var viewerHistory = document.getElementById("whiteBackgroundViewerHistory");
+    var viewerState = null;
+    var viewerDocument = document;
+    var viewerResizeBound = false;
+    var bindOverlay = document.getElementById("whiteBackgroundBindOverlay");
+    var bindForm = document.getElementById("whiteBackgroundBindForm");
+    var bindProductSelect = document.getElementById("whiteBackgroundBindProduct");
+    var bindRoleSelect = document.getElementById("whiteBackgroundBindRole");
+    var bindMessage = document.getElementById("whiteBackgroundBindMessage");
+    var bindSubmit = document.getElementById("whiteBackgroundBindSubmit");
+    var bindState = null;
+
+    function isActive(item) {
+        return item && ["PENDING", "SUBMITTED", "PROCESSING"].indexOf(
+            item.status
+        ) !== -1;
+    }
+
+    function gridInfo(count) {
+        var layouts = {
+            2: {columns: 2, rows: 1, label: "2宫格"},
+            3: {columns: 3, rows: 1, label: "三宫格"},
+            4: {columns: 2, rows: 2, label: "4宫格"},
+            5: {columns: 3, rows: 2, label: "5宫格"},
+            6: {columns: 3, rows: 2, label: "6宫格"},
+            7: {columns: 3, rows: 3, label: "7宫格"},
+            8: {columns: 3, rows: 3, label: "8宫格"},
+            9: {columns: 3, rows: 3, label: "9宫格"}
+        };
+        return layouts[Number(count)] || null;
+    }
+
+    function gridLabel(count) {
+        var info = gridInfo(count);
+        return info ? info.label : String(count || 0) + "宫格";
+    }
+
+    function parameterFor(model, keys) {
+        return (model && model.parameter_schema || []).find(function (item) {
+            return keys.indexOf(item.field) !== -1 ||
+                keys.indexOf(item.runtime_key) !== -1;
+        });
+    }
+
+    function parameterOptions(parameter) {
+        return Studio.parameterOptions(parameter).filter(function (option) {
+            return String(option.value || "").trim() !== "";
+        });
+    }
+
+    function uniqueOptions(options) {
+        var seen = {};
+        return (options || []).filter(function (option) {
+            var value = String(option.value || "").trim();
+            var key = value.toLowerCase();
+            if (!value || seen[key]) return false;
+            seen[key] = true;
+            return true;
+        });
+    }
+
+    function renderConstraints() {
+        var model = modelData.find(function (item) {
+            return item.id === Number(modelSelect.value);
+        });
+        var aspectOptions = uniqueOptions(
+            parameterOptions(parameterFor(model, ["size", "aspect_ratio"]))
+        );
+        if (!aspectOptions.length) {
+            aspectOptions = ["1:1", "4:3", "16:9", "9:16"].map(function (value) {
+                return {value: value, label: value};
+            });
+        }
+        var currentAspect = aspectSelect.value || "auto";
+        aspectSelect.innerHTML = '<option value="auto">自动</option>' +
+            aspectOptions.map(function (option) {
+                return '<option value="' + Studio.escapeHtml(option.value) + '">' +
+                    Studio.escapeHtml(option.label) + '</option>';
+            }).join("");
+        if (Array.prototype.some.call(aspectSelect.options, function (option) {
+            return String(option.value).toLowerCase() ===
+                String(currentAspect).toLowerCase();
+        })) {
+            aspectSelect.value = currentAspect;
+        } else {
+            aspectSelect.value = "auto";
+        }
+        var currentResolution = String(resolutionSelect.value || "1k")
+            .toLowerCase().replace(/\s/g, "");
+        resolutionSelect.innerHTML = ["1k", "2k", "4k"].map(function (value) {
+            return '<option value="' + value + '">' + value.toUpperCase() +
+                '</option>';
+        }).join("");
+        resolutionSelect.value = ["1k", "2k", "4k"].indexOf(currentResolution) !== -1
+            ? currentResolution
+            : "1k";
+        updateMergeState();
+    }
+
+    function scopedSkills() {
+        var model = modelData.find(function (item) {
+            return item.id === Number(modelSelect.value);
+        });
+        var departmentId = model && model.dept_id;
+        return (isSuperAdmin
+            ? skillData
+            : skillData.filter(function (item) {
+                return item.is_builtin ||
+                    (departmentId != null &&
+                        String(item.dept_id) === String(departmentId));
+            })).filter(function (item) {
+                return item.media_type === "BOTH" || item.media_type === "IMAGE";
+            });
+    }
+
+    function renderSkills() {
+        var skills = scopedSkills();
+        var current = skillSelect.value;
+        var defaultSkill = skills.find(function (item) {
+            return String(item.code || "").toLowerCase() ===
+                String(defaultSkillCode || "").toLowerCase();
+        }) || skills.find(function (item) {
+            return String(item.name || "").trim() === "精修白底图";
+        });
+        skillSelect.innerHTML = skills.length
+            ? skills.map(function (item) {
+                return '<option value="' + item.id + '">' +
+                    Studio.escapeHtml(item.name || "图片 Skill") + '</option>';
+            }).join("")
+            : '<option value="">暂无可用图片 Skill</option>';
+        if (defaultSkill && !current) {
+            skillSelect.value = String(defaultSkill.id);
+        } else if (skills.some(function (item) {
+            return String(item.id) === String(current);
+        })) {
+            skillSelect.value = current;
+        } else if (defaultSkill) {
+            skillSelect.value = String(defaultSkill.id);
+        } else {
+            skillSelect.value = "";
+        }
+    }
+
+    function refreshBalance(providerId) {
+        var output = document.getElementById("whiteBackgroundProviderBalance");
+        if (!providerId) {
+            output.textContent = "当前供应商余额：未选择";
+            return;
+        }
+        output.textContent = "当前供应商余额：查询中...";
+        Studio.request("/studio/api/providers/" + providerId +
+            "/balance?scope=user", {method: "POST"}).then(function (result) {
+                output.textContent = "当前供应商余额：" +
+                    Studio.formatBalance(result.data.balance);
+            }).catch(function () {
+                output.textContent = "当前供应商余额：查询失败";
+            });
+    }
+
+    function renderModels() {
+        var current = modelSelect.value;
+        var models = modelData.filter(function (item) {
+            return item.media_type === "IMAGE";
+        });
+        modelSelect.innerHTML = models.length
+            ? models.map(function (item) {
+                var label = item.name || item.model_code || "图片模型";
+                if (item.provider_name) label += " · " + item.provider_name;
+                if (item.dept_name) label += " · " + item.dept_name;
+                return '<option value="' + item.id + '">' +
+                    Studio.escapeHtml(label) + '</option>';
+            }).join("")
+            : '<option value="">暂无可用图片模型</option>';
+        var preferred = models.find(function (item) {
+            return String(item.model_code || "").toLowerCase() === "gpt-image2";
+        });
+        if (models.some(function (item) {
+            return String(item.id) === String(current);
+        })) {
+            modelSelect.value = current;
+        } else if (preferred) {
+            modelSelect.value = String(preferred.id);
+        } else if (models.length) {
+            modelSelect.value = String(models[0].id);
+        } else {
+            modelSelect.value = "";
+        }
+        renderConstraints();
+        renderSkills();
+        var selected = models.find(function (item) {
+            return item.id === Number(modelSelect.value);
+        });
+        refreshBalance(selected && selected.provider_id);
+        layui.use("form", function () {
+            layui.form.render("select");
+        });
+    }
+
+    function renderFiles() {
+        fileList.innerHTML = assets.length
+            ? assets.map(function (asset, index) {
+                return '<div class="studio-white-background-file">' +
+                    '<span class="studio-white-background-file-index">' +
+                    (index + 1) + '</span>' +
+                    '<span class="studio-white-background-file-name">' +
+                    Studio.escapeHtml(asset.original_filename || "产品图片") +
+                    '</span><span class="studio-white-background-file-state">已上传</span>' +
+                    '<button type="button" class="studio-link-button" ' +
+                    'data-action="remove-file" data-index="' + index +
+                    '">移除</button></div>';
+            }).join("")
+            : "";
+        uploadStatus.textContent = assets.length
+            ? "已上传 " + assets.length + " 张产品图片，提交时按当前顺序处理。"
+            : "至少上传一张产品图片后才能提交。";
+        updateMergeState();
+    }
+
+    function updateMergeState() {
+        var enabled = Boolean(mergeInput.checked);
+        var count = assets.length;
+        mergeCard.classList.toggle("is-enabled", enabled);
+        mergeCard.classList.toggle("is-disabled", !enabled);
+        mergeCard.dataset.state = enabled ? "on" : "off";
+        mergeCard.setAttribute("aria-checked", enabled ? "true" : "false");
+        mergeInput.setAttribute("aria-checked", enabled ? "true" : "false");
+        mergeState.textContent = enabled ? "已开启" : "未开启";
+        if (enabled) {
+            aspectSelect.value = "auto";
+            aspectSelect.disabled = true;
+        } else {
+            aspectSelect.disabled = false;
+        }
+        var info = gridInfo(count);
+        if (enabled && info) {
+            var emptySlots = info.columns * info.rows - count;
+            mergeHelp.textContent = "当前 " + count + " 张图片将按输入顺序合并为 " +
+                info.columns + " 列 " + info.rows + " 行" + info.label + "。" +
+                (emptySlots > 0 ? "剩余 " + emptySlots + " 个位置保持纯白。" : "");
+        } else if (enabled && !count) {
+            mergeHelp.textContent = "已开启合并模式，上传 2 至 9 张图片后制作对应宫格白底图。";
+        } else if (enabled) {
+            mergeHelp.textContent = "合并宫格图最多支持 9 张图片，请继续上传或减少图片。";
+        } else if (count) {
+            mergeHelp.textContent = "当前 " + count +
+                " 张图片将分别生成白底图；需要合并时可开启合并宫格图。";
+        } else {
+            mergeHelp.textContent = "可提前开启，上传 2 至 9 张图片后制作对应宫格白底图。";
+        }
+    }
+
+    function openComposer() {
+        overlay.classList.add("is-open");
+        overlay.setAttribute("aria-hidden", "false");
+        document.body.classList.add("studio-composer-open");
+        message.textContent = "";
+        renderModels();
+        window.setTimeout(function () {
+            layui.use("form", function () {
+                layui.form.render("select");
+            });
+            modelSelect.focus();
+        }, 0);
+    }
+
+    function closeComposer() {
+        overlay.classList.remove("is-open");
+        overlay.setAttribute("aria-hidden", "true");
+        document.body.classList.remove("studio-composer-open");
+    }
+
+    function uploadFiles(fileCollection) {
+        var files = Array.from(fileCollection || []).filter(function (file) {
+            return file && String(file.type || "").indexOf("image/") === 0;
+        });
+        if (!files.length) return;
+        uploadStatus.textContent = "正在上传 " + files.length + " 张图片...";
+        Studio.uploadAssets(files, "IMAGE", "GENERATION_REFERENCE").then(
+            function (uploaded) {
+                assets = assets.concat(uploaded || []);
+                renderFiles();
+            }
+        ).catch(function (error) {
+            uploadStatus.textContent = error.message;
+            Studio.toast(error.message, "error");
+        });
+    }
+
+    function taskIdentity(item) {
+        if (item && item.white_background_batch_id != null &&
+            item.white_background_index != null) {
+            return "white:" + String(item.white_background_batch_id) + ":" +
+                String(item.white_background_index);
+        }
+        return item && (item.task_code || item.id)
+            ? "task:" + String(item.task_code || item.id)
+            : "";
+    }
+
+    function mergeHistory(items, existing) {
+        var byIdentity = {};
+        (existing || []).forEach(function (item) {
+            var identity = taskIdentity(item);
+            if (identity) byIdentity[identity] = item;
+        });
+        (items || []).forEach(function (item) {
+            var identity = taskIdentity(item);
+            if (!identity || !byIdentity[identity] ||
+                String(byIdentity[identity].id || "").indexOf("local-") === 0 ||
+                String(item.id || "").indexOf("local-") !== 0) {
+                if (identity) byIdentity[identity] = item;
+            }
+        });
+        var result = [];
+        var seen = {};
+        (items || []).concat(existing || []).forEach(function (item) {
+            var identity = taskIdentity(item);
+            if (!identity || seen[identity]) return;
+            seen[identity] = true;
+            result.push(byIdentity[identity]);
+        });
+        return result;
+    }
+
+    function rememberPending(item) {
+        if (item && item.task_code) {
+            pendingByCode[String(item.task_code)] = {
+                white_background_batch_id: item.white_background_batch_id,
+                white_background_index: item.white_background_index,
+                white_background_count: item.white_background_count,
+                white_background_merge: Boolean(item.white_background_merge)
+            };
+        }
+        return item;
+    }
+
+    function decorate(item, batchId) {
+        item = Object.assign({}, item || {});
+        var known = item.task_code && pendingByCode[String(item.task_code)];
+        if (known) {
+            Object.keys(known).forEach(function (key) {
+                if (item[key] == null || item[key] === "") item[key] = known[key];
+            });
+        }
+        if (batchId && item.white_background_index != null &&
+            !item.white_background_batch_id) {
+            item.white_background_batch_id = batchId;
+        }
+        item.white_background = true;
+        return rememberPending(item);
+    }
+
+    function createOptimisticTasks(modelId, selectedAssets, aspect, resolution, merge) {
+        var count = selectedAssets.length;
+        var taskCount = merge ? 1 : count;
+        var stamp = Date.now();
+        var batchId = "white-" + stamp + "-" +
+            Math.random().toString(36).slice(2, 8);
+        var modelName = modelSelect.options[modelSelect.selectedIndex]
+            ? modelSelect.options[modelSelect.selectedIndex].text
+            : "图片模型";
+        var skillName = skillSelect.options[skillSelect.selectedIndex]
+            ? skillSelect.options[skillSelect.selectedIndex].text
+            : "精修白底图";
+        return Array.apply(null, Array(taskCount)).map(function (_, index) {
+            var displayIndex = index + 1;
+            var prompt = merge
+                ? "本次提供的 " + count + " 张产品图片制作成" +
+                    gridLabel(count) + "精修白底图"
+                : "精修第 " + displayIndex + " 张产品图片白底图";
+            return rememberPending({
+                id: "local-white-" + stamp + "-" + displayIndex,
+                task_code: "local-white-" + stamp + "-" + displayIndex,
+                media_type: "IMAGE",
+                white_background: true,
+                white_background_batch_id: batchId,
+                white_background_index: displayIndex,
+                white_background_count: count,
+                white_background_merge: Boolean(merge),
+                white_background_asset_ids: merge
+                    ? selectedAssets.map(function (asset) { return asset.id; })
+                    : [selectedAssets[index].id],
+                model_id: modelId,
+                model_name: modelName,
+                skill_id: skillSelect.value || null,
+                skill_name: skillName,
+                prompt: prompt,
+                aspect_ratio: aspect || "auto",
+                resolution: resolution || "1k",
+                target_dimensions: "",
+                target_aspect_ratio: "",
+                status: "PROCESSING",
+                ui_stage: "WAITING",
+                progress: 0,
+                output_assets: [],
+                output_url: "",
+                output_expired: false,
+                error_message: "",
+                created_at: "刚刚"
+            });
+        });
+    }
+
+    function replaceTask(item, batchId) {
+        var next = decorate(item, batchId);
+        var identity = taskIdentity(next);
+        var replaced = false;
+        historyData = historyData.map(function (current) {
+            if (taskIdentity(current) !== identity) return current;
+            replaced = true;
+            return Object.assign({}, current, next, {
+                ui_stage: isActive(next) ? "GENERATING" : ""
+            });
+        });
+        if (!replaced) {
+            next.ui_stage = isActive(next) ? "GENERATING" : "";
+            historyData.unshift(next);
+        }
+        renderFeed(false);
+        return next;
+    }
+
+    function markFailed(batchId, index, errorMessage) {
+        historyData = historyData.map(function (item) {
+            if (String(item.white_background_batch_id) !== String(batchId) ||
+                Number(item.white_background_index) !== Number(index)) {
+                return item;
+            }
+            return Object.assign({}, item, {
+                status: "FAILED",
+                ui_stage: "",
+                progress: 0,
+                error_message: errorMessage || "白底图任务提交失败"
+            });
+        });
+        renderFeed(false);
+    }
+
+    function statusLabel(item) {
+        if (item && item.ui_stage === "WAITING") return "等待结果";
+        if (item && item.ui_stage === "GENERATING") return "生成中";
+        return Studio.statusText(item && item.status);
+    }
+
+    function processingDetail(item) {
+        if (item && item.ui_stage === "WAITING") return "，正在等待接口返回";
+        if (item && item.progress) return "，当前进度 " + item.progress + "%";
+        return "";
+    }
+
+    function usableOutputs(item) {
+        var outputs = (item && item.output_assets || []).filter(function (asset) {
+            return asset.status === "ACTIVE" && asset.public_url;
+        });
+        if (!outputs.length && item && item.output_url) {
+            outputs = [{
+                public_url: item.output_url,
+                download_url: item.output_download_url || "",
+                original_filename: item.output_filename || item.task_code + ".png",
+                content_type: "image/png",
+                status: "ACTIVE"
+            }];
+        }
+        return outputs;
+    }
+
+    function filenameFor(url, taskCode, index) {
+        var path = "";
+        try {
+            path = new URL(url, window.location.href).pathname;
+        } catch (error) {
+            path = String(url || "");
+        }
+        var extension = (path.split(".").pop() || "png")
+            .replace(/[^a-z0-9]/gi, "");
+        if (!extension || extension.length > 8) extension = "png";
+        return (taskCode || "white-background") + "-" + (index || 1) +
+            "." + extension;
+    }
+
+    function renderBindProducts(products, binding) {
+        products = products || [];
+        bindProductSelect.innerHTML = products.length
+            ? '<option value="">请选择产品</option>' + products.map(function (product) {
+                var label = product.name || product.code || "未命名产品";
+                if (product.code && product.name) label += " · " + product.code;
+                return '<option value="' + product.id + '">' +
+                    Studio.escapeHtml(label) + '</option>';
+            }).join("")
+            : '<option value="">暂无可用产品</option>';
+        if (binding && binding.product_id && products.some(function (product) {
+            return String(product.id) === String(binding.product_id);
+        })) {
+            bindProductSelect.value = String(binding.product_id);
+        } else if (products.length === 1) {
+            bindProductSelect.value = String(products[0].id);
+        }
+        if (binding && binding.role &&
+            Array.prototype.some.call(bindRoleSelect.options, function (option) {
+                return option.value === binding.role;
+            })) {
+            bindRoleSelect.value = binding.role;
+        } else {
+            bindRoleSelect.value = "";
+        }
+    }
+
+    function closeBindDialog() {
+        if (!bindOverlay) return;
+        bindOverlay.classList.remove("is-open");
+        bindOverlay.setAttribute("aria-hidden", "true");
+        document.body.classList.remove("studio-composer-open");
+        bindState = null;
+        bindMessage.textContent = "";
+    }
+
+    function openBindDialog(taskId, assetId, binding) {
+        if (!bindOverlay || !canManageProducts) return;
+        bindState = {
+            taskId: taskId,
+            assetId: assetId,
+            binding: binding || null
+        };
+        bindMessage.textContent = "";
+        bindSubmit.disabled = true;
+        bindProductSelect.innerHTML = '<option value="">正在加载产品...</option>';
+        bindOverlay.classList.add("is-open");
+        bindOverlay.setAttribute("aria-hidden", "false");
+        document.body.classList.add("studio-composer-open");
+        Studio.request("/studio/api/products").then(function (result) {
+            if (!bindState) return;
+            renderBindProducts(result.data || [], bindState.binding);
+            bindSubmit.disabled = false;
+            layui.use("form", function () {
+                layui.form.render("select");
+            });
+            bindProductSelect.focus();
+        }).catch(function (error) {
+            bindSubmit.disabled = true;
+            bindMessage.textContent = error.message;
+        });
+    }
+
+    function renderFeed(focusLatest) {
+        var items = historyData.filter(function (item) {
+            return item && item.white_background;
+        });
+        var visible = items.filter(function (item) {
+            return usableOutputs(item).length || item.output_expired ||
+                isActive(item) || item.status === "FAILED";
+        });
+        document.getElementById("whiteBackgroundFeedSummary").textContent =
+            visible.length ? "共 " + visible.length + " 条白底图任务" :
+                "还没有白底图生成记录";
+        var headerStatus = document.getElementById(
+            "whiteBackgroundTaskStatus"
+        );
+        var headerItem = visible[0];
+        if (headerItem) {
+            headerStatus.className = "studio-pill " +
+                Studio.statusClass(headerItem.status);
+            headerStatus.textContent = statusLabel(headerItem);
+        } else {
+            headerStatus.className = "studio-pill gray";
+            headerStatus.textContent = "等待任务";
+        }
+        var feed = document.getElementById("whiteBackgroundFeed");
+        if (!visible.length) {
+            feed.innerHTML = '<div class="studio-feed-empty"><strong>还没有白底图记录</strong>' +
+                '<span>点击“新建白底图”提交任务后，结果会出现在这里。</span></div>';
+            return;
+        }
+        feed.innerHTML = visible.map(renderFeedItem).join("");
+        if (focusLatest) feed.scrollTop = 0;
+    }
+
+    function renderFeedItem(item) {
+        var outputs = usableOutputs(item);
+        var expired = item.output_expired && !outputs.length;
+        var label = statusLabel(item);
+        var taskCode = String(item.id || "").indexOf("local-") === 0
+            ? "NEW" : item.task_code;
+        var count = Number(item.white_background_count || 0);
+        var meta = [];
+        if (item.white_background_merge) {
+            meta.push(count + " 张" + gridLabel(count));
+        } else {
+            meta.push("第" + (item.white_background_index || 1) + " 张");
+        }
+        if (item.target_aspect_ratio || item.aspect_ratio) {
+            meta.push("比例：" + Studio.escapeHtml(
+                item.target_aspect_ratio || item.aspect_ratio
+            ));
+        }
+        if (item.resolution) {
+            meta.push("质量：" + Studio.escapeHtml(
+                String(item.resolution).toUpperCase()
+            ));
+        }
+        if (item.target_dimensions) {
+            meta.push("尺寸：" + Studio.escapeHtml(item.target_dimensions));
+        }
+        if (item.skill_name) {
+            meta.push("Skill：" + Studio.escapeHtml(item.skill_name));
+        }
+        if (item.model_name) {
+            meta.push("模型：" + Studio.escapeHtml(item.model_name));
+        }
+        var media = "";
+        if (outputs.length) {
+            media = '<div class="studio-feed-images">' + outputs.map(function (asset, index) {
+                var url = Studio.escapeHtml(asset.public_url);
+                var downloadUrl = Studio.escapeHtml(asset.download_url || "");
+                var filename = Studio.escapeHtml(
+                    asset.original_filename ||
+                    filenameFor(asset.public_url, item.task_code, index + 1)
+                );
+                return '<div class="studio-feed-image-block">' +
+                    '<button type="button" class="studio-feed-image-button" ' +
+                    'data-action="preview" data-url="' + url +
+                    '" data-task="' + Studio.escapeHtml(item.task_code || "") +
+                    '" data-filename="' + filename + '" data-index="' +
+                    (index + 1) + '" data-download-url="' + downloadUrl + '">' +
+                    '<img class="studio-feed-image" src="' + url +
+                    '" alt="白底图预览"></button>' +
+                    '<div class="studio-feed-image-actions"><span>图片 ' +
+                    (index + 1) + '</span><button type="button" ' +
+                    'class="studio-link-button" data-action="download" ' +
+                    'data-url="' + url + '" data-download-url="' + downloadUrl +
+                    '" data-filename="' + filename + '">下载</button>' +
+                    (canManageProducts && asset.id
+                        ? '<button type="button" class="studio-link-button" ' +
+                          'data-action="bind-output" data-task-id="' + item.id +
+                          '" data-asset-id="' + asset.id + '" data-binding="' +
+                          Studio.escapeHtml(JSON.stringify(asset.product_binding || null)) +
+                          '">' + (asset.product_binding ? "更换绑定" : "绑定到产品中心") +
+                          '</button>'
+                        : "") + '</div>' +
+                    (asset.product_binding
+                        ? '<div class="studio-feed-binding">已绑定：' +
+                          Studio.escapeHtml(
+                              (asset.product_binding.product_name || "产品") +
+                              " · " +
+                              (asset.product_binding.role_label || "其他素材")
+                          ) + '</div>'
+                        : "") +
+                    '</div>';
+            }).join("") + '</div>';
+        } else if (expired) {
+            media = '<div class="studio-feed-expired"><strong>图片已过期</strong>' +
+                '<span>生成资产已按保留策略清理，任务记录仍然保留。</span></div>';
+        } else {
+            media = '<div class="studio-feed-processing"><span class="studio-feed-spinner"></span>' +
+                '<div><strong>' + Studio.escapeHtml(label) + '</strong>' +
+                '<span>任务编号 ' + Studio.escapeHtml(taskCode || "-") +
+                processingDetail(item) + '</span></div></div>';
+        }
+        var deleteAction = canDeleteHistory && Number(item.id) > 0
+            ? '<button type="button" class="studio-link-button studio-history-delete" ' +
+              'data-action="delete-history" data-task-id="' + item.id +
+              '">删除历史</button>'
+            : "";
+        var error = item.error_message
+            ? '<div class="studio-feed-error">' +
+              Studio.escapeHtml(item.error_message) + '</div>' : "";
+        return '<article class="studio-feed-item"><header class="studio-feed-item-header">' +
+            '<div><strong>' + Studio.escapeHtml(taskCode || "-") + '</strong><span>' +
+            Studio.escapeHtml(item.created_at || "") + '</span></div>' +
+            '<div class="studio-feed-item-header-right"><span class="studio-pill ' +
+            Studio.statusClass(item.status) + '">' + Studio.escapeHtml(label) +
+            '</span>' + deleteAction + '</div></header>' + media +
+            '<div class="studio-feed-item-meta">' + meta.join(" · ") + '</div>' +
+            '<div class="studio-feed-prompt">' +
+            Studio.escapeHtml(item.prompt || "") + '</div>' + error + '</article>';
+    }
+
+    function pollTask(taskCode) {
+        var key = String(taskCode || "");
+        if (!key || pollTimers[key]) return;
+        function requestStatus() {
+            Studio.request("/studio/api/tasks/" + encodeURIComponent(key)).then(
+                function (result) {
+                    var item = replaceTask(result.data);
+                    if (isActive(item)) {
+                        pollTimers[key] = window.setTimeout(function () {
+                            delete pollTimers[key];
+                            requestStatus();
+                        }, 5000);
+                    } else {
+                        delete pollTimers[key];
+                        if (item.status === "FAILED") {
+                            Studio.toast(item.error_message || "白底图生成失败", "error");
+                        }
+                    }
+                }
+            ).catch(function (error) {
+                delete pollTimers[key];
+                Studio.toast("白底图任务状态读取失败：" + error.message, "error");
+            });
+        }
+        requestStatus();
+    }
+
+    function updatePagination() {
+        var button = document.getElementById("whiteBackgroundLoadMore");
+        var pageInfo = document.getElementById("whiteBackgroundHistoryPageInfo");
+        button.hidden = !historyHasMore;
+        button.disabled = historyLoading;
+        button.textContent = historyLoading ? "加载中..." : "加载更多历史";
+        pageInfo.textContent = historyData.length ? "已加载第 " + historyPage + " 页" : "";
+    }
+
+    function loadHistory(reset) {
+        if (historyLoading) return Promise.resolve();
+        reset = reset !== false;
+        if (!reset && !historyHasMore) return Promise.resolve();
+        var page = reset ? 1 : historyPage + 1;
+        historyLoading = true;
+        updatePagination();
+        return Studio.request(
+            "/studio/api/history?media_type=IMAGE&workflow_type=WHITE_BACKGROUND" +
+            "&page=" + page + "&page_size=20"
+        ).then(function (result) {
+            var items = (result.data || []).map(function (item) {
+                return decorate(item);
+            }).filter(function (item) {
+                return item.white_background;
+            });
+            var localItems = historyData.filter(function (item) {
+                return String(item.id || "").indexOf("local-") === 0;
+            });
+            historyData = reset
+                ? mergeHistory(items, localItems)
+                : mergeHistory(items, historyData);
+            historyPage = page;
+            historyHasMore = Boolean(result.meta && result.meta.has_more);
+            renderFeed(false);
+            updatePagination();
+            historyData.forEach(function (item) {
+                if (isActive(item) && item.task_code &&
+                    String(item.id || "").indexOf("local-") !== 0) {
+                    pollTask(item.task_code);
+                }
+            });
+        }).catch(function (error) {
+            Studio.toast("白底图历史加载失败：" + error.message, "error");
+            throw error;
+        }).then(function (result) {
+            historyLoading = false;
+            updatePagination();
+            return result;
+        }, function (error) {
+            historyLoading = false;
+            updatePagination();
+            throw error;
+        });
+    }
+
+    function fitViewerImage() {
+        var stage = viewerImage.parentElement;
+        if (!stage || !viewerImage.naturalWidth || !viewerImage.naturalHeight) return;
+        var style = (viewerDocument.defaultView || window).getComputedStyle(stage);
+        var width = Math.max(1, stage.clientWidth -
+            parseFloat(style.paddingLeft || 0) -
+            parseFloat(style.paddingRight || 0));
+        var height = Math.max(1, stage.clientHeight -
+            parseFloat(style.paddingTop || 0) -
+            parseFloat(style.paddingBottom || 0));
+        var scale = Math.min(width / viewerImage.naturalWidth,
+            height / viewerImage.naturalHeight);
+        viewerImage.style.maxWidth = "none";
+        viewerImage.style.maxHeight = "none";
+        viewerImage.style.width = Math.max(1,
+            Math.floor(viewerImage.naturalWidth * scale)) + "px";
+        viewerImage.style.height = Math.max(1,
+            Math.floor(viewerImage.naturalHeight * scale)) + "px";
+    }
+
+    function mountViewer() {
+        try {
+            var topDocument = window.top.document;
+            if (topDocument !== document) {
+                var stylesheet = topDocument.getElementById("commerceStudioViewerStyles");
+                if (!stylesheet) {
+                    stylesheet = topDocument.createElement("link");
+                    stylesheet.id = "commerceStudioViewerStyles";
+                    stylesheet.rel = "stylesheet";
+                    stylesheet.href = "{{ url_for('static', filename='studio/studio.css') }}";
+                    topDocument.head.appendChild(stylesheet);
+                }
+                if (viewer.parentNode !== topDocument.body) {
+                    topDocument.body.appendChild(viewer);
+                }
+                viewerDocument = topDocument;
+            }
+        } catch (error) {
+            viewerDocument = document;
+        }
+        if (!viewerResizeBound && viewerDocument.defaultView) {
+            viewerDocument.defaultView.addEventListener("resize", fitViewerImage);
+            viewerResizeBound = true;
+        }
+    }
+
+    function viewerEntries() {
+        var entries = [];
+        historyData.forEach(function (item) {
+            usableOutputs(item).forEach(function (asset, index) {
+                entries.push({
+                    url: asset.public_url,
+                    downloadUrl: asset.download_url || "",
+                    filename: asset.original_filename ||
+                        filenameFor(asset.public_url, item.task_code, index + 1),
+                    task: item.task_code || "",
+                    title: item.white_background_merge
+                        ? gridLabel(item.white_background_count)
+                        : "精修白底图第" + (item.white_background_index || 1) + "张",
+                    meta: (item.target_dimensions || "") +
+                        (item.resolution ? " · " + String(item.resolution).toUpperCase() : "")
+                });
+            });
+        });
+        return entries;
+    }
+
+    function renderViewerHistory(entries, activeIndex) {
+        viewerHistory.innerHTML = entries.map(function (entry, index) {
+            return '<button type="button" class="studio-image-viewer-thumb ' +
+                (index === activeIndex ? "is-active" : "") +
+                '" data-white-viewer-index="' + index + '" title="' +
+                Studio.escapeHtml(entry.title) + '">' +
+                '<img src="' + Studio.escapeHtml(entry.url) +
+                '" alt="' + Studio.escapeHtml(entry.title) + '"></button>';
+        }).join("");
+    }
+
+    function displayViewerEntry(entry, index) {
+        if (!entry) return;
+        viewerState = {entry: entry, index: index};
+        viewerImage.src = entry.url;
+        viewerTitle.textContent = entry.title || "白底图";
+        viewerMeta.textContent = entry.meta || "";
+        viewerDownload.dataset.url = entry.url;
+        viewerDownload.dataset.downloadUrl = entry.downloadUrl || "";
+        viewerDownload.dataset.filename = entry.filename || "white-background.png";
+        renderViewerHistory(viewerEntries(), index);
+        viewer.classList.add("is-open");
+        viewer.setAttribute("aria-hidden", "false");
+        viewerDocument.documentElement.classList.add("studio-viewer-open");
+        viewerDocument.body.classList.add("studio-viewer-open");
+        viewerImage.onload = fitViewerImage;
+        window.setTimeout(fitViewerImage, 0);
+    }
+
+    function closeViewer() {
+        viewer.classList.remove("is-open");
+        viewer.setAttribute("aria-hidden", "true");
+        viewerImage.src = "";
+        viewerDocument.documentElement.classList.remove("studio-viewer-open");
+        viewerDocument.body.classList.remove("studio-viewer-open");
+        viewerState = null;
+    }
+
+    function openViewer(url, task, filename, index, downloadUrl) {
+        var entries = viewerEntries();
+        var entryIndex = entries.findIndex(function (entry) {
+            return entry.url === url && entry.task === task;
+        });
+        if (entryIndex < 0) entryIndex = Math.max(0, Number(index || 1) - 1);
+        displayViewerEntry(entries[entryIndex] || {
+            url: url,
+            task: task,
+            filename: filename,
+            downloadUrl: downloadUrl,
+            title: "白底图"
+        }, entryIndex);
+    }
+
+    function downloadImage(url, filename, downloadUrl) {
+        var finalName = filename || filenameFor(url, "white-background", 1);
+        var target = downloadUrl || url;
+        if (!downloadUrl) {
+            try {
+                var parsed = new URL(target, window.location.href);
+                parsed.searchParams.set("download", "1");
+                parsed.searchParams.set("name", finalName);
+                target = parsed.toString();
+            } catch (error) {
+                target += (target.indexOf("?") === -1 ? "?" : "&") +
+                    "download=1&name=" + encodeURIComponent(finalName);
+            }
+        }
+        fetch(target, {credentials: "omit"}).then(function (response) {
+            if (!response.ok) throw new Error("图片下载失败");
+            return response.blob();
+        }).then(function (blob) {
+            var objectUrl = URL.createObjectURL(blob);
+            var link = document.createElement("a");
+            link.href = objectUrl;
+            link.download = finalName;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.setTimeout(function () { URL.revokeObjectURL(objectUrl); }, 1000);
+        }).catch(function () {
+            window.open(target, "_blank", "noopener");
+        });
+    }
+
+    function resetFormState() {
+        assets = [];
+        mergeInput.checked = false;
+        renderFiles();
+        message.textContent = "";
+    }
+
+    document.getElementById("newWhiteBackgroundButton").addEventListener(
+        "click", openComposer
+    );
+    document.getElementById("whiteBackgroundClose").addEventListener(
+        "click", closeComposer
+    );
+    document.getElementById("whiteBackgroundCancel").addEventListener(
+        "click", closeComposer
+    );
+    overlay.querySelectorAll("[data-white-background-close]").forEach(function (node) {
+        node.addEventListener("click", closeComposer);
+    });
+    if (bindOverlay) {
+        document.getElementById("whiteBackgroundBindClose").addEventListener(
+            "click", closeBindDialog
+        );
+        document.getElementById("whiteBackgroundBindCancel").addEventListener(
+            "click", closeBindDialog
+        );
+        bindOverlay.querySelectorAll("[data-white-bind-close]").forEach(
+            function (node) {
+                node.addEventListener("click", closeBindDialog);
+            }
+        );
+        bindForm.addEventListener("submit", function (event) {
+            event.preventDefault();
+            if (!bindState) return;
+            var productId = bindProductSelect.value;
+            var role = bindRoleSelect.value;
+            if (!productId || !role) {
+                bindMessage.textContent = "请选择产品和产品图片位置";
+                return;
+            }
+            bindSubmit.disabled = true;
+            bindSubmit.textContent = "绑定中...";
+            Studio.request("/studio/api/white-background/bind", {
+                method: "POST",
+                body: JSON.stringify({
+                    task_id: bindState.taskId,
+                    asset_id: bindState.assetId,
+                    product_id: productId,
+                    role: role
+                })
+            }).then(function (result) {
+                closeBindDialog();
+                bindSubmit.disabled = false;
+                bindSubmit.textContent = "确认绑定";
+                return loadHistory(true).then(function () {
+                    Studio.toast(result.msg || "已绑定到产品中心");
+                });
+            }).catch(function (error) {
+                bindSubmit.disabled = false;
+                bindSubmit.textContent = "确认绑定";
+                bindMessage.textContent = error.message;
+            });
+        });
+    }
+    document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape" && overlay.classList.contains("is-open")) {
+            closeComposer();
+        }
+        if (event.key === "Escape" && bindOverlay &&
+            bindOverlay.classList.contains("is-open")) {
+            closeBindDialog();
+        }
+        if (event.key === "Escape" && viewer.classList.contains("is-open")) {
+            closeViewer();
+        }
+    });
+    modelSelect.addEventListener("change", function () {
+        renderConstraints();
+        renderSkills();
+    });
+    filesInput.addEventListener("change", function (event) {
+        uploadFiles(event.target.files);
+        event.target.value = "";
+    });
+    var dropzone = document.querySelector('[data-file-dropzone="whiteBackgroundFiles"]');
+    if (dropzone) {
+        var dragDepth = 0;
+        function clearDragging() {
+            dragDepth = 0;
+            dropzone.classList.remove("is-dragging");
+        }
+        dropzone.addEventListener("dragenter", function (event) {
+            event.preventDefault();
+            dragDepth += 1;
+            dropzone.classList.add("is-dragging");
+        });
+        dropzone.addEventListener("dragover", function (event) {
+            event.preventDefault();
+            dropzone.classList.add("is-dragging");
+        });
+        dropzone.addEventListener("dragleave", function (event) {
+            event.preventDefault();
+            dragDepth = Math.max(0, dragDepth - 1);
+            if (!dragDepth) dropzone.classList.remove("is-dragging");
+        });
+        dropzone.addEventListener("drop", function (event) {
+            event.preventDefault();
+            clearDragging();
+            uploadFiles(event.dataTransfer && event.dataTransfer.files);
+        });
+    }
+    mergeInput.addEventListener("change", updateMergeState);
+    fileList.addEventListener("click", function (event) {
+        var target = event.target.closest("[data-action='remove-file']");
+        if (!target) return;
+        assets.splice(Number(target.dataset.index), 1);
+        renderFiles();
+    });
+    form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        var modelId = modelSelect.value;
+        var merge = Boolean(mergeInput.checked);
+        var aspect = aspectSelect.value || "auto";
+        var resolution = resolutionSelect.value || "1k";
+        if (!assets.length) {
+            message.textContent = "请先上传至少一张产品图片";
+            return;
+        }
+        if (!modelId) {
+            message.textContent = "请选择图片模型";
+            return;
+        }
+        if (!skillSelect.value) {
+            message.textContent = "请先同步并选择可用的图片 Skill";
+            return;
+        }
+        if (merge && (assets.length < 2 || assets.length > 9)) {
+            message.textContent = "合并宫格图仅支持上传 2 至 9 张图片";
+            return;
+        }
+        var selectedAssets = assets.slice();
+        var optimistic = createOptimisticTasks(
+            modelId, selectedAssets, aspect, resolution, merge
+        );
+        var batchId = optimistic.length
+            ? optimistic[0].white_background_batch_id : "";
+        historyData = mergeHistory(optimistic, historyData);
+        renderFeed(true);
+        submitButton.disabled = true;
+        closeComposer();
+        Studio.request("/studio/api/image/white-background", {
+            method: "POST",
+            body: JSON.stringify({
+                model_id: modelId,
+                reference_asset_ids: selectedAssets.map(function (asset) {
+                    return asset.id;
+                }),
+                skill_id: skillSelect.value,
+                aspect_ratio: aspect,
+                resolution: resolution,
+                merge: merge,
+                client_batch_id: batchId
+            })
+        }).then(function (result) {
+            var data = result.data || {};
+            var resolved = {};
+            (data.tasks || []).forEach(function (item) {
+                var next = replaceTask(item, batchId);
+                resolved[String(next.white_background_index)] = true;
+                if (isActive(next) && next.task_code) pollTask(next.task_code);
+            });
+            (data.failures || []).forEach(function (failure) {
+                var index = failure.index;
+                resolved[String(index)] = true;
+                markFailed(batchId, index, failure.error);
+            });
+            optimistic.forEach(function (item) {
+                var index = item.white_background_index;
+                if (!resolved[String(index)]) {
+                    markFailed(batchId, index, "接口未返回该白底图任务结果");
+                }
+            });
+            resetFormState();
+            Studio.toast(result.msg || "白底图任务已提交", data.failed ? "error" : "");
+            return loadHistory(true).catch(function (error) {
+                Studio.toast("白底图历史刷新失败：" + error.message, "error");
+            });
+        }).catch(function (error) {
+            optimistic.forEach(function (item) {
+                markFailed(batchId, item.white_background_index, error.message);
+            });
+            Studio.toast(error.message, "error");
+        }).then(function () {
+            submitButton.disabled = false;
+        });
+    });
+    document.getElementById("whiteBackgroundRefresh").addEventListener(
+        "click", function () { loadHistory(true); }
+    );
+    document.getElementById("whiteBackgroundLoadMore").addEventListener(
+        "click", function () { loadHistory(false); }
+    );
+    document.getElementById("whiteBackgroundFeed").addEventListener(
+        "click", function (event) {
+            var target = event.target.closest("[data-action]");
+            if (!target) return;
+            if (target.dataset.action === "preview") {
+                openViewer(
+                    target.dataset.url,
+                    target.dataset.task,
+                    target.dataset.filename,
+                    target.dataset.index,
+                    target.dataset.downloadUrl
+                );
+            } else if (target.dataset.action === "download") {
+                event.preventDefault();
+                event.stopPropagation();
+                downloadImage(
+                    target.dataset.url,
+                    target.dataset.filename,
+                    target.dataset.downloadUrl
+                );
+            } else if (target.dataset.action === "bind-output") {
+                event.preventDefault();
+                event.stopPropagation();
+                var binding = null;
+                try {
+                    binding = target.dataset.binding
+                        ? JSON.parse(target.dataset.binding)
+                        : null;
+                } catch (error) {
+                    binding = null;
+                }
+                openBindDialog(
+                    target.dataset.taskId,
+                    target.dataset.assetId,
+                    binding
+                );
+            } else if (target.dataset.action === "delete-history") {
+                if (!canDeleteHistory || !window.confirm(
+                    "确定删除这条白底图历史吗？已绑定到产品中心的图片会保留，未绑定图片会从 GoFastDFS 删除。"
+                )) return;
+                target.disabled = true;
+                target.textContent = "删除中...";
+                Studio.request("/studio/api/history/" +
+                    encodeURIComponent(target.dataset.taskId), {
+                        method: "DELETE"
+                    }).then(function () {
+                        historyData = historyData.filter(function (item) {
+                            return String(item.id) !== String(target.dataset.taskId);
+                        });
+                        renderFeed(false);
+                        Studio.toast("历史任务已删除");
+                    }).catch(function (error) {
+                        target.disabled = false;
+                        target.textContent = "删除历史";
+                        Studio.toast(error.message, "error");
+                    });
+            }
+        }
+    );
+    viewerHistory.addEventListener("click", function (event) {
+        var target = event.target.closest("[data-white-viewer-index]");
+        if (!target) return;
+        var entries = viewerEntries();
+        displayViewerEntry(entries[Number(target.dataset.whiteViewerIndex)],
+            Number(target.dataset.whiteViewerIndex));
+    });
+    document.getElementById("whiteBackgroundViewerClose").addEventListener(
+        "click", closeViewer
+    );
+    viewer.addEventListener("click", function (event) {
+        if (event.target.dataset.whiteViewerClose) closeViewer();
+    });
+    viewerDownload.addEventListener("click", function () {
+        if (viewerState) {
+            downloadImage(
+                viewerState.entry.url,
+                viewerState.entry.filename,
+                viewerState.entry.downloadUrl
+            );
+        }
+    });
+    viewerImage.addEventListener("load", fitViewerImage);
+    modelSelect.innerHTML = '<option value="">正在加载图片模型...</option>';
+    Studio.request("/studio/api/options?media_type=IMAGE").then(function (result) {
+        modelData = result.data.models || [];
+        skillData = result.data.skills || [];
+        renderModels();
+        renderFiles();
+        return loadHistory(true);
+    }).catch(function (error) {
+        document.getElementById("whiteBackgroundFeedSummary").textContent =
+            "白底图记录加载失败";
+        Studio.toast(error.message, "error");
+    });
+    mountViewer();
+});
+</script>
+{% endblock %}
